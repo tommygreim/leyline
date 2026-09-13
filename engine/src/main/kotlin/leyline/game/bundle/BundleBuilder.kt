@@ -314,9 +314,9 @@ class BundleBuilder(
         )
     }
 
-    internal fun pendingSubmittedTargets(): PendingSubmittedTargets? = bridge.viewerProjectionCursor().pendingSubmittedTargets
+    internal fun pendingSubmittedTargets(): PendingSubmittedTargets? = bridge.viewerProjectionCursor(SeatId(seatId)).pendingSubmittedTargets
 
-    internal fun previousProjectionSnapshot(): GsmSnapshot? = bridge.viewerProjectionCursor().previousSnapshot
+    internal fun previousProjectionSnapshot(): GsmSnapshot? = bridge.viewerProjectionCursor(SeatId(seatId)).previousSnapshot
 
     internal fun preparePostAction(
         game: Game,
@@ -561,6 +561,13 @@ class BundleBuilder(
                 counter,
                 routes,
                 intent,
+                intentForViewer = { viewer ->
+                    if (viewer.seatId.value == seatId) {
+                        intent
+                    } else {
+                        ViewerProjectionIntent.of(listOfNotNull(ProjectionSupplement.PhaseTransition.takeIf { phaseTransition }))
+                    }
+                },
                 requirePlayer = false,
                 updateType = ::resolveFrameUpdateType,
             )
@@ -766,7 +773,7 @@ class BundleBuilder(
                     StateProjectionCompiler.ViewerInput(
                         input = state,
                         intent = frame.intent,
-                        actions = cut.actions.takeIf { viewer.role == ProjectionViewerRole.Player },
+                        actions = cut.actions.takeIf { viewer.role == ProjectionViewerRole.Player && viewer.seatId.value == seatId },
                         decisionPending = false,
                         role = viewer.role,
                     )
@@ -1538,7 +1545,7 @@ class BundleBuilder(
         window: SearchWindowValue,
         routes: List<ViewerRoute>,
     ): PreparedViewerCut<SettledPromptMaterialization> {
-        val pendingSubmittedTargets = bridge.viewerProjectionCursor().pendingSubmittedTargets
+        val pendingSubmittedTargets = bridge.viewerProjectionCursor(SeatId(seatId)).pendingSubmittedTargets
         val supplements =
             buildList {
                 pendingSubmittedTargets?.let {
@@ -1554,6 +1561,11 @@ class BundleBuilder(
                 counter,
                 routes,
                 intent = ViewerProjectionIntent.of(supplements),
+                intentForViewer = { viewer ->
+                    ViewerProjectionIntent.of(
+                        supplements.filterNot { it is ProjectionSupplement.SubmitPendingTargets && viewer.seatId.value != seatId },
+                    )
+                },
                 revealPlayerCards = true,
                 updateType = { snap, events -> resolveFrameUpdateType(snap, events) },
             )

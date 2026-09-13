@@ -18,8 +18,13 @@ data class RuntimeMatchConfig(
     /** Inline challenge definition, resolved before the match loading seam. */
     val puzzleDefinition: PuzzleDefinition? = null,
     val spectatorMode: Boolean? = null,
+    /** Both seats are independently controlled by players. */
+    val humanVsHuman: Boolean = false,
 ) {
     init {
+        require(!humanVsHuman || (seat1 != null && seat2 != null && spectatorMode != true && puzzle == null && puzzleDefinition == null)) {
+            "Two-human matches require both decks and cannot be puzzles or spectator games"
+        }
         require(puzzle == null || puzzleDefinition == null) { "puzzle and puzzleDefinition are mutually exclusive" }
         val identity = puzzle?.trim()?.removeSuffix(".pzl")
         require(

@@ -5,6 +5,7 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.longs.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.string.shouldContain
 import io.ktor.client.request.*
 import io.ktor.client.request.forms.*
@@ -28,10 +29,11 @@ private fun Application.testModule(
     store: AccountStore,
     tokens: TokenService,
     cachedManifests: String? = null,
+    allowPasswordGrant: Boolean = false,
 ) {
     install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
     routing {
-        accountRoutes(store, tokens, "localhost:30010", cachedManifests)
+        accountRoutes(store, tokens, "localhost:30010", cachedManifests, allowPasswordGrant)
     }
 }
 
@@ -42,6 +44,7 @@ class AccountRoutesTest :
 
         fun testAppWithManifests(
             cachedManifests: String?,
+            allowPasswordGrant: Boolean = true,
             block: suspend ApplicationTestBuilder.() -> Unit,
         ) {
             val dbFile =
@@ -57,13 +60,13 @@ class AccountRoutesTest :
             store.create("existing@test.com", "password123", "Existing")
 
             testApplication {
-                application { testModule(store, tokens, cachedManifests) }
+                application { testModule(store, tokens, cachedManifests, allowPasswordGrant) }
                 block()
             }
         }
 
         fun testApp(block: suspend ApplicationTestBuilder.() -> Unit) {
-            testAppWithManifests(null, block)
+            testAppWithManifests(null, block = block)
         }
 
         suspend fun ApplicationTestBuilder.postToken(vararg fields: Pair<String, String>): HttpResponse =
@@ -74,6 +77,94 @@ class AccountRoutesTest :
                         fields.forEach { (name, value) -> append(name, value) }
                     },
             )
+
+        test("local profiles use unique identities and durable refresh login without passwords") {
+            testApp {
+                suspend fun create() =
+                    client.post("/local/profiles") {
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"displayName":"Alice"}""")
+                    }
+                val first = create()
+                first.status shouldBe HttpStatusCode.Created
+                val profile = Json.parseToJsonElement(first.bodyAsText()).jsonObject
+                val second = Json.parseToJsonElement(create().bodyAsText()).jsonObject
+                profile["persona_id"] shouldNotBe second["persona_id"]
+                val credential = profile["refresh_token"]!!.jsonPrimitive.content
+                val login = postToken("grant_type" to "refresh_token", "refresh_token" to credential)
+                login.status shouldBe HttpStatusCode.OK
+                val tokens = Json.parseToJsonElement(login.bodyAsText()).jsonObject
+                tokens["persona_id"] shouldBe profile["persona_id"]
+                tokens["refresh_token"] shouldBe profile["refresh_token"]
+                profile["display_name"]!!.jsonPrimitive.content shouldContain "Alice#"
+            }
+        }
+
+        test("password login is disabled unless the host explicitly enables it") {
+            testAppWithManifests(null, allowPasswordGrant = false) {
+                val denied = postToken("grant_type" to "password", "username" to "existing@test.com", "password" to "password123")
+                denied.status shouldBe HttpStatusCode.Forbidden
+                val created =
+                    client.post("/local/profiles") {
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"displayName":"Local"}""")
+                    }
+                created.status shouldBe HttpStatusCode.Created
+                val credential =
+                    Json
+                        .parseToJsonElement(created.bodyAsText())
+                        .jsonObject["refresh_token"]!!
+                        .jsonPrimitive.content
+                postToken("grant_type" to "refresh_token", "refresh_token" to credential).status shouldBe HttpStatusCode.OK
+            }
+        }
+
+        test("profile rename requires its refresh credential and preserves identity") {
+            testApp {
+                val created =
+                    client.post("/local/profiles") {
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"displayName":"Alice"}""")
+                    }
+                val profile = Json.parseToJsonElement(created.bodyAsText()).jsonObject
+                val credential = profile["refresh_token"]!!.jsonPrimitive.content
+                val renamed =
+                    client.post("/local/profile") {
+                        bearerAuth(credential)
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"displayName":"Renamed"}""")
+                    }
+                renamed.status shouldBe HttpStatusCode.OK
+                val body = Json.parseToJsonElement(renamed.bodyAsText()).jsonObject
+                body["persona_id"] shouldBe profile["persona_id"]
+                body["refresh_token"] shouldBe profile["refresh_token"]
+                body["display_name"]!!.jsonPrimitive.content shouldContain "Renamed#"
+                val unauthorized =
+                    client.post("/local/profile") {
+                        bearerAuth("invalid")
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"displayName":"Intruder"}""")
+                    }
+                unauthorized.status shouldBe HttpStatusCode.Unauthorized
+            }
+        }
+
+        test("profile provision rejects invalid names and leaves existing account intact") {
+            testApp {
+                val invalid =
+                    client.post("/local/profiles") {
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"displayName":" "}""")
+                    }
+                invalid.status shouldBe HttpStatusCode.BadRequest
+                val login = postToken("grant_type" to "password", "username" to "existing@test.com", "password" to "password123")
+                login.status shouldBe HttpStatusCode.OK
+                Json
+                    .parseToJsonElement(login.bodyAsText())
+                    .jsonObject["display_name"]!!
+                    .jsonPrimitive.content shouldContain "Existing#"
+            }
+        }
 
         test("login with valid credentials returns 200 + tokens") {
             testApp {

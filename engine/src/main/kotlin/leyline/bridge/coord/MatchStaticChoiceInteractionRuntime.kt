@@ -18,6 +18,7 @@ import java.util.concurrent.CompletableFuture
 internal class MatchStaticChoiceInteractionRuntime(
     private val owner: MatchCutCoordinator,
     settled: SettledPromptOwner,
+    private val runtimeSeat: leyline.bridge.types.SeatId = owner.humanSeat,
 ) : StaticChoiceInteractionRuntime {
     private data class Window(
         val published: PublishedStaticChoiceInteraction,
@@ -82,7 +83,7 @@ internal class MatchStaticChoiceInteractionRuntime(
                             game ?: owner.fail(IllegalStateException("Game unavailable")),
                             planner,
                             initial,
-                            owner.viewerRoutes(),
+                            owner.viewerRoutes(runtimeSeat),
                         )
                     } catch (ex: Exception) {
                         owner.failPrompt(ex, diagnostic = diagnostic)
@@ -121,12 +122,12 @@ internal class MatchStaticChoiceInteractionRuntime(
         val source = pending.value.sourceForgeCardId ?: return
         selectedValues.forEach { value ->
             owner.bridge
-                .seat(owner.humanSeat)
+                .seat(runtimeSeat)
                 .prompt.journal
                 .record(
                     PromptSideEffect.ChoiceResult(
                         sourceForgeCardId = source,
-                        chooserSeatId = owner.humanSeat,
+                        chooserSeatId = runtimeSeat,
                         choiceValue = value,
                         choiceDomain = pending.value.kind.choiceDomain(),
                         sentiment = 2,

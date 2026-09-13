@@ -122,6 +122,25 @@ class GameBridge(
 
     /** Match-scoped owner of mutable priority policy and client settings. */
     val priorityPolicy = PriorityPolicyRuntime(matchId = matchId)
+    private val seatPriorityPolicies = mutableMapOf<SeatId, PriorityPolicyRuntime>()
+
+    fun priorityPolicy(seatId: SeatId): PriorityPolicyRuntime = seatPriorityPolicies[seatId] ?: priorityPolicy
+
+    var humanVsHuman: Boolean = false
+        private set
+    private val playersReady = java.util.concurrent.CountDownLatch(1)
+    private val terminalSeats =
+        java.util.concurrent.ConcurrentHashMap
+            .newKeySet<SeatId>()
+
+    fun markHumanTerminalDelivered(seatId: SeatId): Boolean {
+        terminalSeats.add(seatId)
+        return terminalSeats.size == 2
+    }
+
+    fun releaseHumanStartup() = playersReady.countDown()
+
+    fun isInteractiveSeat(seatId: SeatId): Boolean = humanVsHuman || seatId == seating.humanSeat
 
     /** Puzzle application uses inert choices before journal/feed ownership starts. */
     private val setupBlockingInteractionRuntime =
@@ -411,7 +430,7 @@ class GameBridge(
             }
         mulliganBridges[seatId.value] =
             MulliganBridge(
-                autoKeep = engineSettings.skipMulligan,
+                autoKeep = engineSettings.skipMulligan && !humanVsHuman,
                 timeoutMs = engineSettings.mulliganWaitMs,
             )
     }
@@ -520,7 +539,7 @@ class GameBridge(
     internal fun gameLoopControllerForTest(): GameLoopController? = loopController
 
     internal fun acknowledgePlaybackFrame(seatId: SeatId) {
-        playbackFor(seatId)?.onFrameCommitted()
+        playbackFor(if (humanVsHuman) SeatId(1) else seatId)?.onFrameCommitted()
     }
 
     @VisibleForTesting
@@ -553,7 +572,7 @@ class GameBridge(
         seatId: SeatId,
         captureLocalActions: Boolean,
     ) {
-        promptBridge(seatId).runtimeBindings = cutCoordinator.prompts.bindings(seatId)
+        promptBridge(seatId).runtimeBindings = cutCoordinator.promptRuntimes(seatId).bindings(seatId)
         val collector = GameEventCollector(this)
         eventCollector = collector
         game.subscribeToEvents(collector)
@@ -715,7 +734,7 @@ class GameBridge(
                     PromptProjectionFacts.RevealFact(
                         PromptFactKey(seatId, entry.version),
                         RevealStarted(entry.reveal.allHandCardIds.toList(), entry.reveal.ownerSeatId),
-                        cutCoordinator.prompts.hasRevealProjectionPrompt(),
+                        cutCoordinator.allPromptRuntimes().any { it.hasRevealProjectionPrompt() },
                     )
             }
             convokePayments +=
@@ -1127,6 +1146,74 @@ class GameBridge(
         }
     }
 
+    /** One rules engine with independent interactive state for each of the two players. */
+    fun startHumanVsHuman(
+        seed: Long? = null,
+        deck1: DeckSource,
+        deck2: DeckSource,
+        variant: String? = null,
+    ) {
+        humanVsHuman = true
+        GameBootstrap.initializeCardDatabase()
+        seedRandom(seed)
+        val seats = listOf(SeatId(1), SeatId(2))
+        seats.forEach(::configureInteractiveSeat)
+        val g =
+            GameBootstrap.createHumanVsHumanGame(
+                DeckLoader.load(deck1, cardRepository::findNameByGrpId),
+                DeckLoader.load(deck2, cardRepository::findNameByGrpId),
+                variant,
+            )
+        game = g
+        populateSeatMap(g)
+        seats.forEach { seat ->
+            val player = checkNotNull(getPlayer(seat))
+            val other = checkNotNull(getPlayer(SeatId(if (seat.value == 1) 2 else 1)))
+            val policy = PriorityPolicyRuntime(matchId).also { it.installPhaseStops(player.id, other.id) }
+            seatPriorityPolicies[seat] = policy
+            val controller =
+                BridgedPlayerController(
+                    game = g,
+                    player = player,
+                    lobbyPlayer = player.lobbyPlayer,
+                    bridge = promptBridge(seat),
+                    seating = seating,
+                    actionBridge = actionBridge(seat),
+                    mulliganBridge = mulliganBridge(seat),
+                    priorityPolicy = policy,
+                    runtimeHorizonMode = runtimeHorizonMode,
+                    interactionRuntime = cutCoordinator.promptRuntimes(seat).blocking,
+                )
+            player.addController(Long.MAX_VALUE - 1, player, controller, false)
+            if (seat.value == 1) humanController = controller
+            promptBridge(seat).runtimeBindings = cutCoordinator.promptRuntimes(seat).bindings(seat)
+            mulliganBridge(seat).onPrompt = { prompt ->
+                playersReady.await()
+                cutCoordinator.lifecycle.publishHumanMulliganPrompt(seat, prompt)
+            }
+        }
+        cutCoordinator.registerViewers(seats.map { ProjectionViewer(it, ProjectionViewerRole.Player) })
+        // One collector and playback journal own the shared Forge event stream.
+        registerPlaybackPipeline(g, SeatId(1), captureLocalActions = false)
+        val loop =
+            GameLoopController(
+                g,
+                actionBridges.values.toList(),
+                promptBridges.values.toList(),
+                mulliganBridges.values.toList(),
+                prioritySignal,
+            )
+        loopController = loop
+        loop.start()
+        loop.awaitStarted()
+        val deadline = System.currentTimeMillis() + engineSettings.mulliganWaitMs
+        while (seats.none { mulliganBridge(it).pendingPrompt() != null }) {
+            loop.throwIfFailed()
+            check(System.currentTimeMillis() < deadline) { "Two-player game did not reach its initial mulligan" }
+            Thread.sleep(POLL_INTERVAL_MS)
+        }
+    }
+
     /**
      * Initialize a native Forge AI-vs-AI game for spectator mode.
      *
@@ -1353,7 +1440,21 @@ class GameBridge(
         g.players.forEachIndexed { index, player -> players[index + 1] = player }
         val humanIdx = g.players.indexOfFirst { it.lobbyPlayer !is LobbyPlayerAi }.takeIf { it >= 0 } ?: 0
         val humanSeat = SeatId(humanIdx + 1)
-        seating = Seating(humanSeat = humanSeat, familiarSeat = SeatId(if (humanSeat.value == 1) 2 else 1))
+        seating =
+            Seating(
+                humanSeat = humanSeat,
+                familiarSeat =
+                    SeatId(
+                        if (humanSeat.value ==
+                            1
+                        ) {
+                            2
+                        } else {
+                            1
+                        },
+                    ),
+                playerSeats = players.map { (seat, player) -> player.id to SeatId(seat) }.toMap(),
+            )
         log.info("GameBridge: seating resolved human={} familiar={}", seating.humanSeat.value, seating.familiarSeat.value)
     }
 
@@ -1399,6 +1500,7 @@ class GameBridge(
             val g = game
             if (g != null && g.isGameOver) return false
             val pending = actionBridge.getPending()
+            if (humanVsHuman && cutCoordinator.hasCommittedBatches(seatId)) return true
             if ((pending != null && pending.actionId != ignoredActionId) || hasPendingNonActionInteraction()) return true
             val remaining = deadline - System.currentTimeMillis()
             if (remaining <= 0) return false
@@ -1410,7 +1512,7 @@ class GameBridge(
      * Block until the engine reaches a priority stop, an interactive prompt
      * is pending, or the game ends.
      *
-     * Uses [PrioritySignal] (semaphore-based) instead of polling — both
+     * Uses [PrioritySignal] (generation broadcast) instead of polling — both
      * [GameActionBridge] and [InteractivePromptBridge] signal when they post
      * a pending item, so we wake up immediately with no 50ms poll latency.
      *
@@ -1455,25 +1557,25 @@ class GameBridge(
         actionBridges.values.any { it.getPending() != null } ||
             hasPendingNonActionInteraction()
 
-    fun hasPendingNonActionInteraction(): Boolean = cutCoordinator.prompts.hasPendingInteraction()
+    fun hasPendingNonActionInteraction(): Boolean = cutCoordinator.allPromptRuntimes().any { it.hasPendingInteraction() }
 
     /** Current typed one-shot PayCosts window for harness policy inspection. */
-    fun currentOneShotPayCostsInteraction(): PublishedOneShotPayCostsInteraction? = cutCoordinator.prompts.currentOneShotPayCosts()
+    fun currentOneShotPayCostsInteraction(): PublishedOneShotPayCostsInteraction? =
+        cutCoordinator.allPromptRuntimes().firstNotNullOfOrNull {
+            it.currentOneShotPayCosts()
+        }
 
     /** Exact targeting ability retained by the active coordinator window. */
     internal fun currentTargetingAbility(): SpellAbility? = cutCoordinator.targeting.aiContext()
 
-    /** Submit keep decision for seat. Only the human seat's decision is wired today. */
-    // TODO: wire mulliganBridge for familiarSeat to support paired mulligan flow
+    /** Submit keep only to a seat with an interactive controller. */
     fun submitKeep(seatId: SeatId): Boolean {
         log.info("GameBridge: seat {} keeps hand", seatId.value)
-        if (seatId != seating.humanSeat) return false
+        if (!isInteractiveSeat(seatId)) return false
         val accepted = mulliganBridge(seatId).submitKeep()
         if (!accepted) log.debug("ignored stale keep for seat {}", seatId.value)
         return accepted
     }
-
-    // TODO: wire mulliganBridge for familiarSeat to support paired mulligan flow
 
     /**
      * Submit mulligan decision for seat.
@@ -1486,6 +1588,7 @@ class GameBridge(
      */
     fun submitMull(seatId: SeatId): Boolean {
         log.info("GameBridge: seat {} mulligans", seatId.value)
+        if (humanVsHuman) return mulliganBridge(seatId).submitMull()
         if (seatId == seating.humanSeat) {
             // Capture current prompt sequence BEFORE submitting —
             // avoids race where we see the stale WaitingKeep from the current round.
@@ -1550,15 +1653,13 @@ class GameBridge(
         return player.getZone(ZoneType.Hand).cards.toList()
     }
 
-    // TODO: wire mulliganBridge for familiarSeat to support paired tuck flow
-
     /** Submit tuck decision — cards to put on bottom of library. */
     fun submitTuck(
         seatId: SeatId,
         cards: List<Card>,
     ) {
         log.info("GameBridge: seat {} tucking {} cards", seatId.value, cards.size)
-        if (seatId == seating.humanSeat) mulliganBridge(seatId).submitTuck(cards)
+        if (isInteractiveSeat(seatId)) mulliganBridge(seatId).submitTuck(cards)
     }
 
     /** True when this bridge is running a puzzle game. */

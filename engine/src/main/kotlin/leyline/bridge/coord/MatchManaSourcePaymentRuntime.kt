@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicLong
 /** Exact iterative mana-source payment lifecycle beneath [MatchCutCoordinator]. */
 internal class MatchManaSourcePaymentRuntime(
     private val owner: MatchCutCoordinator,
+    private val runtimeSeat: leyline.bridge.types.SeatId = owner.humanSeat,
 ) : ManaSourcePaymentRuntime,
     PromptTerminalCutOwner {
     private sealed interface Command {
@@ -133,7 +134,7 @@ internal class MatchManaSourcePaymentRuntime(
             owner.ensureOpen()
             if (value.payments.isEmpty()) {
                 owner.bridge
-                    .promptBridge(owner.humanSeat)
+                    .promptBridge(runtimeSeat)
                     .journal
                     .clearConvokePayments(value.sourceForgeCardId)
             } else {
@@ -304,7 +305,7 @@ internal class MatchManaSourcePaymentRuntime(
             val prior = owner.bridge.projectionStateSnapshot()
             val planner = LogicalSequencePlanner(prior.sequence)
             val game = owner.bridge.getGame() ?: owner.fail(IllegalStateException("Game unavailable"))
-            val routes = owner.viewerRoutes()
+            val routes = owner.viewerRoutes(runtimeSeat)
             val playerRoute = routes.single { it.viewer.role == leyline.game.state.ProjectionViewerRole.Player }
             val diagnostic = PromptMaterializationDiagnostic(interactionId, value)
             val prepared =
@@ -352,7 +353,7 @@ internal class MatchManaSourcePaymentRuntime(
                     outputs = prepared.viewers.map { PreparedViewerOutput(it.seatId, it.batches) },
                     projection = prepared.transition,
                     closesPlaybackFrame = prepared.closesPlaybackFrame,
-                    playbackOwnerSeatId = owner.humanSeat.takeIf { prepared.closesPlaybackFrame },
+                    playbackOwnerSeatId = runtimeSeat.takeIf { prepared.closesPlaybackFrame },
                 ),
                 CutInstallHooks(beforeInstall = beforeInstall, afterInstall = afterInstall),
                 onInstalled = { onPublished(publication) },
@@ -408,7 +409,7 @@ internal class MatchManaSourcePaymentRuntime(
         val paymentAbilityGrpId =
             if (value.kind == ManaSourcePaymentKind.Improvise) KeywordAbilityIds.IMPROVISE else KeywordAbilityIds.CONVOKE_PAYMENT
         owner.bridge
-            .promptBridge(owner.humanSeat)
+            .promptBridge(runtimeSeat)
             .journal
             .record(
                 PromptSideEffect.ConvokePayments(
@@ -432,7 +433,7 @@ internal class MatchManaSourcePaymentRuntime(
         val paymentAbilityGrpId =
             if (value.kind == ManaSourcePaymentKind.Improvise) KeywordAbilityIds.IMPROVISE else KeywordAbilityIds.CONVOKE_PAYMENT
         owner.bridge
-            .promptBridge(owner.humanSeat)
+            .promptBridge(runtimeSeat)
             .journal
             .record(
                 PromptSideEffect.ConvokePayments(

@@ -264,12 +264,17 @@ open class CombatHandler(
         val bridge = ctx.bridge
         val resp = greMsg.assignDamageResp
         val pending =
-            bridge.cutCoordinator.currentBlockingInteraction()?.takeIf { it.interaction is BlockingInteraction.Damage } ?: run {
-                log.warn("CombatHandler: AssignDamageResp but no pending damage assignment")
-                DevCheck.fail { "AssignDamageResp but no pending damage assignment" }
-                sink.sendRealGameState(bridge)
-                return false
-            }
+            bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .blocking
+                .current()
+                ?.takeIf { it.interaction is BlockingInteraction.Damage }
+                ?: run {
+                    log.warn("CombatHandler: AssignDamageResp but no pending damage assignment")
+                    DevCheck.fail { "AssignDamageResp but no pending damage assignment" }
+                    sink.sendRealGameState(bridge)
+                    return false
+                }
         // Parse all assigners. First assigner completes the blocking future;
         // subsequent assigners are cached for Forge's per-attacker loop.
         val assignmentValues = mutableListOf<DamageAssignmentCommand>()
@@ -296,7 +301,14 @@ open class CombatHandler(
 
         // Complete the future — engine thread unblocks in WPC.assignCombatDamage
         if (assignmentValues.isEmpty()) log.warn("CombatHandler: no assigners in response, completing with empty map")
-        if (!bridge.cutCoordinator.submitDamageCommand(pending.interactionId, greMsg.gameStateId, assignmentValues)) return false
+        if (!bridge.cutCoordinator
+                .promptRuntimes(
+                    ctx.seatId,
+                ).blocking
+                .submitDamageCommand(pending.interactionId, greMsg.gameStateId, assignmentValues)
+        ) {
+            return false
+        }
         return true
     }
 
@@ -308,12 +320,8 @@ open class CombatHandler(
      * Drain and send the already committed batches.
      */
     private fun drainPendingPlayback() {
-        val playback = ctx.bridge.playbackFor(counters.seatId) ?: return
-        if (playback.hasPendingMessages()) {
-            val batches = playback.drainQueue()
-            for (batch in batches) {
-                sink.sendBundledGRE(batch) // sendBundledGRE records client-seen turn info
-            }
+        for (batch in ctx.bridge.cutCoordinator.drain(counters.seatId)) {
+            sink.sendBundledGRE(batch)
         }
     }
 }

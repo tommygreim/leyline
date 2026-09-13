@@ -44,12 +44,13 @@ class RepositoryMatchCoordinator(
     override fun resolveDeckCards(deckId: String): DeckCards? {
         // 1. Constructed deck from repository
         decks.findById(DeckId(deckId))?.let {
-            return it.toDeckCards()
+            return it.takeIf { deck -> deck.playerId == playerId }?.toDeckCards()
         }
 
         // 2. Sealed/draft course deck (no command zone)
         val event = selectedEventName ?: return null
         val courseDeck = courseService.getCourse(playerId, event)?.deck ?: return null
+        if (courseDeck.deckId.value != deckId) return null
         return DeckCards(courseDeck.mainDeck, courseDeck.sideboard)
     }
 
@@ -62,7 +63,7 @@ class RepositoryMatchCoordinator(
     override fun resolveDeckCardsByName(name: String): DeckCards? {
         if (name.equals("random", ignoreCase = true)) return resolveRandomDeckCards()
 
-        val deck = decks.findByName(name) ?: return null
+        val deck = decks.findAllForPlayer(playerId).firstOrNull { it.name == name } ?: return null
         return deck.toDeckCards()
     }
 

@@ -59,10 +59,14 @@ class TargetingHandler(
     internal fun onSelectTargets(greMsg: ClientToGREMessage): HandlerResult {
         val bridge = ctx.bridge
         val resp = greMsg.selectTargetsResp
-        val compatibility = bridge.cutCoordinator.compatibilityCostSelection.current()
+        val compatibility =
+            bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .compatibilityCostSelection
+                .current()
         if (compatibility != null) {
             val receipt =
-                bridge.cutCoordinator.compatibilityCostSelection.submitToggle(
+                bridge.cutCoordinator.promptRuntimes(ctx.seatId).compatibilityCostSelection.submitToggle(
                     compatibility.interactionId,
                     greMsg.gameStateId,
                     resp.target.targetIdx,
@@ -73,12 +77,14 @@ class TargetingHandler(
             return deliverCompatibilityReceipt(receipt)
         }
         val targeting =
-            bridge.cutCoordinator.targeting
+            bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .targeting
                 .current()
                 ?.takeIf { it.kind == TargetingInteractionKind.Targeting }
         if (targeting != null) {
             val receipt =
-                bridge.cutCoordinator.targeting.submitToggle(
+                bridge.cutCoordinator.promptRuntimes(ctx.seatId).targeting.submitToggle(
                     targeting.interactionId,
                     greMsg.gameStateId,
                     resp.target.targetIdx,
@@ -103,9 +109,13 @@ class TargetingHandler(
      */
     internal fun onSubmitTargets(greMsg: ClientToGREMessage): HandlerResult {
         val bridge = ctx.bridge
-        val compatibility = bridge.cutCoordinator.compatibilityCostSelection.current()
+        val compatibility =
+            bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .compatibilityCostSelection
+                .current()
         val compatibilityReceipt =
-            bridge.cutCoordinator.compatibilityCostSelection.submitTargets(
+            bridge.cutCoordinator.promptRuntimes(ctx.seatId).compatibilityCostSelection.submitTargets(
                 compatibility?.interactionId,
                 greMsg.gameStateId,
             )
@@ -113,10 +123,17 @@ class TargetingHandler(
             return deliverCompatibilityReceipt(compatibilityReceipt)
         }
         val targeting =
-            bridge.cutCoordinator.targeting
+            bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .targeting
                 .current()
                 ?.takeIf { it.kind == TargetingInteractionKind.Targeting }
-        val migrated = bridge.cutCoordinator.targeting.submitTargets(targeting?.interactionId, greMsg.gameStateId)
+        val migrated =
+            bridge.cutCoordinator
+                .promptRuntimes(
+                    ctx.seatId,
+                ).targeting
+                .submitTargets(targeting?.interactionId, greMsg.gameStateId)
         if (migrated != null) {
             return deliverTargetingReceipt(migrated)
         }
@@ -155,18 +172,29 @@ class TargetingHandler(
             return cancelDeferredCast(greMsg.gameStateId)
         }
 
-        val compatibility = bridge.cutCoordinator.compatibilityCostSelection.current()
+        val compatibility =
+            bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .compatibilityCostSelection
+                .current()
         if (compatibility != null) {
-            bridge.cutCoordinator.compatibilityCostSelection.cancel(compatibility.interactionId, greMsg.gameStateId)?.let { receipt ->
-                return deliverCompatibilityReceipt(receipt)
-            }
+            bridge.cutCoordinator
+                .promptRuntimes(
+                    ctx.seatId,
+                ).compatibilityCostSelection
+                .cancel(compatibility.interactionId, greMsg.gameStateId)
+                ?.let { receipt ->
+                    return deliverCompatibilityReceipt(receipt)
+                }
         }
         val targeting =
-            bridge.cutCoordinator.targeting
+            bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .targeting
                 .current()
                 ?.takeIf { it.kind == TargetingInteractionKind.Targeting }
         if (targeting != null) {
-            bridge.cutCoordinator.targeting.cancel(targeting.interactionId, greMsg.gameStateId)?.let { receipt ->
+            bridge.cutCoordinator.promptRuntimes(ctx.seatId).targeting.cancel(targeting.interactionId, greMsg.gameStateId)?.let { receipt ->
                 return deliverTargetingReceipt(receipt)
             }
         }
@@ -191,13 +219,17 @@ class TargetingHandler(
 
     private fun deliverTargetingReceipt(receipt: TargetingCommandReceipt): HandlerResult =
         deliverReceipt(receipt) { interactionId, deliveryToken ->
-            ctx.bridge.cutCoordinator.targeting
+            ctx.bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .targeting
                 .acknowledgeDelivery(interactionId, deliveryToken)
         }
 
     private fun deliverCompatibilityReceipt(receipt: TargetingCommandReceipt): HandlerResult =
         deliverReceipt(receipt) { interactionId, deliveryToken ->
-            ctx.bridge.cutCoordinator.compatibilityCostSelection
+            ctx.bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .compatibilityCostSelection
                 .acknowledgeDelivery(interactionId, deliveryToken)
         }
 

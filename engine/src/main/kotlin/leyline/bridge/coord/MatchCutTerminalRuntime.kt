@@ -44,7 +44,7 @@ internal class MatchCutTerminalRuntime(
                 failure = terminal
                 owner.actions.terminate()
                 owner.deferredCast.discard()
-                owner.prompts.terminate(terminal)
+                owner.allPromptRuntimes().forEach { it.terminate(terminal) }
                 owner.bridge.failActionWindows(terminal)
                 owner.bridge.prioritySignal.signal()
             }

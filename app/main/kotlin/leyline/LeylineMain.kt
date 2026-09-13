@@ -9,6 +9,9 @@ import leyline.game.data.ClientCardDatabase
 import leyline.infra.LeylineServer
 import leyline.infra.ManagementServer
 import leyline.native.account.AccountServer
+import leyline.native.account.AccountStore
+import leyline.native.account.LocalAccountAuthenticator
+import leyline.native.account.TokenService
 import org.slf4j.LoggerFactory
 import java.io.File
 
@@ -32,6 +35,7 @@ fun main(args: Array<String>) {
 
     val tls = resolveTls(a)
     val cardRepo = openCardRepo()
+    val accounts = AccountServices(paths.playerDb)
     val server =
         LeylineServer(
             bindAddress = native.bind,
@@ -45,16 +49,12 @@ fun main(args: Array<String>) {
             cardRepo = cardRepo,
             playerDbFile = paths.playerDb,
             sessionJournalFile = paths.sessionJournal,
+            accountAuthenticator = accounts.authenticator,
         )
 
     val debugServer = buildDebugServer(native.debugPort, native.bind, server)
     val mgmtServer = ManagementServer(native.bind, native.managementPort, healthCheck = { server.isHealthy() })
-    val accountDb =
-        org.jetbrains.exposed.v1.jdbc.Database.connect(
-            "jdbc:sqlite:${paths.playerDb.absolutePath}",
-            "org.sqlite.JDBC",
-        )
-    val accountServer = buildAccountServer(a, native.bind, native.accountPort, tls, native.advertisedFdUri, accountDb)
+    val accountServer = buildAccountServer(a, native.bind, native.accountPort, tls, native.advertisedFdUri, accounts)
 
     installShutdownHook(accountServer, debugServer, mgmtServer, server)
     startAll(server, mgmtServer, debugServer, accountServer)
@@ -85,6 +85,17 @@ private fun openCardRepo(): CardRepository = ClientCardDatabase.open(overridePat
 
 // -- Server builders ----------------------------------------------------------
 
+private class AccountServices(
+    playerDb: File,
+) {
+    val database =
+        org.jetbrains.exposed.v1.jdbc.Database
+            .connect("jdbc:sqlite:${playerDb.absolutePath}", "org.sqlite.JDBC")
+    val store = AccountStore(database).also { it.createTables() }
+    val tokens = TokenService(store = store)
+    val authenticator = LocalAccountAuthenticator(store, tokens)
+}
+
 private fun buildDebugServer(
     port: Int,
     bindAddress: String,
@@ -105,7 +116,7 @@ private fun buildAccountServer(
     port: Int,
     tls: Pair<File?, File?>,
     fdHost: String,
-    database: org.jetbrains.exposed.v1.jdbc.Database,
+    accounts: AccountServices,
 ): AccountServer {
     // If local manifest files already exist, surface their hashes in the
     // doorbell response so the client can reuse its local cache immediately.
@@ -117,8 +128,10 @@ private fun buildAccountServer(
         certFile = a["--account-cert"]?.let { File(it) } ?: tls.first,
         keyFile = a["--account-key"]?.let { File(it) } ?: tls.second,
         fdHost = fdHost,
-        database = database,
+        database = accounts.database,
         cachedManifests = cachedManifests,
+        accountStore = accounts.store,
+        tokenService = accounts.tokens,
     )
 }
 

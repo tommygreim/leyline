@@ -195,6 +195,15 @@ class RepositoryMatchCoordinatorTest :
             coordinator().resolveOpponentDeckCards(event) shouldBe null
         }
 
+        test("deck resolution cannot select another player's deck by id or name") {
+            val own = deck("own", "Shared Name", 101)
+            val foreign = deck("foreign", "Shared Name", 202).copy(playerId = PlayerId("other-player"))
+            val coord = coordinator(deckRepo = FakeDeckRepo(listOf(foreign, own)))
+
+            coord.resolveDeckCards("foreign") shouldBe null
+            coord.resolveDeckCardsByName("Shared Name")!!.mainDeck shouldBe own.mainDeck
+        }
+
         fun brawlDeck(id: String): Deck =
             Deck(
                 id = DeckId(id),

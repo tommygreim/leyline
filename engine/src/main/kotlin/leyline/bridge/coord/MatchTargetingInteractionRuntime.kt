@@ -24,13 +24,14 @@ import java.util.concurrent.atomic.AtomicLong
 /** Exact targeting-window lifecycle beneath [MatchCutCoordinator]. */
 internal class MatchTargetingInteractionRuntime(
     private val owner: MatchCutCoordinator,
+    private val runtimeSeat: leyline.bridge.types.SeatId = owner.humanSeat,
 ) : TargetingInteractionRuntime,
     PromptLifecycle {
     internal var beforeInstall: (() -> Unit)? = null
     internal var beforeTimeoutClaim: (() -> Unit)? = null
     internal var afterCommandClaim: (() -> Unit)? = null
     internal var afterCompletedDeliveryRelease: (() -> Unit)? = null
-    private val capture = TargetingWindowCapture(owner)
+    private val capture = TargetingWindowCapture(owner, runtimeSeat)
 
     private val nextDeliveryToken = AtomicLong()
     private var window: TargetingWindow? = null
@@ -149,7 +150,7 @@ internal class MatchTargetingInteractionRuntime(
                 val prior = owner.bridge.projectionStateSnapshot()
                 val planner = LogicalSequencePlanner(prior.sequence)
                 check(window == null) { "A targeting interaction is already pending" }
-                val feed = owner.feed(owner.humanSeat)
+                val feed = owner.feed(runtimeSeat)
                 val game = owner.bridge.getGame() ?: owner.fail(IllegalStateException("Game unavailable"))
                 val prepared =
                     try {
@@ -158,7 +159,7 @@ internal class MatchTargetingInteractionRuntime(
                             planner,
                             value,
                             transientSourceCard,
-                            owner.viewerRoutes(),
+                            owner.viewerRoutes(runtimeSeat),
                         )
                     } catch (ex: Exception) {
                         owner.fail(ex)
@@ -263,7 +264,7 @@ internal class MatchTargetingInteractionRuntime(
                 val current =
                     matching(pending.interactionId, command.gameStateId, requireIdle = false)
                         ?: owner.fail(IllegalStateException("Targeting window changed during re-prompt"))
-                val feed = owner.feed(owner.humanSeat)
+                val feed = owner.feed(runtimeSeat)
                 val value =
                     try {
                         feed.builder.prepareTargetingRePrompt(
@@ -296,14 +297,14 @@ internal class MatchTargetingInteractionRuntime(
             val planner = LogicalSequencePlanner(prior.sequence)
             matching(pending.interactionId, commandGameStateId(command), requireIdle = false)
                 ?: owner.fail(IllegalStateException("Targeting window changed during submit"))
-            val feed = owner.feed(owner.humanSeat)
+            val feed = owner.feed(runtimeSeat)
             val prepared =
                 try {
                     feed.builder.prepareTargetingSubmit(
                         planner,
                         prior,
                         pending.sourceInstanceId,
-                        owner.humanSeat,
+                        runtimeSeat,
                     )
                 } catch (ex: Exception) {
                     owner.fail(ex)
@@ -423,7 +424,7 @@ internal class MatchTargetingInteractionRuntime(
             outputs = prepared.viewers.map { PreparedViewerOutput(it.seatId, it.batches) },
             projection = prepared.transition,
             closesPlaybackFrame = prepared.closesPlaybackFrame,
-            playbackOwnerSeatId = owner.humanSeat,
+            playbackOwnerSeatId = runtimeSeat,
         ),
         CutInstallHooks(beforeInstall = beforeInstall),
     ) { ex -> owner.fail(ex) }

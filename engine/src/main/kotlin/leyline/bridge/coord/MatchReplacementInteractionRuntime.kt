@@ -16,6 +16,7 @@ import wotc.mtgo.gre.external.messaging.Messages.ReplacementEffect as Replacemen
 internal class MatchReplacementInteractionRuntime(
     private val owner: MatchCutCoordinator,
     settled: SettledPromptOwner,
+    private val runtimeSeat: leyline.bridge.types.SeatId = owner.humanSeat,
 ) : ReplacementInteractionRuntime {
     private data class Window(
         val published: PublishedReplacementInteraction,
@@ -79,7 +80,7 @@ internal class MatchReplacementInteractionRuntime(
                             game ?: owner.fail(IllegalStateException("Game unavailable")),
                             planner,
                             initial.value,
-                            owner.viewerRoutes(),
+                            owner.viewerRoutes(runtimeSeat),
                         )
                     } catch (ex: Exception) {
                         owner.failPrompt(ex, diagnostic = diagnostic)

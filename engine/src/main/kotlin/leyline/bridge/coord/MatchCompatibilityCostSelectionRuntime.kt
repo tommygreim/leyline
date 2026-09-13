@@ -12,8 +12,9 @@ import leyline.bridge.handoff.TargetingInteractionKind
 /** Match-scoped SelectTargets compatibility owner for residual card choices. */
 internal class MatchCompatibilityCostSelectionRuntime(
     private val owner: MatchCutCoordinator,
+    private val runtimeSeat: leyline.bridge.types.SeatId = owner.humanSeat,
 ) : CompatibilityCostSelectionRuntime {
-    private val targeting: MatchTargetingInteractionRuntime get() = owner.prompts.targeting
+    private val targeting: MatchTargetingInteractionRuntime get() = owner.promptRuntimes(runtimeSeat).targeting
 
     override fun awaitSelection(
         request: PromptRequest,

@@ -19,6 +19,7 @@ import java.util.concurrent.CompletableFuture
 internal class MatchRevealChoiceInteractionRuntime(
     private val owner: MatchCutCoordinator,
     settled: SettledPromptOwner,
+    private val runtimeSeat: leyline.bridge.types.SeatId = owner.humanSeat,
 ) : RevealChoiceInteractionRuntime {
     private data class Window(
         val published: PublishedRevealChoiceInteraction,
@@ -62,11 +63,11 @@ internal class MatchRevealChoiceInteractionRuntime(
                     request,
                     candidateHandles,
                     revealEntry,
-                    owner.humanSeat,
+                    runtimeSeat,
                     recordExiledUnderSource,
                 )
             } catch (ex: Exception) {
-                clearReveal(revealEntry, owner.humanSeat)
+                clearReveal(revealEntry, runtimeSeat)
                 owner.fail(ex)
             }
         return await(publish(initial), timeoutMs)
@@ -100,7 +101,7 @@ internal class MatchRevealChoiceInteractionRuntime(
                             game ?: failInitial(IllegalStateException("Game unavailable"), initial),
                             planner,
                             initial.value,
-                            owner.viewerRoutes(),
+                            owner.viewerRoutes(runtimeSeat),
                         )
                     } catch (ex: Exception) {
                         failInitial(ex, initial, diagnostic = diagnostic)

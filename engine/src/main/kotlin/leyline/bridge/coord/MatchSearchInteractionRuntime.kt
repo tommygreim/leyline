@@ -16,6 +16,7 @@ import java.util.concurrent.CompletableFuture
 internal class MatchSearchInteractionRuntime(
     private val owner: MatchCutCoordinator,
     settled: SettledPromptOwner,
+    private val runtimeSeat: leyline.bridge.types.SeatId = owner.humanSeat,
 ) : SearchInteractionRuntime {
     private data class Window(
         val published: PublishedSearchInteraction,
@@ -27,7 +28,7 @@ internal class MatchSearchInteractionRuntime(
         override val interactionId: String get() = published.interactionId
     }
 
-    private val capture = SearchWindowCapture(owner)
+    private val capture = SearchWindowCapture(owner, runtimeSeat)
     private val slot =
         settled.mount<Window, List<Int>>(
             PromptTerminalPriority.Search,
@@ -121,7 +122,7 @@ internal class MatchSearchInteractionRuntime(
                             game ?: owner.fail(IllegalStateException("Game unavailable")),
                             planner,
                             value,
-                            owner.viewerRoutes(),
+                            owner.viewerRoutes(runtimeSeat),
                         )
                     } catch (ex: Exception) {
                         owner.failPrompt(ex, diagnostic = diagnostic)
@@ -174,7 +175,7 @@ internal class MatchSearchInteractionRuntime(
         )
 
     private fun resetBaseline() {
-        val transition = owner.feed(owner.humanSeat).builder.prepareSearchBaselineReset(owner.bridge.projectionStateSnapshot())
+        val transition = owner.feed(runtimeSeat).builder.prepareSearchBaselineReset(owner.bridge.projectionStateSnapshot())
         beforeBaselineResetInstall?.invoke()
         owner.cutInstaller.installProjectionOnly(transition, owner::fail)
     }

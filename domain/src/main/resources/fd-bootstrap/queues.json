@@ -9,6 +9,14 @@
     "sideboardBO3": "MainNav/General/Empty_String"
   },
   {
+    "id": "TimelessPlay",
+    "queueType": "Unranked",
+    "locTitle": "Events/Event_Title_Play_Timeless",
+    "eventNameBO1": "Play_Timeless",
+    "deckSizeBO3": "MainNav/General/Empty_String",
+    "sideboardBO3": "MainNav/General/Empty_String"
+  },
+  {
     "id": "StandardBrawl",
     "queueType": "Brawl",
     "locTitle": "Events/Event_Title_Play_Brawl_Bo1",

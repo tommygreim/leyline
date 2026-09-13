@@ -46,6 +46,16 @@ class Match(
         markStarted()
     }
 
+    fun startHumanVsHuman(
+        seed: Long? = null,
+        deck1: DeckSource,
+        deck2: DeckSource,
+        variant: String? = null,
+    ) {
+        bridge.startHumanVsHuman(seed, deck1, deck2, variant)
+        markStarted()
+    }
+
     @Synchronized
     fun startAiVsAi(
         seed: Long? = null,

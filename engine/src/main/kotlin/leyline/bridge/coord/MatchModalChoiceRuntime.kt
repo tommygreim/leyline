@@ -22,6 +22,7 @@ import java.util.concurrent.CompletableFuture
 internal class MatchModalChoiceRuntime(
     private val owner: MatchCutCoordinator,
     settled: SettledPromptOwner,
+    private val runtimeSeat: leyline.bridge.types.SeatId = owner.humanSeat,
 ) : ModalChoiceInteractionRuntime {
     private data class Window(
         val published: PublishedModalChoiceInteraction,
@@ -122,7 +123,7 @@ internal class MatchModalChoiceRuntime(
                             game ?: owner.fail(IllegalStateException("Game unavailable")),
                             planner,
                             initial.value,
-                            owner.viewerRoutes(),
+                            owner.viewerRoutes(runtimeSeat),
                         )
                     } catch (ex: Exception) {
                         owner.failPrompt(ex, diagnostic = diagnostic)
@@ -210,10 +211,10 @@ internal class MatchModalChoiceRuntime(
 
     private fun queueCleanupLocked(receipt: CleanupReceipt) {
         if (!receipt.triggered) return
-        val feed = owner.feed(owner.humanSeat)
+        val feed = owner.feed(runtimeSeat)
         val prior = owner.bridge.projectionStateSnapshot()
         val planner = LogicalSequencePlanner(prior.sequence)
-        val cleanup = ModalChoiceWindowMaterializer(owner.humanSeat.value).cleanup(planner, receipt.sourceInstanceId)
+        val cleanup = ModalChoiceWindowMaterializer(runtimeSeat.value).cleanup(planner, receipt.sourceInstanceId)
         try {
             owner.cutInstaller.install(
                 feed,

@@ -16,6 +16,7 @@ import java.util.concurrent.CompletableFuture
 internal class MatchDistributionInteractionRuntime(
     private val owner: MatchCutCoordinator,
     settled: SettledPromptOwner,
+    private val runtimeSeat: leyline.bridge.types.SeatId = owner.humanSeat,
 ) : DistributionInteractionRuntime {
     private data class Window(
         val published: PublishedDistributionInteraction,
@@ -77,7 +78,7 @@ internal class MatchDistributionInteractionRuntime(
                             game ?: owner.fail(IllegalStateException("Game unavailable")),
                             planner,
                             initial,
-                            owner.viewerRoutes(),
+                            owner.viewerRoutes(runtimeSeat),
                         )
                     } catch (ex: Exception) {
                         owner.failPrompt(ex, diagnostic = diagnostic)

@@ -32,12 +32,15 @@ class AccountServer(
     private val database: Database,
     /** BundleManifests JSON array for doorbell response (enables offline mode). */
     private val cachedManifests: String? = null,
+    private val accountStore: AccountStore = AccountStore(database).also { it.createTables() },
+    private val tokenService: TokenService = TokenService(store = accountStore),
+    private val allowPasswordGrant: Boolean = false,
 ) {
     private val log = LoggerFactory.getLogger(AccountServer::class.java)
     private var engine: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
 
-    private val store = AccountStore(database)
-    private val tokens = TokenService()
+    private val store = accountStore
+    private val tokens = tokenService
 
     fun start() {
         store.createTables()
@@ -84,7 +87,7 @@ class AccountServer(
                     }
                 }
                 routing {
-                    accountRoutes(accountStore, tokenService, host, cachedManifests)
+                    accountRoutes(accountStore, tokenService, host, cachedManifests, allowPasswordGrant)
                 }
             }.also { it.start(wait = false) }
 

@@ -57,6 +57,9 @@ class MulliganBridge(
     @Volatile private var state: MulliganState = MulliganState.Idle
     private var promptSequenceValue: Int = 0
 
+    /** Engine-thread publication hook, invoked after installing each exact prompt. */
+    var onPrompt: ((PendingPrompt) -> Unit)? = null
+
     /** Monotonic counter — increments each time a keep/tuck prompt is posted. */
     val promptSequence: Int
         get() = synchronized(this) { promptSequenceValue }
@@ -118,6 +121,7 @@ class MulliganBridge(
         }
         log.info("MulliganBridge: awaiting keep/mull for player {} (mulls={})", playerId, mulliganCount)
         return try {
+            onPrompt?.invoke(checkNotNull(pendingPrompt()))
             if (timeoutMs == null) {
                 future.get()
             } else {
@@ -165,6 +169,7 @@ class MulliganBridge(
         }
         log.info("MulliganBridge: awaiting tuck {} cards for player {}", count, playerId)
         return try {
+            onPrompt?.invoke(checkNotNull(pendingPrompt()))
             if (timeoutMs == null) {
                 future.get()
             } else {

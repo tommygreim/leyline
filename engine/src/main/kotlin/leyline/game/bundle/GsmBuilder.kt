@@ -386,6 +386,8 @@ object GsmBuilder {
                 .setType(GameStateType.Full)
                 .setGameStateId(gameStateId)
                 .setGameInfo(gameInfo)
+                // Full-state consumers require TurnInfo even before any turn or decision begins.
+                .setTurnInfo(TurnInfo.newBuilder())
                 .addTeams(
                     TeamInfo
                         .newBuilder()

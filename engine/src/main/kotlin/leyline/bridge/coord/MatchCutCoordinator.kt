@@ -63,7 +63,15 @@ internal class MatchCutCoordinator(
     internal val lifecycle = MatchLifecycleRuntime(this)
     internal val actions = MatchActionWindowRuntime(this)
     internal val deferredCast = DeferredCastWindowRuntime(this, actions)
-    internal val prompts = MatchPromptRuntimeSet(this)
+    private val promptSets = mutableMapOf<SeatId, MatchPromptRuntimeSet>()
+    internal val prompts: MatchPromptRuntimeSet get() = promptRuntimes(humanSeat)
+
+    internal fun promptRuntimes(seatId: SeatId): MatchPromptRuntimeSet =
+        synchronized(feedLock) {
+            promptSets.getOrPut(seatId) { MatchPromptRuntimeSet(this, seatId) }
+        }
+
+    internal fun allPromptRuntimes(): List<MatchPromptRuntimeSet> = synchronized(feedLock) { promptSets.values.toList() }
 
     // Read-only views; [prompts] remains the sole lifecycle owner.
     internal val targeting get() = prompts.targeting
@@ -310,8 +318,16 @@ internal class MatchCutCoordinator(
 
     internal fun registeredViewers(): List<ProjectionViewer> = synchronized(feedLock) { viewers.values.toList() }
 
-    internal fun viewerRoutes(): List<BundleBuilder.ViewerRoute> =
-        registeredViewers().map { BundleBuilder.ViewerRoute(it, feed(it.seatId).builder) }
+    internal fun viewerRoutes(activeSeat: SeatId? = null): List<BundleBuilder.ViewerRoute> =
+        registeredViewers().map { viewer ->
+            val perspective =
+                if (activeSeat != null && viewer.seatId != activeSeat && viewer.role == ProjectionViewerRole.Player) {
+                    viewer.copy(role = ProjectionViewerRole.SeatObserver)
+                } else {
+                    viewer
+                }
+            BundleBuilder.ViewerRoute(perspective, feed(viewer.seatId).builder)
+        }
 
     internal fun requireViewer(seatId: SeatId) {
         synchronized(feedLock) { check(seatId in viewers) { "Viewer $seatId is not registered" } }
@@ -340,7 +356,7 @@ internal class MatchCutCoordinator(
             gameOver.reset()
             actions.reset()
             deferredCast.discard()
-            prompts.reset()
+            allPromptRuntimes().forEach { it.reset() }
         }
     }
 
@@ -557,7 +573,8 @@ internal class MatchCutCoordinator(
             failPrompt(cause, pendingPrompt)
         }
 
-    internal fun failDelivery(cause: Throwable): Nothing = prompts.failDelivery(cause)
+    internal fun failDelivery(cause: Throwable): Nothing =
+        (allPromptRuntimes().firstOrNull { it.hasPendingInteraction() } ?: prompts).failDelivery(cause)
 
     internal fun failTerminal(
         cause: Throwable,

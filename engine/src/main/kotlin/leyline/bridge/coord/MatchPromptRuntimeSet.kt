@@ -7,30 +7,31 @@ import leyline.game.PendingPromptCut
 import leyline.game.PromptMaterializationDiagnostic
 import leyline.game.PromptTerminalEvidence
 
-/** Owns the complete coordinator prompt-runtime inventory for one match. */
+/** Owns the coordinator prompt-runtime inventory for one interactive seat. */
 internal class MatchPromptRuntimeSet(
     private val owner: MatchCutCoordinator,
+    private val runtimeSeat: SeatId,
 ) {
     private val lifecycle = mutableListOf<PromptLifecycle>()
-    internal val settled = own(SettledPromptOwner(owner))
+    internal val settled = own(SettledPromptOwner(owner, runtimeSeat = runtimeSeat))
 
-    val targeting = own(MatchTargetingInteractionRuntime(owner))
-    val compatibilityCostSelection = MatchCompatibilityCostSelectionRuntime(owner)
-    val blocking = own(MatchBlockingInteractionRuntime(owner))
-    val search = MatchSearchInteractionRuntime(owner, settled)
-    val replacement = MatchReplacementInteractionRuntime(owner, settled)
-    val order = MatchOrderInteractionRuntime(owner, settled)
-    val distribution = MatchDistributionInteractionRuntime(owner, settled)
-    val grouping = MatchGroupingInteractionRuntime(owner, settled)
-    val cardSelect = MatchCardSelectInteractionRuntime(owner, settled)
-    val staticChoices = MatchStaticChoiceInteractionRuntime(owner, settled)
-    val revealChoices = MatchRevealChoiceInteractionRuntime(owner, settled)
-    val modalChoices = MatchModalChoiceRuntime(owner, settled)
-    val manaSourcePayments = own(MatchManaSourcePaymentRuntime(owner))
-    val oneShotPayCosts = MatchOneShotPayCostsRuntime(owner, settled)
+    val targeting = own(MatchTargetingInteractionRuntime(owner, runtimeSeat = runtimeSeat))
+    val compatibilityCostSelection = MatchCompatibilityCostSelectionRuntime(owner, runtimeSeat = runtimeSeat)
+    val blocking = own(MatchBlockingInteractionRuntime(owner, runtimeSeat = runtimeSeat))
+    val search = MatchSearchInteractionRuntime(owner, settled, runtimeSeat = runtimeSeat)
+    val replacement = MatchReplacementInteractionRuntime(owner, settled, runtimeSeat = runtimeSeat)
+    val order = MatchOrderInteractionRuntime(owner, settled, runtimeSeat = runtimeSeat)
+    val distribution = MatchDistributionInteractionRuntime(owner, settled, runtimeSeat = runtimeSeat)
+    val grouping = MatchGroupingInteractionRuntime(owner, settled, runtimeSeat = runtimeSeat)
+    val cardSelect = MatchCardSelectInteractionRuntime(owner, settled, runtimeSeat = runtimeSeat)
+    val staticChoices = MatchStaticChoiceInteractionRuntime(owner, settled, runtimeSeat = runtimeSeat)
+    val revealChoices = MatchRevealChoiceInteractionRuntime(owner, settled, runtimeSeat = runtimeSeat)
+    val modalChoices = MatchModalChoiceRuntime(owner, settled, runtimeSeat = runtimeSeat)
+    val manaSourcePayments = own(MatchManaSourcePaymentRuntime(owner, runtimeSeat = runtimeSeat))
+    val oneShotPayCosts = MatchOneShotPayCostsRuntime(owner, settled, runtimeSeat = runtimeSeat)
 
     fun bindings(seatId: SeatId): PromptRuntimeBindings {
-        check(seatId == owner.humanSeat) { "Prompt runtimes are only registered for the human seat" }
+        check(seatId == runtimeSeat) { "Prompt runtime seat does not match its bridge" }
         return PromptRuntimeBindings(
             targeting = targeting,
             compatibilityCostSelection = compatibilityCostSelection,

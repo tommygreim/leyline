@@ -89,6 +89,51 @@ Direct Bot Match games are practice matches: they start without joining an
 event course, and winning or conceding does not change course wins or losses.
 Joined events retain their normal course progression and prize thresholds.
 
+## Local profiles
+
+The local account service accepts `POST /local/profiles` with JSON
+`{"displayName":"Alice"}`. Its response contains `persona_id`, `display_name`,
+and `refresh_token`. Each profile receives a server-generated identity; choosing
+the same display name does not reuse another player's identity.
+
+Keep the refresh credential private. It persists across server restarts and is
+accepted by `/auth/oauth/token` with `grant_type=refresh_token`. To rename the
+profile, send `POST /local/profile` with the same JSON body and the refresh
+credential as a Bearer token. The persona remains unchanged. Access tokens are
+short-lived signed JWTs; they cannot be substituted for refresh credentials.
+Password login is disabled by default. Preserve an existing host profile by
+provisioning its refresh credential locally before exposing the listeners.
+
+Front Door authenticates each connection with its local access token before
+serving player data. Deck lists, writes, deletions, and event selections belong
+to the authenticated profile. In two-player mode, the selected decks are copied
+when players queue, and both players must select the same event. Direct Bot
+Match remains available as a separate practice flow.
+
+## Two-player rooms
+
+The local client menu exposes **Play → Find Match → Play → Timeless Play**.
+Both players select their saved decks and enter that queue. This local event
+skips server format validation and collection ownership checks; it supplies a
+single constructed game with the client's Timeless deck-builder format.
+
+When the host enables two-player mode, `Event_EnterPairing` (603) waits for two
+separate authenticated profiles selecting the same event. The first queued
+profile is seat 1 and the second is seat 2. Their selected decks are copied at
+queue time, and both connections receive the same roster with their own seat.
+There is one room and one active game per server.
+
+Match Door validates the local access token again and admits only the profile
+reserved for that match and seat. A second connection cannot replace an occupied
+seat. Human games use two player sessions; the `_Familiar` observer remains
+specific to bot matches.
+
+Leaving the queue removes the waiting entry. A reserved room with no Match Door
+connections is released when a participant cancels or after five minutes. Once
+connected, ending the match or disconnecting releases the room and its deck
+snapshots; reconnecting to an interrupted game is not supported. Both players
+receive the normal result message when a completed game ends.
+
 ## Notes
 
 - Local-only.

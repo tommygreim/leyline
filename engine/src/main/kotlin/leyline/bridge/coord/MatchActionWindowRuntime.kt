@@ -245,7 +245,7 @@ internal class MatchActionWindowRuntime(
             val reopened = checkNotNull(actionWindows[claim.actionId])
             reopened.selections.clear()
             reopened.status = ActionWindowStatus.Published
-            owner.bridge.priorityPolicy.actionCompleted(false)
+            owner.bridge.priorityPolicy(window.seatId).actionCompleted(false)
             true
         }
 
@@ -495,7 +495,8 @@ internal class MatchActionWindowRuntime(
         seatId: SeatId,
         pending: GameActionBridge.PendingAction,
     ) {
-        owner.bridge.priorityPolicy
+        owner.bridge
+            .priorityPolicy(seatId)
             .takeChangedSettings()
             ?.let { owner.publishSettings(seatId, it) }
         if (pending.state.kind == PendingActionKind.SYNC_ONLY) {
@@ -507,7 +508,7 @@ internal class MatchActionWindowRuntime(
             owner.ensureOpen()
             val game = owner.bridge.getGame() ?: owner.fail(IllegalStateException("Game unavailable"))
             val feed = owner.feed(seatId)
-            val routes = owner.viewerRoutes()
+            val routes = owner.viewerRoutes(seatId)
             val playerRoute = routes.single { it.viewer.role == ProjectionViewerRole.Player }
             val playerSeatId = playerRoute.viewer.seatId
             val tokenBefore = nextActionToken

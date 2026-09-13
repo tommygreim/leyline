@@ -20,6 +20,7 @@ import java.util.concurrent.CompletableFuture
 internal class MatchGroupingInteractionRuntime(
     private val owner: MatchCutCoordinator,
     settled: SettledPromptOwner,
+    private val runtimeSeat: leyline.bridge.types.SeatId = owner.humanSeat,
 ) : GroupingInteractionRuntime {
     private data class Window(
         val published: PublishedGroupingInteraction,
@@ -112,7 +113,7 @@ internal class MatchGroupingInteractionRuntime(
             }
             arrangements +=
                 GroupingArrangementValue(
-                    owner.humanSeat,
+                    runtimeSeat,
                     pending.context,
                     topIds.map { pending.instanceIdsByCardId.getValue(it).value },
                     awayIds.map { pending.instanceIdsByCardId.getValue(it).value },
@@ -143,7 +144,7 @@ internal class MatchGroupingInteractionRuntime(
                             game ?: owner.fail(IllegalStateException("Game unavailable")),
                             planner,
                             initial.value,
-                            owner.viewerRoutes(),
+                            owner.viewerRoutes(runtimeSeat),
                         )
                     } catch (ex: Exception) {
                         owner.failPrompt(ex, diagnostic = diagnostic)

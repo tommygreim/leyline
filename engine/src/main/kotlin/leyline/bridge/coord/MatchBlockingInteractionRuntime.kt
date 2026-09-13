@@ -28,6 +28,7 @@ data class PublishedBlockingInteraction(
 /** Blocking prompt handles and value answers beneath [MatchCutCoordinator]. */
 internal class MatchBlockingInteractionRuntime(
     private val owner: MatchCutCoordinator,
+    private val runtimeSeat: leyline.bridge.types.SeatId = owner.humanSeat,
 ) : BlockingInteractionRuntime,
     PromptTerminalCutOwner {
     private sealed interface Answer {
@@ -192,7 +193,7 @@ internal class MatchBlockingInteractionRuntime(
                 val planner = LogicalSequencePlanner(prior.sequence)
                 val prepared =
                     try {
-                        owner.feed(owner.humanSeat).builder.commanderPromptCleanup(
+                        owner.feed(runtimeSeat).builder.commanderPromptCleanup(
                             game,
                             planner,
                             context,
@@ -202,7 +203,7 @@ internal class MatchBlockingInteractionRuntime(
                         owner.fail(ex)
                     }
                 owner.cutInstaller.install(
-                    owner.feed(owner.humanSeat),
+                    owner.feed(runtimeSeat),
                     PreparedCut.prepare(
                         prior,
                         planner,
@@ -252,7 +253,7 @@ internal class MatchBlockingInteractionRuntime(
                         published.slots.zip(amounts).associateTo(linkedMapOf()) { (slot, amount) -> slot.targetId to amount },
                     )
                 }
-            val feed = owner.feed(owner.humanSeat)
+            val feed = owner.feed(runtimeSeat)
             val prior = owner.bridge.projectionStateSnapshot()
             val planner = LogicalSequencePlanner(prior.sequence)
             val confirmation = feed.builder.damageAssignmentConfirmation(planner).messages
@@ -291,7 +292,7 @@ internal class MatchBlockingInteractionRuntime(
             synchronized(owner.feedLock) {
                 owner.ensureOpen()
                 check(window == null) { "A blocking interaction is already pending" }
-                val feed = owner.feed(owner.humanSeat)
+                val feed = owner.feed(runtimeSeat)
                 val game = owner.bridge.getGame() ?: owner.fail(IllegalStateException("Game unavailable"))
                 val prior = owner.bridge.projectionStateSnapshot()
                 val planner = LogicalSequencePlanner(prior.sequence)
@@ -305,7 +306,13 @@ internal class MatchBlockingInteractionRuntime(
                                         it.forceSnapshotBeforePrompt ||
                                         it.etbPayLifeReplacement
                                 }?.let { optional ->
-                                    feed.builder.optionalInteractionBundle(game, planner, optional, owner.viewerRoutes(), sourceCard)
+                                    feed.builder.optionalInteractionBundle(
+                                        game,
+                                        planner,
+                                        optional,
+                                        owner.viewerRoutes(runtimeSeat),
+                                        sourceCard,
+                                    )
                                 }
                         (viewerPrepared?.player ?: build(feed, game, planner)).also { afterMaterialization?.invoke() }
                     } catch (ex: Exception) {
@@ -342,7 +349,7 @@ internal class MatchBlockingInteractionRuntime(
                                         slot.instanceId,
                                         slot.minDamage,
                                         slot.maxDamage,
-                                        if (slot.instanceId == owner.humanSeat.opponent.value) {
+                                        if (slot.instanceId == runtimeSeat.opponent.value) {
                                             null
                                         } else {
                                             checkNotNull(cardIdsByInstanceId[slot.instanceId]) { "Damage recipient was not published" }
@@ -375,7 +382,7 @@ internal class MatchBlockingInteractionRuntime(
                             viewerPrepared.viewers.map { PreparedViewerOutput(it.seatId, it.batches) },
                             viewerPrepared.transition,
                             viewerPrepared.closesPlaybackFrame,
-                            playbackOwnerSeatId = owner.humanSeat.takeIf { viewerPrepared.closesPlaybackFrame },
+                            playbackOwnerSeatId = runtimeSeat.takeIf { viewerPrepared.closesPlaybackFrame },
                         )
                     }
                 if (viewerPrepared == null) {

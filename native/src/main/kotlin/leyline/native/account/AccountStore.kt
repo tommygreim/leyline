@@ -7,8 +7,11 @@ import org.jetbrains.exposed.v1.jdbc.SchemaUtils
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import org.jetbrains.exposed.v1.jdbc.update
 import org.mindrot.jbcrypt.BCrypt
+import java.security.SecureRandom
 import java.time.Instant
+import java.util.Base64
 import java.util.UUID
 
 /**
@@ -30,8 +33,86 @@ class AccountStore(
         override val primaryKey = PrimaryKey(accountId)
     }
 
+    internal object RefreshCredentials : Table("local_refresh_credentials") {
+        val digest = text("digest")
+        val personaId = text("persona_id")
+        override val primaryKey = PrimaryKey(digest)
+    }
+
+    internal object Secrets : Table("local_account_secrets") {
+        val name = text("name")
+        val value = text("value")
+        override val primaryKey = PrimaryKey(name)
+    }
+
     fun createTables() {
-        transaction(database) { SchemaUtils.create(Accounts) }
+        transaction(database) { SchemaUtils.create(Accounts, RefreshCredentials, Secrets) }
+    }
+
+    /** Persistent server key; access tokens must be verifiable across listeners and restarts. */
+    fun tokenSigningKey(): ByteArray =
+        transaction(database) {
+            val existing = Secrets.selectAll().where { Secrets.name eq "access-token-signing" }.firstOrNull()
+            if (existing != null) {
+                Base64.getDecoder().decode(existing[Secrets.value])
+            } else {
+                val key = ByteArray(32).also { SecureRandom().nextBytes(it) }
+                Secrets.insert {
+                    it[name] = "access-token-signing"
+                    it[value] = Base64.getEncoder().encodeToString(key)
+                }
+                key
+            }
+        }
+
+    internal fun saveRefreshCredential(
+        digest: String,
+        personaId: String,
+    ) {
+        transaction(database) {
+            RefreshCredentials.insert {
+                it[RefreshCredentials.digest] = digest
+                it[RefreshCredentials.personaId] = personaId
+            }
+        }
+    }
+
+    internal fun findRefreshPersona(digest: String): String? =
+        transaction(database) {
+            RefreshCredentials
+                .selectAll()
+                .where { RefreshCredentials.digest eq digest }
+                .firstOrNull()
+                ?.get(RefreshCredentials.personaId)
+        }
+
+    fun createLocalProfile(displayName: String): Account {
+        val account =
+            Account(
+                accountId = UUID.randomUUID().toString(),
+                personaId = UUID.randomUUID().toString(),
+                email = "${UUID.randomUUID()}@local",
+                displayName = generateUniqueDisplayName(displayName),
+                country = "US",
+                dob = "1990-01-01",
+                createdAt = Instant.now().toString(),
+            )
+        // Local profiles use a saved refresh credential; no user-facing password exists.
+        insert(account, UUID.randomUUID().toString())
+        return account
+    }
+
+    fun renameLocalProfile(
+        personaId: String,
+        displayName: String,
+    ): Account? {
+        val account = findByPersonaId(personaId) ?: return null
+        if (account.displayName.substringBeforeLast('#') == displayName) return account
+        val name = generateUniqueDisplayName(displayName)
+        transaction(database) {
+            Accounts.update({ Accounts.personaId eq personaId }) { it[Accounts.displayName] = name }
+        }
+        return account.copy(displayName = name)
     }
 
     /** Create a local account row. Used by tests and local bootstrap helpers. */

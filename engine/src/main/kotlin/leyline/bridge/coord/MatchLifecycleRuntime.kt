@@ -70,6 +70,40 @@ internal class MatchLifecycleRuntime(
         val zoneCount: Int,
     )
 
+    private val humanMulliganCounts = mutableMapOf<SeatId, Int>()
+
+    fun publishHumanMulliganPrompt(
+        seatId: SeatId,
+        prompt: MulliganBridge.PendingPrompt,
+    ): Int =
+        withPlan(seatId) { prior, planner, gameStateId ->
+            val previousCount = humanMulliganCounts[seatId] ?: 0
+            val prepared =
+                prepare {
+                    LifecycleMessageMaterializer.humanMulliganPrompt(
+                        owner.bridge,
+                        owner.registeredViewers(),
+                        seatId,
+                        prompt,
+                        redraw = prompt.mulliganCount > previousCount,
+                        gameStateId = gameStateId,
+                        planner = planner,
+                    )
+                }
+            owner.cutInstaller.install(
+                PreparedCut.prepareForViewers(
+                    prior,
+                    planner,
+                    prepared.viewers.map { (seat, messages) -> PreparedViewerOutput(seat, listOf(messages)) },
+                    prepared.transition,
+                    closesPlaybackFrame = false,
+                ),
+                onInstalled = { humanMulliganCounts[seatId] = prompt.mulliganCount },
+                onFailure = owner::fail,
+            )
+            gameStateId
+        }
+
     fun publishInitial(
         seatId: SeatId,
         includeStartingPlayerPrompt: Boolean,
@@ -154,8 +188,16 @@ internal class MatchLifecycleRuntime(
         message
             .toBuilder()
             .setMsgId(msgId)
-            .setConnectResp(message.connectResp.toBuilder().setSettings(owner.bridge.priorityPolicy.currentSettings()))
-            .build()
+            .setConnectResp(
+                message.connectResp.toBuilder().setSettings(
+                    owner.bridge
+                        .priorityPolicy(
+                            SeatId(
+                                message.systemSeatIdsList.firstOrNull() ?: 1,
+                            ),
+                        ).currentSettings(),
+                ),
+            ).build()
 
     private fun publishReconnect(
         seatId: SeatId,

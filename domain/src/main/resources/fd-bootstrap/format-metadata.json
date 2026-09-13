@@ -362,6 +362,17 @@
       "sideboardMax": 15
     },
     {
+      "name": "Timeless",
+      "pool": "historic",
+      "bannedCards": [],
+      "formatType": 3,
+      "deckSize": {
+        "min": 60,
+        "max": 250
+      },
+      "sideboardMax": 7
+    },
+    {
       "name": "Sealed",
       "singleton": 2,
       "formatType": 2,

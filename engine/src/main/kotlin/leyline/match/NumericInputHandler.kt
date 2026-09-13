@@ -33,10 +33,15 @@ class NumericInputHandler(
     fun onNumericInputResp(greMsg: ClientToGREMessage): Boolean {
         val bridge = ctx.bridge
         val pending =
-            bridge.cutCoordinator.currentBlockingInteraction()?.takeIf { it.interaction is BlockingInteraction.Numeric } ?: run {
-                log.warn("NumericInputHandler: no pending prompt for NumericInputResp")
-                return false
-            }
+            bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .blocking
+                .current()
+                ?.takeIf { it.interaction is BlockingInteraction.Numeric }
+                ?: run {
+                    log.warn("NumericInputHandler: no pending prompt for NumericInputResp")
+                    return false
+                }
         val prompt = pending.interaction as BlockingInteraction.Numeric
 
         val value = greMsg.numericInputResp.numericInputValue
@@ -47,7 +52,14 @@ class NumericInputHandler(
             prompt.sourceId ?: "unknown",
         )
 
-        if (!bridge.cutCoordinator.submitNumericAnswer(pending.interactionId, greMsg.gameStateId, value)) return false
+        if (!bridge.cutCoordinator
+                .promptRuntimes(
+                    ctx.seatId,
+                ).blocking
+                .submitNumeric(pending.interactionId, greMsg.gameStateId, value)
+        ) {
+            return false
+        }
         return true
     }
 }

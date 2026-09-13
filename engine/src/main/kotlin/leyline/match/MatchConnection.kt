@@ -48,9 +48,7 @@ class MatchConnection(
     /** One-shot opponent deck name consumed only while creating a new match. */
     private val aiDeckNameOverride: () -> String? = { null },
     /** Receives the committed result after terminal output is delivered. */
-    private val resultObserver: (MatchResultObservation) -> Unit = {
-        coordinator?.reportMatchResult(it.won)
-    },
+    private val resultObserver: ((MatchResultObservation) -> Unit)? = null,
     /** Optional setup after puzzle loading and before its runtime loop starts. */
     internal val beforePuzzleRuntimeStart: ((GameBridge) -> Unit)? = null,
 ) {
@@ -60,6 +58,7 @@ class MatchConnection(
     private var lastConnectedMatchId: String? = null
     private var lastConnectedSeatId: Int? = null
     private var detachedAfterTeardown = false
+    private var seatAssignment: MatchSeatAssignment? = null
 
     /**
      * Connection lifecycle. Identity accrues while [MatchHandlerState.Handshaking]
@@ -154,6 +153,7 @@ class MatchConnection(
             resolveSeatDecks = { resolveSeatDecks().let { it.seat1 to it.seat2 } },
             resolveGameVariant = ::resolveGameVariant,
             isSpectatorMode = ::isSpectatorMode,
+            isHumanVsHuman = ::isHumanVsHuman,
             onLocalPlayerConnected = ::onLocalPlayerConnected,
         )
 
@@ -168,7 +168,21 @@ class MatchConnection(
 
     private fun resolveRuntimeMatchConfig(): RuntimeMatchConfig? = runtimeMatchConfigs?.get(matchId)
 
-    private fun isSpectatorMode(): Boolean = runtimeMatchConfigs?.get(matchId)?.spectatorMode ?: engineSettings.spectatorMode
+    private fun isSpectatorMode(): Boolean =
+        if (isHumanVsHuman()) false else runtimeMatchConfigs?.get(matchId)?.spectatorMode ?: engineSettings.spectatorMode
+
+    private fun isHumanVsHuman(): Boolean = resolveRuntimeMatchConfig()?.humanVsHuman == true
+
+    /** Bind the host-validated room reservation before the initial GRE connect. */
+    fun assignSeat(assignment: MatchSeatAssignment) {
+        check(seatAssignment == null && connected == null) { "This connection already has a seat" }
+        val hs = checkNotNull(handshaking)
+        hs.matchId = assignment.matchId
+        hs.clientId = assignment.playerId
+        hs.seatId = assignment.seatId.value
+        hs.isFamiliar = assignment.familiar
+        seatAssignment = assignment
+    }
 
     fun opened() {
         log.info("Match connection opened")
@@ -239,13 +253,14 @@ class MatchConnection(
     private fun handleMatchDoorConnect(msg: ClientToMatchServiceMessage) {
         val connectReq = ClientToMatchDoorConnectRequest.parseFrom(msg.payload)
         val hs = requireHandshaking()
+        seatAssignment?.let { require(connectReq.matchId == it.matchId) { "Match does not match the assigned room" } }
         if (connectReq.matchId.isNotEmpty()) hs.matchId = connectReq.matchId
         log.info("Match Door: connect matchId={}", hs.matchId)
 
         if (connectReq.clientToGreMessageBytes.isEmpty) return
 
         val greMsg = ClientToGREMessage.parseFrom(connectReq.clientToGreMessageBytes)
-        if (greMsg.systemSeatId > 0) hs.seatId = greMsg.systemSeatId
+        if (seatAssignment == null && greMsg.systemSeatId > 0) hs.seatId = greMsg.systemSeatId
         log.info("Match Door: detected seatId={}", hs.seatId)
         // Session creation deferred to the ConnectReq branch in processGREMessage:
         // MatchSession requires a non-null bridge at construction, so we wait for
@@ -313,8 +328,23 @@ class MatchConnection(
                 matchId = matchId,
                 sink = sink,
                 registry = registry,
-                resultObserver = resultObserver,
-            ).also { it.playerId = clientId.removeSuffix("_Familiar") }
+                resultObserver = { observation ->
+                    if (resultObserver != null) {
+                        resultObserver.invoke(observation)
+                    } else if (seatAssignment?.humanVsHuman != true) {
+                        coordinator?.reportMatchResult(observation.won)
+                    }
+                },
+            ).also { connection ->
+                connection.playerId = clientId.removeSuffix("_Familiar")
+                seatAssignment?.takeIf { it.humanVsHuman }?.let { assignment ->
+                    connection.roomPlayers =
+                        assignment.players.map {
+                            HandshakeMessages.RoomPlayer(it.playerId, it.displayName, it.seatId.value)
+                        }
+                    connection.eventName = assignment.eventName
+                }
+            }
         val s =
             MatchSession(
                 connection = connection,
@@ -363,6 +393,12 @@ class MatchConnection(
 
     @Suppress("ElseCaseInsteadOfExhaustiveWhen")
     private fun processGREMessage(greMsg: ClientToGREMessage) {
+        seatAssignment?.let { assignment ->
+            require(greMsg.systemSeatId == 0 || greMsg.systemSeatId == assignment.seatId.value) {
+                "GRE seat does not match the assigned player"
+            }
+            require(greMsg.type != ClientMessageType.ConnectReq_097b || session == null) { "The assigned seat is already connected" }
+        }
         // MatchSession owns gameplay-response admission and emits the accepted/
         // rejected event. Keep Tap for pre-session and unowned protocol receipts,
         // where no structured lifecycle event exists.
@@ -467,7 +503,17 @@ class MatchConnection(
         val playerId = clientId.removeSuffix("_Familiar")
         val opponentName = "AI Opponent"
         val eventName = coordinator?.selectedEventName ?: "AIBotMatch"
-        val msg = HandshakeMessages.roomState(matchId, playerId, opponentName, eventName, true)
+        val assignment = seatAssignment
+        val msg =
+            if (assignment?.humanVsHuman == true) {
+                HandshakeMessages.roomState(
+                    matchId,
+                    assignment.eventName,
+                    assignment.players.map { HandshakeMessages.RoomPlayer(it.playerId, it.displayName, it.seatId.value) },
+                )
+            } else {
+                HandshakeMessages.roomState(matchId, playerId, opponentName, eventName, true)
+            }
         output.send(msg)
         Tap.outboundTemplate("room_state", matchId = matchId, seat = seatId)
     }
@@ -482,7 +528,11 @@ class MatchConnection(
         )
         s.deliverLifecycle(bridge)
         Tap.outboundTemplate("initial_bundle", matchId = matchId, seat = seatId)
-        if (!isSpectatorMode()) mulliganHandler.startFamiliarIfReady()
+        if (isHumanVsHuman()) {
+            mulliganHandler.startPlayersIfReady()
+        } else if (!isSpectatorMode()) {
+            mulliganHandler.startFamiliarIfReady()
+        }
     }
 
     private fun onLocalPlayerConnected(bridge: GameBridge) {
@@ -505,7 +555,7 @@ class MatchConnection(
         val seatedEvent = lastConnectedSeatId?.let { correlatedEvent.addKeyValue("seat", it) } ?: correlatedEvent
         seatedEvent.log("Match client disconnected")
         stopRuntimeDeliveryObserver()
-        if (detachedAfterTeardown) return
+        if (detachedAfterTeardown || (session == null && seatAssignment == null)) return
         if (isSpectatorMode() && isFamiliar) {
             log.info("Match Door: spectator familiar disconnected, leaving AI match active")
             return
@@ -524,7 +574,7 @@ class MatchConnection(
         val seatedEvent = lastConnectedSeatId?.let { correlatedEvent.addKeyValue("seat", it) } ?: correlatedEvent
         seatedEvent.log("Match connection failed")
         stopRuntimeDeliveryObserver()
-        if (detachedAfterTeardown) {
+        if (detachedAfterTeardown || (session == null && seatAssignment == null)) {
             output.close()
             return
         }
@@ -542,6 +592,8 @@ class MatchConnection(
         stopRuntimeDeliveryObserver()
         detachedAfterTeardown = true
         state = MatchHandlerState.Handshaking()
+        if (seatAssignment != null) output.close()
+        seatAssignment = null
     }
 
     /**
@@ -694,7 +746,8 @@ class MatchConnection(
     }
 
     /** A runtime launch overrides the selected event; event selection remains the client-match fallback. */
-    private fun resolveGameVariant(): String? = runtimeGameVariant(resolveRuntimeMatchConfig(), coordinator?.selectedEventName)
+    private fun resolveGameVariant(): String? =
+        runtimeGameVariant(resolveRuntimeMatchConfig(), seatAssignment?.eventName ?: coordinator?.selectedEventName)
 }
 
 /** Explicit runtime variants take precedence over event-selected format inference. */

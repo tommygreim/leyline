@@ -27,11 +27,11 @@ class TokenServiceTest :
                 createdAt = "2026-01-01T00:00:00Z",
             )
 
-        test("issueTokens returns arena-shaped JWT access and refresh tokens") {
+        test("issueTokens returns signed JWT access and opaque refresh tokens") {
             val pair = service.issueTokens(testAccount)
             assertSoftly {
                 pair.accessToken shouldContain "."
-                pair.refreshToken shouldContain "."
+                pair.refreshToken shouldContain "leyline-local-"
                 pair.expiresIn shouldBe TokenService.ACCESS_EXPIRY_SECONDS
             }
         }
@@ -76,9 +76,39 @@ class TokenServiceTest :
             service.validateAccessToken(pair.accessToken) shouldBe "TEST-PERSONA-ID"
         }
 
-        test("refresh validation matches access validation for issued tokens") {
+        test("access and refresh credentials cannot be substituted") {
             val pair = service.issueTokens(testAccount)
-            service.validateRefreshToken(pair.accessToken) shouldBe "TEST-PERSONA-ID"
+            service.validateRefreshToken(pair.accessToken).shouldBeNull()
+            service.validateAccessToken(pair.refreshToken).shouldBeNull()
+        }
+
+        test("forged persona claim and unsigned access tokens are rejected") {
+            val pair = service.issueTokens(testAccount)
+            val parts = pair.accessToken.split('.')
+            val encoder = Base64.getUrlEncoder().withoutPadding()
+            val forged = encoder.encodeToString(decodePayload(pair.accessToken).replace("TEST-PERSONA-ID", "OTHER-PERSONA").toByteArray())
+            service.validateAccessToken("${parts[0]}.$forged.${parts[2]}").shouldBeNull()
+            service.validateAccessToken("${parts[0]}.${parts[1]}.").shouldBeNull()
+            TokenService().validateAccessToken(pair.accessToken).shouldBeNull()
+        }
+
+        test("persistent credentials and signing key survive service reconstruction") {
+            val file =
+                java.io.File
+                    .createTempFile("token-restart", ".db")
+                    .also { it.deleteOnExit() }
+
+            fun reopenedStore() =
+                AccountStore(
+                    org.jetbrains.exposed.v1.jdbc.Database
+                        .connect("jdbc:sqlite:${file.absolutePath}", "org.sqlite.JDBC"),
+                ).also { it.createTables() }
+            val first = TokenService(store = reopenedStore())
+            val pair = first.issueTokens(testAccount)
+            val restarted = TokenService(store = reopenedStore())
+            restarted.validateAccessToken(pair.accessToken) shouldBe testAccount.personaId
+            restarted.validateRefreshToken(pair.refreshToken) shouldBe testAccount.personaId
+            restarted.issueTokens(testAccount, pair.refreshToken).refreshToken shouldBe pair.refreshToken
         }
     })
 

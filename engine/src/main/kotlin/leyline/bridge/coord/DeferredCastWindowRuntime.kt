@@ -349,7 +349,7 @@ internal class DeferredCastWindowRuntime(
             validate(publication)
             val seatId = actions.seatFor(publication.claim.actionId)
             owner.registerViewer(seatId)
-            val routes = owner.viewerRoutes()
+            val routes = owner.viewerRoutes(seatId)
             val prior = owner.bridge.projectionStateSnapshot()
             val planner = LogicalSequencePlanner(prior.sequence)
             prepareAndInstallLocked(routes, publication, prior, planner)
@@ -374,7 +374,7 @@ internal class DeferredCastWindowRuntime(
             validate(publication)
             val seatId = actions.seatFor(pending.actionClaim.actionId)
             owner.registerViewer(seatId)
-            val routes = owner.viewerRoutes()
+            val routes = owner.viewerRoutes(seatId)
             val prior = owner.bridge.projectionStateSnapshot()
             val planner = LogicalSequencePlanner(prior.sequence)
             prepareAndInstallLocked(routes, publication, prior, planner)
@@ -474,7 +474,7 @@ internal class DeferredCastWindowRuntime(
                 outputs = prepared.viewers.map { PreparedViewerOutput(it.seatId, it.batches) },
                 projection = prepared.transition,
                 closesPlaybackFrame = prepared.closesPlaybackFrame,
-                playbackOwnerSeatId = owner.humanSeat.takeIf { prepared.closesPlaybackFrame },
+                playbackOwnerSeatId = actions.seatFor(publication.claim.actionId).takeIf { prepared.closesPlaybackFrame },
             ),
             CutInstallHooks(beforeInstall = beforeInstall),
             onInstalled = {

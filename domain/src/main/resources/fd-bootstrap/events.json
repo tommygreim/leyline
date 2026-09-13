@@ -29,7 +29,20 @@
     "titleLocKey": "Events/Event_Title_SparkyChallenge",
     "descLocKey": "Events/Event_Desc_SparkyChallenge"
   },
-{
+  {
+    "internalName": "Play_Timeless",
+    "publicName": "Timeless Play",
+    "deckSelectFormat": "Timeless",
+    "displayPriority": -1,
+    "flags": [
+      "IsArenaPlayModeEvent",
+      "SkipDeckValidation",
+      "AllowUncollectedCards"
+    ],
+    "titleLocKey": "Events/Event_Title_Play_Timeless",
+    "descLocKey": "Events/Event_Desc_Play_Timeless"
+  },
+  {
     "internalName": "Play_Brawl",
     "publicName": "Standard Brawl",
     "deckSelectFormat": "Brawl",

@@ -171,6 +171,31 @@ object GameBootstrap {
         return game
     }
 
+    /** Constructed or Commander game with two independent GUI-compatible human controllers. */
+    fun createHumanVsHumanGame(
+        deck1: Deck,
+        deck2: Deck,
+        variant: String? = null,
+    ): Game {
+        ensureLocalization()
+        val gameType = variant?.let(::resolveCommanderVariant) ?: GameType.Constructed
+        val players =
+            listOf(deck1, deck2).mapIndexed { index, deck ->
+                val registered = if (variant == null) RegisteredPlayer(deck) else RegisteredPlayer.forCommander(deck)
+                registered.setPlayer(LobbyPlayerHuman("Player ${index + 1}"))
+                if (gameType == GameType.Brawl) registered.startingLife = BRAWL_STARTING_LIFE
+                registered
+            }
+        val rules = GameRules(gameType)
+        if (variant != null) rules.addAppliedVariant(gameType)
+        val match = Match(rules, players, "Local two-player match")
+        return Game(players, rules, match).also { game ->
+            game.players.forEach { player ->
+                (player.controller as? PlayerControllerHuman)?.gui = headlessGuiGame()
+            }
+        }
+    }
+
     fun createCommanderGame(
         humanDeck: Deck,
         aiDeck: Deck,

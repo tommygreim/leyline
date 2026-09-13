@@ -11,7 +11,9 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Production: singleton instance. Tests: fresh per test.
  */
-class MatchRegistry {
+class MatchRegistry(
+    private val onMatchTeardown: (String) -> Unit = {},
+) {
     private val log = LoggerFactory.getLogger(MatchRegistry::class.java)
 
     /** matchId -> shared Match. First seat creates, second reuses. */
@@ -36,8 +38,13 @@ class MatchRegistry {
         seatId: SeatId,
         session: SessionOps,
     ) {
-        val previous = sessions.computeIfAbsent(matchId) { ConcurrentHashMap() }.put(seatId.value, session)
-        if (previous is SpectatorSession && previous !== session) previous.close()
+        sessions.computeIfAbsent(matchId) { ConcurrentHashMap() }.compute(seatId.value) { _, previous ->
+            require(matches[matchId]?.bridge?.humanVsHuman != true || previous == null || previous === session) {
+                "A human seat already has a session"
+            }
+            if (previous is SpectatorSession && previous !== session) previous.close()
+            session
+        }
     }
 
     /** Get the OTHER seat's session (seat 1 -> seat 2, seat 2 -> seat 1). */
@@ -72,7 +79,12 @@ class MatchRegistry {
         seatId: SeatId,
         connection: MatchConnection,
     ) {
-        connections.computeIfAbsent(matchId) { ConcurrentHashMap() }[seatId.value] = connection
+        connections.computeIfAbsent(matchId) { ConcurrentHashMap() }.compute(seatId.value) { _, previous ->
+            require(matches[matchId]?.bridge?.humanVsHuman != true || previous == null || previous === connection) {
+                "A human seat already has a connection"
+            }
+            connection
+        }
     }
 
     fun getConnection(
@@ -102,6 +114,7 @@ class MatchRegistry {
         } else {
             fallbackBridge?.shutdown()
         }
+        onMatchTeardown(matchId)
 
         val event =
             log

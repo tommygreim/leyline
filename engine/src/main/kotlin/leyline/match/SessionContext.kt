@@ -10,4 +10,5 @@ import leyline.game.state.GameBridge
 data class SessionContext(
     val game: Game,
     val bridge: GameBridge,
+    val seatId: leyline.bridge.types.SeatId = leyline.bridge.types.SeatId(1),
 )

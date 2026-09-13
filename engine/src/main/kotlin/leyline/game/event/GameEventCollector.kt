@@ -1238,14 +1238,22 @@ class GameEventCollector(
 
     override fun visit(ev: GameEventScry) {
         val seat = seatOf(ev.player()) ?: return
-        val arranged = bridge.cutCoordinator.grouping.pollArrangement(seat, GroupingContext.Scry_a0f6)
+        val arranged =
+            bridge.cutCoordinator
+                .promptRuntimes(seat)
+                .grouping
+                .pollArrangement(seat, GroupingContext.Scry_a0f6)
         frame.add(GameEvent.Scry(seat, arranged?.topIds.orEmpty(), arranged?.awayIds.orEmpty()))
         log.debug("event: Scry seat={} top={} bottom={}", seat, arranged?.topIds.orEmpty(), arranged?.awayIds.orEmpty())
     }
 
     override fun visit(ev: GameEventSurveil) {
         val seat = seatOf(ev.player()) ?: return
-        val arranged = bridge.cutCoordinator.grouping.pollArrangement(seat, GroupingContext.Surveil)
+        val arranged =
+            bridge.cutCoordinator
+                .promptRuntimes(seat)
+                .grouping
+                .pollArrangement(seat, GroupingContext.Surveil)
         frame.add(GameEvent.Surveil(seat, arranged?.topIds.orEmpty(), arranged?.awayIds.orEmpty()))
         log.debug("event: Surveil seat={} lib={} gy={}", seat, arranged?.topIds.orEmpty(), arranged?.awayIds.orEmpty())
     }

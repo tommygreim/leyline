@@ -12,6 +12,7 @@ import kotlinx.serialization.json.put
 import leyline.domain.CourseDeck
 import leyline.domain.CourseDeckSummary
 import leyline.domain.CourseModule
+import leyline.domain.Deck
 import leyline.domain.DeckId
 import leyline.domain.MatchInfo
 import leyline.domain.PlayerId
@@ -24,6 +25,7 @@ import leyline.domain.service.DraftService
 import leyline.domain.service.EventRegistry
 import leyline.domain.service.MatchCoordinator
 import leyline.domain.service.MatchmakingService
+import leyline.native.account.LocalAccountAuthenticator
 import leyline.native.frontdoor.service.LobbyStubs
 import leyline.native.frontdoor.service.PlayerService
 import leyline.native.frontdoor.wire.CmdType
@@ -37,6 +39,7 @@ import leyline.native.frontdoor.wire.FdResponseWriter
 import leyline.native.frontdoor.wire.FdWireConstants
 import leyline.native.frontdoor.wire.PlayerWireBuilder
 import leyline.native.frontdoor.wire.StartHookBuilder
+import leyline.native.matchmaking.LocalPairingService
 import org.slf4j.LoggerFactory
 import java.util.Locale
 import java.util.UUID
@@ -52,7 +55,7 @@ import java.util.UUID
  * and responses go through [FdResponseWriter].
  */
 class FrontDoorHandler(
-    private val playerId: PlayerId,
+    authenticator: LocalAccountAuthenticator,
     private val deckRepository: DeckRepository,
     private val playerService: PlayerService,
     private val matchmaking: MatchmakingService,
@@ -61,9 +64,15 @@ class FrontDoorHandler(
     private val draftService: DraftService,
     private val writer: FdResponseWriter,
     private val bootstrapData: FrontDoorBootstrapData,
-    private val coordinator: MatchCoordinator = MatchCoordinator.NOOP,
+    coordinatorFactory: (PlayerId) -> MatchCoordinator = { MatchCoordinator.NOOP },
+    private val pairingService: LocalPairingService? = null,
 ) : ChannelInboundHandlerAdapter() {
     private val log = LoggerFactory.getLogger(FrontDoorHandler::class.java)
+    private val identity = FrontDoorIdentity(authenticator, playerService, writer, coordinatorFactory)
+    private val account get() = identity.account
+    private val playerId get() = identity.playerId
+    private val coordinator get() = identity.coordinator
+    private val connectionId get() = identity.connectionId
 
     /**
      * Deck selected via 622 (Event_SetDeckV2), keyed by eventName. Consumed by 603 (EnterPairing).
@@ -91,6 +100,10 @@ class FrontDoorHandler(
 
     override fun channelActive(ctx: ChannelHandlerContext) {
         log.info("Front Door: client connected")
+    }
+
+    override fun channelInactive(ctx: ChannelHandlerContext) {
+        pairingService?.leave(connectionId)
     }
 
     override fun channelRead(
@@ -168,45 +181,7 @@ class FrontDoorHandler(
         }
     }
 
-    /** Table-driven stubs — CmdTypes that return static bootstrap data with no logic. */
-    private val stubs: Map<Int, () -> FdResponse> =
-        mapOf(
-            // Static bootstrap data (proto)
-            CmdType.GET_FORMATS.value to { FdResponse.RawProto(bootstrapData.getFormatsProto) },
-            CmdType.GET_SETS.value to { FdResponse.RawProto(bootstrapData.getSetsProto) },
-            // Static bootstrap data (JSON)
-            CmdType.DECK_GET_PRECONS_V3.value to { FdResponse.Json(bootstrapData.preconDecksJson) },
-            CmdType.CAROUSEL_GET_ITEMS.value to { FdResponse.Json("[]") },
-            CmdType.GRAPH_GET_DEFINITIONS.value to { FdResponse.Json(bootstrapData.graphDefinitionsJson) },
-            CmdType.GET_DESIGNER_METADATA.value to { FdResponse.Json(bootstrapData.designerMetadataJson) },
-            // Lobby stubs
-            CmdType.EVENT_GET_ACTIVE_MATCHES.value to { FdResponse.Json(LobbyStubs.activeMatches()) },
-            CmdType.CURRENCY_GET_CURRENCIES.value to { FdResponse.Json(LobbyStubs.currencies()) },
-            CmdType.BOOSTER_GET_OWNED.value to { FdResponse.Json(LobbyStubs.boosters()) },
-            CmdType.QUEST_GET_QUESTS.value to { FdResponse.Json(LobbyStubs.quests()) },
-            CmdType.RANK_GET_COMBINED.value to { FdResponse.Json(LobbyStubs.rankInfo()) },
-            CmdType.RANK_GET_SEASON_DETAILS.value to { FdResponse.Json(LobbyStubs.rankSeasonDetails()) },
-            CmdType.RANK_EVALUATE_PAYOUTS_V2.value to { FdResponse.Json(LobbyStubs.rankSeasonDetails()) },
-            CmdType.PERIODIC_REWARDS_GET_STATUS.value to { FdResponse.Json(LobbyStubs.periodicRewards()) },
-            CmdType.RENEWAL_GET_CURRENT.value to { FdResponse.Json(LobbyStubs.periodicRewards()) },
-            CmdType.COSMETICS_GET_OWNED.value to { FdResponse.Json(LobbyStubs.cosmetics()) },
-            CmdType.GET_NET_DECK_FOLDERS.value to { FdResponse.Json(LobbyStubs.netDeckFolders()) },
-            CmdType.STATIC_CONTENT.value to { FdResponse.Json(LobbyStubs.staticContent()) },
-            CmdType.GET_ALL_PREFERRED_PRINTINGS.value to { FdResponse.Json(LobbyStubs.preferredPrintings()) },
-            CmdType.GET_ALL_PRIZE_WALLS.value to { FdResponse.Json(LobbyStubs.prizeWalls()) },
-            CmdType.MERC_GET_STORE_STATUS_V2.value to { FdResponse.Json(LobbyStubs.storeStatus()) },
-            CmdType.STORE_GET_ENTITLEMENTS_V2.value to { FdResponse.Json(LobbyStubs.entitlements()) },
-            CmdType.MERC_GET_SKUS_AND_LISTINGS.value to { FdResponse.Json(LobbyStubs.skusAndListings()) },
-            CmdType.LOG_BUSINESS_EVENTS.value to { FdResponse.Json(LobbyStubs.telemetryAck()) },
-            CmdType.LOG_BUSINESS_EVENTS_V2.value to { FdResponse.Json(LobbyStubs.telemetryAck()) },
-            // Typed proto stubs
-            CmdType.GET_VOUCHER_DEFINITIONS.value to {
-                FdResponse.TypedProto(
-                    "Wizards.Arena.Models.Network.GetVoucherDefinitionsResponse",
-                )
-            },
-            CmdType.CHALLENGE_RECONNECT_ALL.value to { FdResponse.TypedProto("Wizards.Arena.Models.Network.ChallengeReconnectAllResp") },
-        )
+    private val stubs = frontDoorStubs(bootstrapData)
 
     @Suppress(
         "CanBeNonNullable",
@@ -214,6 +189,7 @@ class FrontDoorHandler(
         "LongMethod",
     ) // `json` comes from the decoder which may emit null for empty bodies.
     private fun dispatch(ctx: ChannelHandlerContext, cmdType: Int?, txId: String?, json: String?, protobufTypeUrl: String?) {
+        if (!identity.accept(ctx, cmdType, txId, json)) return
         // Fast path: table-driven stubs (no logic, just data)
         stubs[cmdType]?.let { supplier ->
             writer.send(ctx, txId, supplier())
@@ -222,12 +198,6 @@ class FrontDoorHandler(
 
         // Commands with real logic
         when (cmdType) {
-            CmdType.AUTHENTICATE.value -> {
-                log.info("Front Door: auth → session")
-                val session = playerService.authenticate(playerId, "Player")
-                writer.send(ctx, txId, FdResponse.Json("""{"SessionId":"${session.value}","Attached":true}"""))
-            }
-
             CmdType.START_HOOK.value -> {
                 val decks = deckRepository.findAllForPlayer(playerId)
                 val hook = StartHookBuilder.build(decks)
@@ -258,10 +228,22 @@ class FrontDoorHandler(
             CmdType.EVENT_AI_BOT_MATCH.value -> {
                 val req = FdRequests.parseAiBotMatch(json)
                 val deckId = req?.deckId
-                if (deckId != null) coordinator.selectDeck(deckId)
+                if (deckId == null || ownedDeck(deckId) == null) {
+                    writer.send(ctx, txId, FdResponse.Empty)
+                    return
+                }
+                coordinator.selectDeck(deckId)
                 coordinator.selectEvent("AIBotMatch")
-                val match = matchmaking.startAiMatch(playerId, DeckId(deckId.orEmpty()), "AIBotMatch")
-                log.info("Front Door: Event_AiBotMatch deckId={} botDeckId={} → ack + pushing MatchCreated", deckId, req?.botDeckId)
+                val match = matchmaking.startAiMatch(playerId, DeckId(deckId), "AIBotMatch")
+                try {
+                    pairingService?.leave(connectionId)
+                    pairingService?.registerBot(match, playerId, checkNotNull(account).displayName)
+                } catch (e: IllegalArgumentException) {
+                    log.info("Front Door: Bot Match unavailable: {}", e.message)
+                    writer.send(ctx, txId, FdResponse.Empty)
+                    return
+                }
+                log.info("Front Door: Event_AiBotMatch deckId={} botDeckId={} → ack + pushing MatchCreated", deckId, req.botDeckId)
                 writer.send(ctx, txId, FdResponse.Empty)
                 sendMatchCreated(ctx, match)
             }
@@ -325,7 +307,19 @@ class FrontDoorHandler(
             CmdType.DECK_DELETE.value -> {
                 val req = FdRequests.parseDeleteDeck(json)
                 if (req != null) {
-                    deckRepository.delete(DeckId(req.deckId))
+                    val deleted =
+                        synchronized(deckRepository) {
+                            if (ownedDeck(req.deckId) == null) {
+                                false
+                            } else {
+                                deckRepository.delete(DeckId(req.deckId))
+                                true
+                            }
+                        }
+                    if (!deleted) {
+                        writer.send(ctx, txId, FdResponse.Empty)
+                        return
+                    }
                     log.info("Front Door: Deck_DeleteDeck '{}'", req.deckId)
                 }
                 writer.send(ctx, txId, FdResponse.Json("Success"))
@@ -335,8 +329,7 @@ class FrontDoorHandler(
                 requireJson(ctx, txId, json) { body ->
                     val savedDeck = DeckWireBuilder.parseDeckUpdate(body, playerId)
                     val resp =
-                        if (savedDeck != null) {
-                            deckRepository.save(savedDeck)
+                        if (savedDeck != null && saveOwnedDeck(savedDeck)) {
                             log.info("Front Door: Deck_UpsertDeckV2 saved '{}'", savedDeck.name)
                             val summary = DeckWireBuilder.toV2Summary(savedDeck)
                             buildJsonObject { put("Summary", summary) }
@@ -352,8 +345,7 @@ class FrontDoorHandler(
                 requireJson(ctx, txId, json) { body ->
                     val savedDeck = DeckWireBuilder.parseDeckUpdate(body, playerId)
                     val resp =
-                        if (savedDeck != null) {
-                            deckRepository.save(savedDeck)
+                        if (savedDeck != null && saveOwnedDeck(savedDeck)) {
                             log.info("Front Door: Deck_UpsertDeckV3 saved '{}'", savedDeck.name)
                             DeckWireBuilder.toStartHookSummary(savedDeck)
                         } else {
@@ -430,6 +422,20 @@ class FrontDoorHandler(
                     val deckId = courseDeckId ?: eventName?.let { selectedDeckByEvent[it] }
                     if (deckId != null) coordinator.selectDeck(deckId)
 
+                    if (pairingService != null) {
+                        require(eventName != null && deckId != null) { "An event and owned deck are required for pairing" }
+                        val cards =
+                            coordinator.resolveDeckCards(deckId)
+                                ?: throw IllegalArgumentException("Selected deck is unavailable")
+                        pairingService.queue(connectionId, playerId, checkNotNull(account).displayName, eventName, cards) { seat ->
+                            ctx.executor().execute {
+                                if (ctx.channel().isActive) FrontDoorMatchNotifications.sendPaired(ctx, writer, seat)
+                            }
+                        }
+                        writer.send(ctx, txId, FdResponse.Json("""{"CurrentModule":"CreateMatch","Payload":"Success"}"""))
+                        return
+                    }
+
                     // Ack immediately — spinner shows while waiting for MatchCreated push
                     writer.send(ctx, txId, FdResponse.Json("""{"CurrentModule":"CreateMatch","Payload":"Success"}"""))
 
@@ -454,6 +460,7 @@ class FrontDoorHandler(
             }
 
             CmdType.EVENT_LEAVE_PAIRING.value -> {
+                pairingService?.leave(connectionId)
                 val req = FdRequests.parseEventName(json)
                 log.info("Front Door: Event_LeavePairing event={}", req?.eventName)
                 writer.send(ctx, txId, FdResponse.Empty)
@@ -548,6 +555,11 @@ class FrontDoorHandler(
                 // Same model: attach a deck to the course; differ only in JSON envelope shape
                 // (`Deck.{MainDeck,Sideboard}` for 622, `MainDeck`/`Sideboard` at top for 627).
                 val req = FdRequests.parseSetDeck(json)
+                val existing = req?.deckId?.let { deckRepository.findById(DeckId(it)) }
+                if (existing != null && existing.playerId != playerId) {
+                    writer.send(ctx, txId, FdResponse.Empty)
+                    return
+                }
                 if (req != null && req.deckId != null) {
                     selectedDeckByEvent[req.eventName] = req.deckId
                 }
@@ -588,11 +600,6 @@ class FrontDoorHandler(
             null -> {
                 if (json == null) return
                 when {
-                    "ClientVersion" in json || "Token" in json -> {
-                        log.info("Front Door: auth (fallback, no CmdType) — txId={}", txId)
-                        val sessionId = UUID.randomUUID().toString()
-                        writer.send(ctx, txId, FdResponse.Json("""{"SessionId":"$sessionId","Attached":true}"""))
-                    }
                     "GraphId" in json -> {
                         log.info("Front Door: graph (fallback, no CmdType) — txId={}", txId)
                         handleGraphRequest(ctx, txId, json)
@@ -603,7 +610,7 @@ class FrontDoorHandler(
                         sendMatchCreated(ctx, match)
                     }
                     else -> {
-                        log.info("Front Door: unrecognized (no CmdType): {}", json.take(120))
+                        log.info("Front Door: unrecognized request without CmdType")
                         writer.send(ctx, txId, FdResponse.Empty)
                     }
                 }
@@ -617,6 +624,19 @@ class FrontDoorHandler(
     }
 
     // --- Helpers ---
+
+    private fun ownedDeck(deckId: String): Deck? = deckRepository.findById(DeckId(deckId))?.takeIf { it.playerId == playerId }
+
+    private fun saveOwnedDeck(deck: Deck): Boolean =
+        synchronized(deckRepository) {
+            val existing = deckRepository.findById(deck.id)
+            if (existing != null && existing.playerId != playerId) {
+                false
+            } else {
+                deckRepository.save(deck)
+                true
+            }
+        }
 
     private fun respondForEvent(
         ctx: ChannelHandlerContext,
@@ -669,43 +689,8 @@ class FrontDoorHandler(
         match: MatchInfo,
         yourSeat: Int = 1,
     ) {
-        val matchType = if (yourSeat > 1) "Queue" else "Familiar"
-
-        // Resolve commander grpIds for Brawl events (feeds VSScreen commander reveal).
-        // AI mirrors seat 1's deck (same commander) — seat 2 gets the same grpIds.
-        val commanderGrpIds =
-            coordinator.selectedDeckId?.let { deckId ->
-                deckRepository.findById(DeckId(deckId))?.commandZone?.map { it.grpId }
-            } ?: emptyList()
-
-        val playerInfos =
-            if (commanderGrpIds.isNotEmpty()) {
-                listOf(
-                    FdEnvelope.PlayerInfo(seatId = 1, teamId = 1, name = "Player", commanderGrpIds = commanderGrpIds),
-                    FdEnvelope.PlayerInfo(seatId = 2, teamId = 2, name = "AI Opponent", commanderGrpIds = commanderGrpIds),
-                )
-            } else {
-                null
-            }
-
-        val json =
-            FdEnvelope.buildMatchCreatedJson(
-                match.matchId,
-                match.host,
-                match.port,
-                matchType = matchType,
-                yourSeat = yourSeat,
-                eventId = match.eventName,
-                playerInfos = playerInfos,
-            )
-        log.info(
-            "Front Door: pushing MatchCreated matchId={} event={} seat={} commanders={}",
-            match.matchId,
-            match.eventName,
-            yourSeat,
-            commanderGrpIds.size,
-        )
-        writer.send(ctx, UUID.randomUUID().toString(), FdResponse.Json(json))
+        val commanders = coordinator.selectedDeckId?.let { ownedDeck(it)?.commandZone?.map { card -> card.grpId } }.orEmpty()
+        FrontDoorMatchNotifications.sendBot(ctx, writer, match, checkNotNull(account).displayName, commanders, yourSeat)
     }
 
     private fun handleGraphRequest(

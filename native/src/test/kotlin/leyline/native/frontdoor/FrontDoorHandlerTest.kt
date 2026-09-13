@@ -33,11 +33,13 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import leyline.config.RuntimeMatchConfigRegistry
 import leyline.domain.CollationPool
 import leyline.domain.Deck
 import leyline.domain.DeckCard
 import leyline.domain.DeckId
 import leyline.domain.Format
+import leyline.domain.MatchInfo
 import leyline.domain.PlayerId
 import leyline.domain.repo.InMemoryCourseRepository
 import leyline.domain.repo.InMemoryDraftSessionRepository
@@ -46,12 +48,19 @@ import leyline.domain.service.CourseService
 import leyline.domain.service.DraftService
 import leyline.domain.service.EventRegistry
 import leyline.domain.service.GeneratedPool
+import leyline.domain.service.MatchCoordinator
 import leyline.domain.service.MatchmakingService
+import leyline.domain.service.RepositoryMatchCoordinator
 import leyline.native.NativeTag
+import leyline.native.account.AccountStore
+import leyline.native.account.LocalAccountAuthenticator
+import leyline.native.account.TokenService
 import leyline.native.frontdoor.service.PlayerService
 import leyline.native.frontdoor.wire.FdEnvelope
 import leyline.native.frontdoor.wire.FdResponseWriter
 import leyline.native.frontdoor.wire.FdWireConstants
+import leyline.native.matchmaking.LocalPairingService
+import org.jetbrains.exposed.v1.jdbc.Database
 import org.slf4j.LoggerFactory
 import java.io.ByteArrayOutputStream
 import java.util.UUID
@@ -76,13 +85,23 @@ class FrontDoorHandlerTest :
         val sampleMainDeck = listOf(DeckCard(75515, 4), DeckCard(75516, 56))
 
         val json = Json { ignoreUnknownKeys = true }
-        var channel: EmbeddedChannel? = null
+        val channels = mutableListOf<EmbeddedChannel>()
 
         val store = InMemoryPlayerDeckRepository()
         val bootstrapData = FrontDoorBootstrapData.loadFromClasspath()
         val playerService = PlayerService(store)
         val matchmakingService = MatchmakingService(store, "localhost", 30003)
         val writer = FdResponseWriter()
+        val accountDbFile =
+            java.io.File
+                .createTempFile("fd-accounts", ".db")
+                .also { it.deleteOnExit() }
+        val accounts = AccountStore(Database.connect("jdbc:sqlite:${accountDbFile.absolutePath}", "org.sqlite.JDBC"))
+        accounts.createTables()
+        accounts.seed("test-account", testPlayerId, "test@local", "Tester", "test")
+        val tokens = TokenService(store = accounts)
+        val accessToken = tokens.issueTokens(accounts.findByPersonaId(testPlayerId)!!).accessToken
+        val authenticator = LocalAccountAuthenticator(accounts, tokens)
 
         beforeSpec {
             store.ensurePlayer(PlayerId(testPlayerId), "Tester")
@@ -102,8 +121,8 @@ class FrontDoorHandlerTest :
         }
 
         afterEach {
-            channel?.finishAndReleaseAll()
-            channel = null
+            channels.forEach { it.finishAndReleaseAll() }
+            channels.clear()
         }
 
         /** Create a fresh FD channel wired to our test player. */
@@ -114,6 +133,9 @@ class FrontDoorHandlerTest :
                     GeneratedPool(emptyList(), emptyList(), 0)
                 },
             draftService: DraftService? = null,
+            localToken: String? = accessToken,
+            coordinatorFactory: (PlayerId) -> MatchCoordinator = { MatchCoordinator.NOOP },
+            pairingService: LocalPairingService? = null,
         ): EmbeddedChannel {
             val resolvedDraftService =
                 draftService
@@ -125,7 +147,7 @@ class FrontDoorHandlerTest :
             val ch =
                 EmbeddedChannel(
                     FrontDoorHandler(
-                        playerId = PlayerId(testPlayerId),
+                        authenticator = authenticator,
                         deckRepository = store,
                         playerService = playerService,
                         matchmaking = matchmaking,
@@ -134,9 +156,17 @@ class FrontDoorHandlerTest :
                         draftService = resolvedDraftService,
                         writer = writer,
                         bootstrapData = bootstrapData,
+                        coordinatorFactory = coordinatorFactory,
+                        pairingService = pairingService,
                     ),
                 )
-            channel = ch
+            channels.add(ch)
+            if (localToken != null) {
+                val auth = FdEnvelope.encodeCmd(0, UUID.randomUUID().toString(), """{"Token":"$localToken"}""")
+                val header = FdEnvelope.buildOutgoingHeader(auth.size)
+                ch.writeInbound(Unpooled.wrappedBuffer(header + auth))
+                ch.readOutbound<ByteBuf>()?.release()
+            }
             return ch
         }
 
@@ -216,9 +246,153 @@ class FrontDoorHandlerTest :
         // --- Tests ---
 
         test("CmdType 0 - auth returns SessionId and Attached") {
-            val obj = sendJson(0, """{"ClientVersion":"1.0","Token":"fake"}""")
+            val obj = sendJson(0, """{"ClientVersion":"1.0","Token":"$accessToken"}""")
             obj["SessionId"].shouldNotBeNull()
             obj["Attached"]?.jsonPrimitive?.boolean shouldBe true
+        }
+
+        test("unauthenticated and invalid-token connections cannot read player data") {
+            for (token in listOf<String?>(null, "invalid")) {
+                val ch = fdChannel(localToken = null)
+                val response = if (token == null) ch.sendCmd(1) else ch.sendCmd(0, """{"Token":"$token"}""")
+                json
+                    .parseToJsonElement(response.jsonPayload!!)
+                    .jsonObject["Attached"]!!
+                    .jsonPrimitive.boolean shouldBe false
+                ch.isActive shouldBe false
+            }
+        }
+
+        test("two authenticated connections isolate deck writes deletes and selections") {
+            val alice = accounts.createLocalProfile("Alice")
+            val bob = accounts.createLocalProfile("Bob")
+            val courses = CourseService(InMemoryCourseRepository()) { GeneratedPool(emptyList(), emptyList(), 0) }
+            val coordinators = mutableMapOf<PlayerId, RepositoryMatchCoordinator>()
+            val coordinatorFactory: (PlayerId) -> MatchCoordinator = { pid ->
+                coordinators.getOrPut(pid) { RepositoryMatchCoordinator(pid, store, courses, InMemoryDraftSessionRepository()) }
+            }
+            val a = fdChannel(localToken = tokens.issueTokens(alice).accessToken, coordinatorFactory = coordinatorFactory)
+            val b = fdChannel(localToken = tokens.issueTokens(bob).accessToken, coordinatorFactory = coordinatorFactory)
+
+            fun payload(
+                id: String,
+                name: String,
+            ) = """{"Summary":{"DeckId":"$id","Name":"$name"},"Deck":{"MainDeck":[{"cardId":101,"quantity":60}],"Sideboard":[]}}"""
+            a.sendCmd(412, payload("alice-deck", "Alice Deck"))
+            b.sendCmd(412, payload("bob-deck", "Bob Deck"))
+            for ((ch, expectedId) in listOf(a to "alice-deck", b to "bob-deck")) {
+                val summaries = json.parseToJsonElement(ch.sendCmd(411).jsonPayload!!).jsonObject["Summaries"]!!.jsonArray
+                summaries.map { it.jsonObject["DeckId"]!!.jsonPrimitive.content } shouldBe listOf(expectedId)
+                ch.sendCmdAll(612, """{"deckId":"$expectedId"}""")
+            }
+            coordinators.getValue(PlayerId(alice.personaId)).selectedDeckId shouldBe "alice-deck"
+            coordinators.getValue(PlayerId(bob.personaId)).selectedDeckId shouldBe "bob-deck"
+            b.sendCmd(412, payload("alice-deck", "Stolen"))
+            b.sendCmd(406, payload("alice-deck", "Stolen V2"))
+            b.sendCmd(403, """{"DeckId":"alice-deck"}""")
+            b.sendCmd(612, """{"deckId":"alice-deck"}""")
+            store.findById(DeckId("alice-deck"))!!.name shouldBe "Alice Deck"
+            store.findById(DeckId("alice-deck"))!!.playerId shouldBe PlayerId(alice.personaId)
+            coordinators.getValue(PlayerId(bob.personaId)).selectedDeckId shouldBe "bob-deck"
+            b.sendCmd(400, """{"DeckId":"alice-deck"}""").jsonPayload shouldBe null
+        }
+
+        test("an authenticated connection cannot switch to another local profile") {
+            val ch = fdChannel()
+            val other = accounts.createLocalProfile("Other")
+            val otherToken = tokens.issueTokens(other).accessToken
+            val response = ch.sendCmd(0, """{"Token":"$otherToken"}""")
+            json
+                .parseToJsonElement(response.jsonPayload!!)
+                .jsonObject["Attached"]!!
+                .jsonPrimitive.boolean shouldBe false
+            ch.isActive shouldBe false
+        }
+
+        test("two authenticated Front Doors receive one Queue match with distinct seats and real names") {
+            val first = accounts.createLocalProfile("First")
+            val second = accounts.createLocalProfile("Second")
+            val courses = CourseService(InMemoryCourseRepository()) { GeneratedPool(emptyList(), emptyList(), 0) }
+            val coordinators = mutableMapOf<PlayerId, RepositoryMatchCoordinator>()
+            val factory: (PlayerId) -> MatchCoordinator = { pid ->
+                coordinators.getOrPut(pid) { RepositoryMatchCoordinator(pid, store, courses, InMemoryDraftSessionRepository()) }
+            }
+            val pairing =
+                LocalPairingService(RuntimeMatchConfigRegistry(), matchInfoFactory = { event ->
+                    MatchInfo(UUID.randomUUID().toString(), "localhost", 30003, event)
+                })
+            val firstChannel =
+                fdChannel(
+                    courseService = courses,
+                    localToken = tokens.issueTokens(first).accessToken,
+                    coordinatorFactory = factory,
+                    pairingService = pairing,
+                )
+            val secondChannel =
+                fdChannel(
+                    courseService = courses,
+                    localToken = tokens.issueTokens(second).accessToken,
+                    coordinatorFactory = factory,
+                    pairingService = pairing,
+                )
+            val event = "Play_Standard"
+            for ((ch, id) in listOf(firstChannel to "paired-first", secondChannel to "paired-second")) {
+                val payload =
+                    """
+                    {"Summary":{"DeckId":"$id","Name":"Local Deck"},
+                     "Deck":{"MainDeck":[{"cardId":101,"quantity":60}],"Sideboard":[]},"EventName":"$event"}
+                    """.trimIndent()
+                ch.sendCmd(412, payload)
+                ch.sendCmd(600, """{"EventName":"$event"}""")
+                ch.sendCmd(622, payload)
+            }
+            firstChannel.sendCmdAll(603, """{"EventName":"$event"}""").size shouldBe 1
+            val secondResponses = secondChannel.sendCmdAll(603, """{"EventName":"$event"}""")
+            secondResponses.size shouldBe 2
+            json
+                .parseToJsonElement(secondResponses.first().jsonPayload!!)
+                .jsonObject["Payload"]!!
+                .jsonPrimitive.content shouldBe "Success"
+            firstChannel.runPendingTasks()
+            val firstResponses = firstChannel.readAllResponses()
+            val firstMatch = json.parseToJsonElement(firstResponses.single().jsonPayload!!).jsonObject["MatchInfoV4"]!!.jsonObject
+            val secondMatch = json.parseToJsonElement(secondResponses.last().jsonPayload!!).jsonObject["MatchInfoV4"]!!.jsonObject
+            firstMatch["MatchId"] shouldBe secondMatch["MatchId"]
+            firstMatch["YourSeat"]!!.jsonPrimitive.int shouldBe 1
+            secondMatch["YourSeat"]!!.jsonPrimitive.int shouldBe 2
+            for (match in listOf(firstMatch, secondMatch)) {
+                match["MatchType"]!!.jsonPrimitive.content shouldBe "Queue"
+                match["PlayerInfos"]!!.jsonArray.map { it.jsonObject["ScreenName"]!!.jsonPrimitive.content } shouldBe
+                    listOf(first.displayName, second.displayName)
+            }
+        }
+
+        test("a busy room rejects pairing once without success and permits retry after release") {
+            val event = "Play_Timeless"
+            val courses = CourseService(InMemoryCourseRepository()) { GeneratedPool(emptyList(), emptyList(), 0) }
+            val pairing = LocalPairingService(RuntimeMatchConfigRegistry(), matchmakingService::createMatchInfo)
+            val occupied = MatchInfo("occupied-room", "localhost", 30003, "AIBotMatch")
+            pairing.registerBot(occupied, PlayerId("busy-player"), "Busy Player")
+            val ch =
+                fdChannel(
+                    courseService = courses,
+                    coordinatorFactory = { RepositoryMatchCoordinator(it, store, courses, InMemoryDraftSessionRepository()) },
+                    pairingService = pairing,
+                )
+            ch.sendCmd(622, """{"EventName":"$event","Summary":{"DeckId":"$testDeckId"}}""")
+
+            val rejected = ch.sendCmdAll(603, """{"EventName":"$event"}""")
+            rejected.size shouldBe 1
+            rejected.single().jsonPayload shouldBe null
+            ch.isActive shouldBe true
+
+            pairing.complete(occupied.matchId)
+            val accepted = ch.sendCmdAll(603, """{"EventName":"$event"}""")
+            accepted.size shouldBe 1
+            json
+                .parseToJsonElement(accepted.single().jsonPayload!!)
+                .jsonObject["Payload"]!!
+                .jsonPrimitive.content shouldBe "Success"
         }
 
         test("Front Door request failures expose one structured owned stack") {

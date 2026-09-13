@@ -37,6 +37,16 @@ class MulliganHandler(
     private val matchId get() = matchIdProvider()
     private val seatId: SeatId get() = seatIdProvider()
 
+    /** Release the engine only after both independent player sessions have initial state. */
+    fun startPlayersIfReady() {
+        val bridge = registry.getMatch(matchId)?.bridge ?: return
+        if (!bridge.humanVsHuman) return
+        val connections = listOf(SeatId(1), SeatId(2)).map { registry.getConnection(matchId, it) ?: return }
+        if (connections.any { it.session !is MatchSession }) return
+        connections.forEach { it.armRuntimeDeliveryObserver() }
+        bridge.releaseHumanStartup()
+    }
+
     /** Progress the automatic Familiar startup once both seats have live sessions. */
     fun startFamiliarIfReady() {
         val match = registry.getMatch(matchId)
@@ -82,9 +92,17 @@ class MulliganHandler(
             log.info("Match Door GRE: ignoring MulliganResp for puzzle")
             return
         }
-        if (seatId == bridge.seating.familiarSeat) return // Familiar — no action
+        if (!bridge.isInteractiveSeat(seatId)) return // Familiar — no action
 
         val decision = greMsg.mulliganResp.decision
+        if (bridge.humanVsHuman) {
+            when (decision) {
+                MulliganOption.AcceptHand -> bridge.submitKeep(seatId)
+                MulliganOption.Mulligan -> bridge.submitMull(seatId)
+                else -> Unit
+            }
+            return
+        }
         log.info("Match Door GRE: seat {} mulligan decision={}", seatId.value, decision)
 
         when (decision) {
@@ -119,7 +137,7 @@ class MulliganHandler(
     fun onGroupResp(greMsg: ClientToGREMessage) {
         val s = session ?: return
         val bridge = s.gameBridge
-        if (seatId != bridge.seating.humanSeat) return
+        if (!bridge.isInteractiveSeat(seatId)) return
 
         val groups = greMsg.groupResp.groupsList
         val tuckIds = if (groups.size >= 2) groups[1].idsList else groups.firstOrNull()?.idsList ?: emptyList()
@@ -130,6 +148,12 @@ class MulliganHandler(
                 val forgeId = bridge.getForgeCardId(InstanceId(iid))?.value
                 handCards.firstOrNull { it.id == forgeId }
             }
+        if (bridge.humanVsHuman) {
+            val pending = bridge.mulliganBridge(seatId).pendingPrompt() ?: return
+            if (tuckCards.size != pending.cardsToTuck || tuckIds.size != tuckIds.distinct().size || tuckCards.size != tuckIds.size) return
+            bridge.submitTuck(seatId, tuckCards)
+            return
+        }
         bridge.submitTuck(seatId, tuckCards)
         bridge.awaitPriority()
         s.onMulliganKeep()

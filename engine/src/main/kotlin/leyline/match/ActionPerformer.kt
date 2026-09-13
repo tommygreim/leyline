@@ -62,7 +62,11 @@ internal class ActionPerformer(
                 return
             }
 
-            val blocking = bridge.cutCoordinator.currentBlockingInteraction()
+            val blocking =
+                bridge.cutCoordinator
+                    .promptRuntimes(counters.seatId)
+                    .blocking
+                    .current()
             val optional = blocking?.interaction as? leyline.bridge.handoff.BlockingInteraction.Optional
             val freeCast = optional?.freeCast
             if (blocking != null && freeCast != null) {
@@ -88,7 +92,14 @@ internal class ActionPerformer(
                         else -> return
                     }
                 if (action.actionType == ActionType.Cast && !accepted) return
-                if (!bridge.cutCoordinator.submitOptionalAnswer(blocking.interactionId, clientGsId, accepted)) return
+                if (!bridge.cutCoordinator
+                        .promptRuntimes(
+                            counters.seatId,
+                        ).blocking
+                        .submitOptional(blocking.interactionId, clientGsId, accepted)
+                ) {
+                    return
+                }
                 bridge.prioritySignal.markPromptResolved()
                 continuation.awaitHorizon(completedActionId)
                 return

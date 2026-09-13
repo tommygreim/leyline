@@ -19,6 +19,7 @@ import leyline.game.state.ProjectionState
 /** Engine-thread capture and legality for one immutable targeting window. */
 internal class TargetingWindowCapture(
     private val owner: MatchCutCoordinator,
+    private val runtimeSeat: leyline.bridge.types.SeatId = owner.humanSeat,
 ) {
     fun capture(
         request: PromptRequest,
@@ -58,7 +59,7 @@ internal class TargetingWindowCapture(
             targetIndex = request.targetIndex,
             minTargets = request.min,
             maxTargets = request.max,
-            chooserSeatId = owner.humanSeat,
+            chooserSeatId = runtimeSeat,
             finishOptionIndex = request.targetingFinishOptionIndex,
             candidates =
                 if (request.targetingCandidates.isNotEmpty()) {
@@ -223,7 +224,7 @@ internal class TargetingWindowCapture(
     private fun cardOwnerSeat(cardId: ForgeCardId): SeatId =
         owner.bridge.findCard(cardId)?.owner?.let { cardOwner ->
             if (cardOwner == owner.bridge.getPlayer(SeatId(1))) SeatId(1) else SeatId(2)
-        } ?: owner.humanSeat
+        } ?: runtimeSeat
 
     private fun playerSeat(entityId: Int): SeatId? = listOf(SeatId(1), SeatId(2)).firstOrNull { owner.bridge.getPlayer(it)?.id == entityId }
 

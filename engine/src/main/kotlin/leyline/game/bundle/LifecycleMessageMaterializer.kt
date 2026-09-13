@@ -36,6 +36,68 @@ object LifecycleMessageMaterializer {
         val transition: ProjectionTransition,
     )
 
+    /** Publish both private hand views and one chooser's exact keep/tuck request. */
+    internal fun humanMulliganPrompt(
+        bridge: GameBridge,
+        viewers: List<ProjectionViewer>,
+        seatId: SeatId,
+        prompt: MulliganBridge.PendingPrompt,
+        redraw: Boolean,
+        gameStateId: Int,
+        planner: LogicalSequencePlanner,
+    ): ViewerLifecycleMessages {
+        val stateMsgId = planner.nextMsgId()
+        val requestMsgId = planner.nextMsgId()
+        val prior = bridge.projectionStateSnapshot()
+        val (outputs, next) =
+            bridge.editProjection(prior) { editor ->
+                val snapshot = GsmSnapshot.capture(checkNotNull(bridge.getGame()), bridge, "", 0)
+                val deleted =
+                    if (redraw) {
+                        val cards =
+                            listOf(ZoneIds.handOf(seatId.value), ZoneIds.libraryOf(seatId.value))
+                                .flatMap { snapshot.zones[it]?.contents.orEmpty() }
+                                .toSet()
+                        editor.resetIdentitiesForRedraw(redrawIdentityFamily(snapshot, cards, editor)).map { it.value }
+                    } else {
+                        emptyList()
+                    }
+                viewers.map { viewer ->
+                    val chooser = viewer.seatId == seatId
+                    val state =
+                        GsmBuilder
+                            .buildDealHand(bridge, gameStateId, viewer.seatId.value, snapshot, deleted)
+                            .toBuilder()
+                            .setTurnInfo(TurnInfo.newBuilder().setActivePlayer(bridge.dieRollWinner).setDecisionPlayer(seatId.value))
+                            .setPendingMessageCount(if (chooser) 1 else 0)
+                            .build()
+                    advanceViewerCursor(editor, viewer.seatId, snapshot, state)
+                    val gsm =
+                        GREToClientMessage
+                            .newBuilder()
+                            .setType(GREMessageType.GameStateMessage_695e)
+                            .setMsgId(stateMsgId)
+                            .setGameStateId(gameStateId)
+                            .addSystemSeatIds(viewer.seatId.value)
+                            .setGameStateMessage(state)
+                            .build()
+                    val messages =
+                        if (chooser) {
+                            val handIds =
+                                state.zonesList
+                                    .firstOrNull { it.zoneId == ZoneIds.handOf(seatId.value) }
+                                    ?.objectInstanceIdsList
+                                    .orEmpty()
+                            listOf(gsm, reconnectMulliganRequest(requestMsgId, gameStateId, seatId, prompt, handIds, null))
+                        } else {
+                            listOf(gsm)
+                        }
+                    viewer.seatId to messages
+                }
+            }
+        return ViewerLifecycleMessages(outputs, ProjectionTransition(prior.revision, next))
+    }
+
     internal fun reconnectMulliganRequest(
         msgId: Int,
         gameStateId: Int,
@@ -119,9 +181,9 @@ object LifecycleMessageMaterializer {
         // These literals are NOT role checks — they reflect the match-handshake
         // sequence that Arena dictates, independent of which seat is human-controlled.
         // Role-scoped decisions use `Seating` (see `GameBridge.seating`).
-        if (seatId == SeatId(1)) {
+        if (seatId == SeatId(1) || bridge.humanVsHuman) {
             // ConnectResp with deck + default settings
-            messages.add(buildConnectResp(msgId++, seatId, deckMessage, bridge.priorityPolicy.currentSettings()))
+            messages.add(buildConnectResp(msgId++, seatId, deckMessage, bridge.priorityPolicy(seatId).currentSettings()))
         }
 
         // DieRollResults (both seats see this)
@@ -204,7 +266,7 @@ object LifecycleMessageMaterializer {
         val dieRollMsgId = planner.nextMsgId()
         val gameStateMsgId = planner.nextMsgId()
         val hasStartingPlayerDecision =
-            includeStartingPlayerPrompt && viewers.any { it.role == ProjectionViewerRole.Player }
+            includeStartingPlayerPrompt && !bridge.humanVsHuman && viewers.any { it.role == ProjectionViewerRole.Player }
         val hasStartingPlayerRequest =
             hasStartingPlayerDecision &&
                 viewers.any { it.seatId == SeatId(2) && it.role == ProjectionViewerRole.Player }
@@ -236,9 +298,10 @@ object LifecycleMessageMaterializer {
                     val output =
                         buildList {
                             if (seatId ==
-                                SeatId(1)
+                                SeatId(1) ||
+                                bridge.humanVsHuman
                             ) {
-                                add(buildConnectResp(connectMsgId, seatId, deck, bridge.priorityPolicy.currentSettings()))
+                                add(buildConnectResp(connectMsgId, seatId, deck, bridge.priorityPolicy(seatId).currentSettings()))
                             }
                             add(buildDieRollResults(dieRollMsgId, dieRollWinner))
                             add(
@@ -497,7 +560,7 @@ object LifecycleMessageMaterializer {
         // Role gate: only the human seat gets a ConnectResp handshake.
         if (seatId == bridge.seating.humanSeat) {
             val deck = GsmBuilder.buildDeckMessage(bridge.getDeckGrpIds(seatId), bridge.getCommanderGrpIds(seatId))
-            messages.add(buildConnectResp(msgId++, seatId, deck, bridge.priorityPolicy.currentSettings()))
+            messages.add(buildConnectResp(msgId++, seatId, deck, bridge.priorityPolicy(seatId).currentSettings()))
         }
 
         // Full GSM built from live game state (stage=Play, cards in zones)

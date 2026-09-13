@@ -18,7 +18,10 @@ internal class ManaSourcePaymentHandler(
         if (actions.none { it.actionType == ActionType.MakePayment || it.actionType == ActionType.Pass }) {
             return HandlerResult.NotHandled
         }
-        val runtime = ctx.bridge.cutCoordinator.manaSourcePayments
+        val runtime =
+            ctx.bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .manaSourcePayments
         val pending = runtime.current() ?: return HandlerResult.NotHandled
         val selectedIds =
             actions
@@ -43,7 +46,10 @@ internal class ManaSourcePaymentHandler(
     }
 
     fun tryHandleCancel(greMsg: ClientToGREMessage): HandlerResult {
-        val runtime = ctx.bridge.cutCoordinator.manaSourcePayments
+        val runtime =
+            ctx.bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .manaSourcePayments
         val pending = runtime.current() ?: return HandlerResult.NotHandled
         val receipt = runtime.cancel(pending.interactionId, greMsg.gameStateId)
         if (receipt == null) {
@@ -55,7 +61,10 @@ internal class ManaSourcePaymentHandler(
     }
 
     fun tryHandleEffectCost(greMsg: ClientToGREMessage): HandlerResult {
-        val runtime = ctx.bridge.cutCoordinator.manaSourcePayments
+        val runtime =
+            ctx.bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .manaSourcePayments
         val pending = runtime.current() ?: return HandlerResult.NotHandled
         val selectedIds = greMsg.effectCostResp.costSelection.idsList
         val receipt = runtime.complete(pending.interactionId, greMsg.gameStateId, selectedIds)
@@ -76,7 +85,12 @@ internal class ManaSourcePaymentHandler(
             } catch (ex: Exception) {
                 bridge.cutCoordinator.failDelivery(ex)
             }
-            check(bridge.cutCoordinator.manaSourcePayments.acknowledgeDelivery(receipt.interactionId, token)) {
+            check(
+                bridge.cutCoordinator
+                    .promptRuntimes(ctx.seatId)
+                    .manaSourcePayments
+                    .acknowledgeDelivery(receipt.interactionId, token),
+            ) {
                 "Mana-source payment delivery acknowledgement was stale"
             }
         }

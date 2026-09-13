@@ -32,7 +32,7 @@ callback can run inside a larger mutation burst.
 |---|---|
 | Live Forge graph | Engine thread |
 | Retained executable handles | Owning family runtime under `feedLock`; sessions receive only exact claims or immutable values |
-| Client settings and priority presentation policy | `PriorityPolicyRuntime` |
+| Client settings and priority presentation policy | One `PriorityPolicyRuntime` per interactive seat |
 | Interaction correlation, committed viewer feeds, and terminal failure | `MatchCutCoordinator` and its family runtimes under `feedLock` |
 | Client-facing identities, cursors, annotations, and logical output | One committed `ProjectionState` behind `GameBridge.projectionLock` |
 | Per-connection admission and delivery | `ConnectionState.sessionLock` |
@@ -152,7 +152,28 @@ engine horizon or consume the observer notification. Player, Familiar, and
 spectator sessions are delivery-only at the terminal horizon: they drain and
 deliver their own committed viewer feed and do not derive terminal state from
 Forge. Raw match completion is connection-local and follows the committed
-terminal drain. PvP transport is outside this fixed-roster delivery model.
+terminal drain. In a two-human match, each session delivers its own terminal
+feed and completion message before the shared match is torn down. Neither
+session calls into the other session while holding its connection lock.
+
+Two-human matches retain one rules engine, coordinator lock, event journal,
+and projection state. Action and prompt runtimes are bound to an explicit
+seat. A decision cut gives the chooser the Player role and the other human
+the SeatObserver perspective: their own private cards remain visible, while
+the chooser's actions and private prompt overlays are absent. Both players
+retain independent response and delivery boundaries.
+
+The shared playback journal only owns event capture and frame acknowledgement;
+each connection drains its own coordinator feed. Engine horizon notifications
+use a generation broadcast with a cursor for each waiting thread, so one
+connection cannot consume the other connection's wake-up.
+
+Constructed two-human startup waits until both authenticated seat sessions
+have received their initial lifecycle state. Forge's sequential mulligan
+callbacks then publish each player's keep or tuck request from the engine
+thread. Network handlers submit the exact pending answer and return; they
+do not wait for the other player's mulligan. Bot matches retain their
+automatic Familiar startup.
 
 ### Reconnect publication
 

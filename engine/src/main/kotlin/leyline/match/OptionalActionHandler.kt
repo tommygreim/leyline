@@ -25,10 +25,15 @@ class OptionalActionHandler(
     fun onOptionalActionResp(greMsg: ClientToGREMessage): Boolean {
         val bridge = ctx.bridge
         val pending =
-            bridge.cutCoordinator.currentBlockingInteraction()?.takeIf { it.interaction is BlockingInteraction.Optional } ?: run {
-                log.warn("OptionalActionHandler: no pending prompt for OptionalActionResp")
-                return false
-            }
+            bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .blocking
+                .current()
+                ?.takeIf { it.interaction is BlockingInteraction.Optional }
+                ?: run {
+                    log.warn("OptionalActionHandler: no pending prompt for OptionalActionResp")
+                    return false
+                }
         val prompt = pending.interaction as BlockingInteraction.Optional
 
         val resp = greMsg.optionalResp
@@ -41,7 +46,14 @@ class OptionalActionHandler(
             prompt.sourceId ?: "unknown",
         )
 
-        if (!bridge.cutCoordinator.submitOptionalAnswer(pending.interactionId, greMsg.gameStateId, accepted)) return false
+        if (!bridge.cutCoordinator
+                .promptRuntimes(
+                    ctx.seatId,
+                ).blocking
+                .submitOptional(pending.interactionId, greMsg.gameStateId, accepted)
+        ) {
+            return false
+        }
         bridge.prioritySignal.markPromptResolved()
         return true
     }

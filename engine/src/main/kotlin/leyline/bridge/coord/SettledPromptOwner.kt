@@ -19,6 +19,7 @@ import java.util.concurrent.TimeoutException
 /** One match-scoped owner for every settled prompt slot. */
 internal class SettledPromptOwner(
     private val owner: MatchCutCoordinator,
+    private val runtimeSeat: leyline.bridge.types.SeatId = owner.humanSeat,
 ) : PromptLifecycle,
     PromptTerminalCutOwner {
     private val log = LoggerFactory.getLogger(SettledPromptOwner::class.java)
@@ -141,7 +142,7 @@ internal class SettledPromptOwner(
                     owner.ensureOpen()
                     ensureEmptyLocked(duplicateMessage)
                     ensureEmptyLocked()
-                    val feed = owner.feed(owner.humanSeat)
+                    val feed = owner.feed(runtimeSeat)
                     val prior = owner.bridge.projectionStateSnapshot()
                     val planner = LogicalSequencePlanner(prior.sequence)
                     val publication = prepare(UUID.randomUUID().toString(), feed, owner.bridge.getGame(), planner)
@@ -195,7 +196,7 @@ internal class SettledPromptOwner(
                 .atDebug()
                 .addKeyValue("event", "match.prompt_completed")
                 .addKeyValue("match_id", owner.matchId)
-                .addKeyValue("seat", owner.humanSeat.value)
+                .addKeyValue("seat", runtimeSeat.value)
                 .addKeyValue("response_type", message.type.name)
                 .addKeyValue("game_state_id", exact.gameStateId)
                 .log("Match prompt completed")
@@ -237,7 +238,7 @@ internal class SettledPromptOwner(
                     publication.viewerOutputs,
                     publication.transition,
                     publication.closesPlaybackFrame,
-                    playbackOwnerSeatId = owner.humanSeat.takeIf { publication.closesPlaybackFrame },
+                    playbackOwnerSeatId = runtimeSeat.takeIf { publication.closesPlaybackFrame },
                 )
             owner.cutInstaller.install(
                 cut,

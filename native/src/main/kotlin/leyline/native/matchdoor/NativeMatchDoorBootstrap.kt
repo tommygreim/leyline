@@ -11,12 +11,15 @@ import io.netty.handler.codec.protobuf.ProtobufEncoder
 import io.netty.handler.ssl.SslContext
 import leyline.config.EngineSettings
 import leyline.config.RuntimeMatchConfigRegistry
+import leyline.domain.PlayerId
 import leyline.domain.service.MatchCoordinator
 import leyline.game.data.CardRepository
 import leyline.game.generator.PuzzleLibrary
 import leyline.match.MatchConnection
 import leyline.match.MatchDebugSink
 import leyline.match.MatchRegistry
+import leyline.native.account.LocalAccountAuthenticator
+import leyline.native.matchmaking.LocalPairingService
 import leyline.native.protocol.ClientFrameDecoder
 import leyline.native.protocol.ClientHeaderPrepender
 import leyline.native.protocol.ClientHeaderStripper
@@ -39,8 +42,14 @@ object NativeMatchDoorBootstrap {
         puzzleIdentity: () -> String?,
         runtimeMatchConfigs: RuntimeMatchConfigRegistry,
         aiDeckNameOverride: () -> String? = { null },
+        accountAuthenticator: LocalAccountAuthenticator? = null,
+        pairingService: LocalPairingService? = null,
+        coordinatorFactory: ((PlayerId) -> MatchCoordinator)? = null,
     ): Channel {
-        val registry = MatchRegistry()
+        require((accountAuthenticator == null) == (pairingService == null)) {
+            "Native authentication and room reservations must be configured together"
+        }
+        val registry = MatchRegistry { pairingService?.complete(it) }
         debugSink.sessionProvider = { registry.activeHumanSession() }
         return ServerBootstrap()
             .group(bossGroup, workerGroup)
@@ -57,19 +66,21 @@ object NativeMatchDoorBootstrap {
                         ch.pipeline().addLast(
                             "handler",
                             NativeMatchConnectionHandler(
-                                { output ->
+                                { output, account ->
                                     MatchConnection(
                                         registry = registry,
                                         output = output,
                                         engineSettings = engineSettings,
                                         puzzleLibrary = PuzzleLibrary(puzzlesDir),
-                                        coordinator = coordinator,
+                                        coordinator = account?.let { coordinatorFactory?.invoke(PlayerId(it.personaId)) } ?: coordinator,
                                         cardRepository = cardRepository,
                                         puzzleIdentity = puzzleIdentity,
                                         runtimeMatchConfigs = runtimeMatchConfigs,
                                         aiDeckNameOverride = aiDeckNameOverride,
                                     )
                                 },
+                                accountAuthenticator,
+                                pairingService,
                             ),
                         )
                     }

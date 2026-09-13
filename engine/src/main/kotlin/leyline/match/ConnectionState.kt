@@ -2,6 +2,7 @@ package leyline.match
 
 import leyline.bridge.types.SeatId
 import leyline.infra.MessageSink
+import leyline.protocol.HandshakeMessages
 
 data class MatchResultObservation(
     val matchId: String,
@@ -28,6 +29,10 @@ class ConnectionState(
 ) {
     /** Client player ID — set by MatchHandler after auth, used in MatchCompleted room state. */
     var playerId: String = "forge-player-1"
+
+    /** Authenticated human roster, preserved through the terminal room message. */
+    var roomPlayers: List<HandshakeMessages.RoomPlayer> = emptyList()
+    var eventName: String = "AIBotMatch"
 
     /**
      * Serializes all game-logic entry points (Netty I/O threads are concurrent).

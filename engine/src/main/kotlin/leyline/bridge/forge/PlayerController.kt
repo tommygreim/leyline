@@ -219,7 +219,7 @@ class PlayerController(
         TargetingCoordinator(
             bridge,
             seating,
-            viewerSeatId = if (player.lobbyPlayer is LobbyPlayerAi) seating.familiarSeat else seating.humanSeat,
+            viewerSeatId = seating.seatOf(player.id, player.lobbyPlayer is LobbyPlayerAi),
             currentSourceEntityId = ::currentSourceEntityId,
             isCastingSpell = { activeSourceIsSpell },
             currentStackAbilityId = {
@@ -267,13 +267,13 @@ class PlayerController(
                     activeStackTargetingAbility?.let(targetingCoordinator::effectiveTargetPromptId)
                 },
                 playerSeatOf = { target ->
-                    if (target.lobbyPlayer is LobbyPlayerAi) seating.familiarSeat.value else seating.humanSeat.value
+                    seating.seatOf(target.id, target.lobbyPlayer is LobbyPlayerAi).value
                 },
                 playerViewSeatOf = { target ->
                     game.players
                         .firstOrNull { it.id == target.id }
                         ?.let {
-                            if (it.lobbyPlayer is LobbyPlayerAi) seating.familiarSeat.value else seating.humanSeat.value
+                            seating.seatOf(it.id, it.lobbyPlayer is LobbyPlayerAi).value
                         }
                 },
                 stackTargetCandidate = ::stackTargetCandidate,
@@ -756,7 +756,7 @@ class PlayerController(
             promptInstanceId = promptInstanceId,
             originZone = origin.commanderZone(),
             destinationZone = destination.commanderZone(),
-            ownerSeatId = seating.humanSeat.value,
+            ownerSeatId = seating.seatOf(card.owner.id, card.owner.lobbyPlayer is LobbyPlayerAi).value,
             transferCategory = commanderTransferCategory(origin, destination),
         )
     }

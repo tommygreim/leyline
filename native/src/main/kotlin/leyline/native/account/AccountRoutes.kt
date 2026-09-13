@@ -25,8 +25,10 @@ fun Route.accountRoutes(
     tokens: TokenService,
     fdHost: String,
     cachedManifests: String? = null,
+    allowPasswordGrant: Boolean = false,
 ) {
-    loginRoute(store, tokens)
+    loginRoute(store, tokens, allowPasswordGrant)
+    localProfileRoutes(store, tokens)
     accountCreationStub()
     profileRoute(store, tokens)
     doorbellRoute(fdHost, cachedManifests)
@@ -42,6 +44,7 @@ fun Route.accountRoutes(
 private fun Route.loginRoute(
     store: AccountStore,
     tokens: TokenService,
+    allowPasswordGrant: Boolean,
 ) {
     post("/auth/oauth/token") {
         val params = call.receiveParameters()
@@ -49,6 +52,7 @@ private fun Route.loginRoute(
 
         when (grantType) {
             "password" -> {
+                if (!allowPasswordGrant) return@post call.respondError(AccountError.PASSWORD_LOGIN_DISABLED)
                 val email =
                     params["username"]
                         ?: return@post call.respondError(AccountError.MISSING_FIELD)
@@ -77,7 +81,7 @@ private fun Route.loginRoute(
                 val account =
                     store.findByPersonaId(personaId)
                         ?: return@post call.respondError(AccountError.INVALID_CLIENT)
-                val pair = tokens.issueTokens(account)
+                val pair = tokens.issueTokens(account, refreshToken)
                 log.info("Token refresh succeeded")
                 call.respondText(
                     loginResponseJson(account, pair),
@@ -90,6 +94,56 @@ private fun Route.loginRoute(
         }
     }
 }
+
+private fun Route.localProfileRoutes(
+    store: AccountStore,
+    tokens: TokenService,
+) {
+    post("/local/profiles") {
+        val name =
+            localDisplayName(call.receive<JsonObject>())
+                ?: return@post call.respondError(AccountError.INVALID_DISPLAY_NAME)
+        val account = store.createLocalProfile(name)
+        call.respondText(
+            localProfileJson(account, tokens.issueTokens(account).refreshToken),
+            ContentType.Application.Json,
+            HttpStatusCode.Created,
+        )
+    }
+    post("/local/profile") {
+        val credential =
+            call.request
+                .header("Authorization")
+                ?.removePrefix("Bearer ")
+                ?.trim()
+                ?: return@post call.respondError(AccountError.MISSING_AUTH)
+        val personaId =
+            tokens.validateRefreshToken(credential)
+                ?: return@post call.respondError(AccountError.INVALID_TOKEN)
+        val name =
+            localDisplayName(call.receive<JsonObject>())
+                ?: return@post call.respondError(AccountError.INVALID_DISPLAY_NAME)
+        val account =
+            store.renameLocalProfile(personaId, name)
+                ?: return@post call.respondError(AccountError.NOT_FOUND)
+        call.respondText(localProfileJson(account, credential), ContentType.Application.Json, HttpStatusCode.OK)
+    }
+}
+
+private fun localDisplayName(body: JsonObject): String? =
+    (body["displayName"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim()?.takeIf { name ->
+        name.length in 1..32 && name.none { it.isISOControl() || it == '#' }
+    }
+
+private fun localProfileJson(
+    account: Account,
+    refreshToken: String,
+): String =
+    buildJsonObject {
+        put("persona_id", account.personaId)
+        put("display_name", account.displayName)
+        put("refresh_token", refreshToken)
+    }.toString()
 
 private fun Route.accountCreationStub() {
     post("/accounts/register") {

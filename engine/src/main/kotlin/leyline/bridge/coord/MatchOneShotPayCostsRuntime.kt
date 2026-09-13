@@ -28,6 +28,7 @@ import java.util.concurrent.CompletableFuture
 internal class MatchOneShotPayCostsRuntime(
     private val owner: MatchCutCoordinator,
     settled: SettledPromptOwner,
+    private val runtimeSeat: leyline.bridge.types.SeatId = owner.humanSeat,
 ) : OneShotPayCostsRuntime {
     private data class SelectWindow(
         val published: PublishedOneShotPayCostsInteraction,
@@ -174,12 +175,12 @@ internal class MatchOneShotPayCostsRuntime(
             duplicateMessage = DUPLICATE_MESSAGE,
             prepare = { interactionId, _, game, planner ->
                 val resolved = game ?: owner.fail(IllegalStateException("Game unavailable"))
-                val routes = owner.viewerRoutes()
+                val routes = owner.viewerRoutes(runtimeSeat)
                 val playerRoute = routes.single { it.viewer.role == leyline.game.state.ProjectionViewerRole.Player }
                 val window = OneShotPayCostsWindow.Select(initial.value)
                 val diagnostic = PromptMaterializationDiagnostic(interactionId, window)
                 if (initial.value.kind == PayCostsRouteKind.CollectEvidence) {
-                    owner.bridge.promptBridge(owner.humanSeat).journal.record(
+                    owner.bridge.promptBridge(runtimeSeat).journal.record(
                         PromptSideEffect.CollectEvidenceCost(
                             checkNotNull(initial.value.sourceForgeCardId),
                             checkNotNull(initial.value.minimumWeight),
@@ -235,7 +236,7 @@ internal class MatchOneShotPayCostsRuntime(
             duplicateMessage = DUPLICATE_MESSAGE,
             prepare = { interactionId, _, game, planner ->
                 val resolved = game ?: owner.fail(IllegalStateException("Game unavailable"))
-                val routes = owner.viewerRoutes()
+                val routes = owner.viewerRoutes(runtimeSeat)
                 val playerRoute = routes.single { it.viewer.role == leyline.game.state.ProjectionViewerRole.Player }
                 val value = initial.value
                 val window = OneShotPayCostsWindow.GatherCounters(value)

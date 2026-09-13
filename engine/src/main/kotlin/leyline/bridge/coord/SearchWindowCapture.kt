@@ -10,13 +10,14 @@ import leyline.bridge.types.PromptCandidateKind
 /** Engine-thread capture for one immutable library-search window. */
 internal class SearchWindowCapture(
     private val owner: MatchCutCoordinator,
+    private val runtimeSeat: leyline.bridge.types.SeatId = owner.humanSeat,
 ) {
     private companion object {
         const val FIRST_GROUP_ID = 5003
     }
 
     fun capture(request: PromptRequest): SearchWindowValue {
-        val player = owner.bridge.getPlayer(owner.humanSeat) ?: error("Search player unavailable")
+        val player = owner.bridge.getPlayer(runtimeSeat) ?: error("Search player unavailable")
         val candidateIds =
             request.candidateRefs
                 .filter { it.kind == PromptCandidateKind.Card }

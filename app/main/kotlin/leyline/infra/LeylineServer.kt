@@ -36,15 +36,20 @@ import leyline.game.generator.ForgeBoosterDraftDriver
 import leyline.game.generator.PuzzleLibrary
 import leyline.game.generator.SealedPoolGenerator
 import leyline.infra.persistence.SqlitePlayerStore
+import leyline.native.account.AccountStore
+import leyline.native.account.LocalAccountAuthenticator
+import leyline.native.account.TokenService
 import leyline.native.frontdoor.FrontDoorBootstrapData
 import leyline.native.frontdoor.FrontDoorHandler
 import leyline.native.frontdoor.service.PlayerService
 import leyline.native.frontdoor.wire.FdResponseWriter
 import leyline.native.matchdoor.NativeMatchDoorBootstrap
+import leyline.native.matchmaking.LocalPairingService
 import leyline.native.protocol.ClientFrameDecoder
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -74,11 +79,9 @@ class LeylineServer(
     /** Resolved player database file (may not exist yet — startLocal handles missing DB). */
     private val playerDbFile: File,
     private val sessionJournalFile: File,
+    private val accountAuthenticator: LocalAccountAuthenticator? = null,
 ) {
     private val log = LoggerFactory.getLogger(LeylineServer::class.java)
-
-    /** Hardcoded player ID — matches seed-db. */
-    private val playerId = "9da3ee9f-0d6a-4b18-a3e0-c9e315d2475b"
 
     private val bossGroup = MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory())
     private val workerGroup = MultiThreadIoEventLoopGroup(NioIoHandler.newFactory())
@@ -160,8 +163,11 @@ class LeylineServer(
             )
         val store = SqlitePlayerStore(db)
         store.createTables()
-        val pid = PlayerId(playerId)
-        store.ensurePlayer(pid, "Player")
+        val authenticator =
+            accountAuthenticator ?: AccountStore(db).let { accounts ->
+                accounts.createTables()
+                LocalAccountAuthenticator(accounts, TokenService(store = accounts))
+            }
         val playerService = PlayerService(store)
         val sealedPoolGen = SealedPoolGenerator(cardRepo::findGrpIdByName)
         val courseService =
@@ -221,20 +227,25 @@ class LeylineServer(
         val writer = FdResponseWriter()
         val bootstrapData = FrontDoorBootstrapData.loadFromClasspath()
 
-        val coordinator =
-            RepositoryMatchCoordinator(
-                playerId = pid,
-                decks = store,
-                courseService = courseService,
-                draftRepo = draftRepo,
-            )
+        val coordinators = ConcurrentHashMap<PlayerId, MatchCoordinator>()
+        val coordinatorFactory: (PlayerId) -> MatchCoordinator = { player ->
+            coordinators.computeIfAbsent(player) {
+                RepositoryMatchCoordinator(
+                    playerId = it,
+                    decks = store,
+                    courseService = courseService,
+                    draftRepo = draftRepo,
+                )
+            }
+        }
+        val pairingService = LocalPairingService(runtimeMatchConfigs, matchmakingService::createMatchInfo)
         frontDoorChannel =
             bindServer(fdSsl, frontDoorPort) { ch ->
                 ch.pipeline().addLast("frameDecoder", ClientFrameDecoder())
                 ch.pipeline().addLast(
                     "handler",
                     FrontDoorHandler(
-                        playerId = pid,
+                        authenticator = authenticator,
                         deckRepository = store,
                         playerService = playerService,
                         matchmaking = matchmakingService,
@@ -243,13 +254,14 @@ class LeylineServer(
                         draftService = draftService,
                         writer = writer,
                         bootstrapData = bootstrapData,
-                        coordinator = coordinator,
+                        coordinatorFactory = coordinatorFactory,
+                        pairingService = pairingService,
                     ),
                 )
             }
         log.info("Client Front Door listening on {}:{}", bindAddress, frontDoorPort)
 
-        matchDoorChannel = bindMatchDoor(mdSsl, coordinator)
+        matchDoorChannel = bindMatchDoor(mdSsl, authenticator, pairingService, coordinatorFactory)
     }
 
     private fun createMatchId(eventName: String): String {
@@ -272,7 +284,9 @@ class LeylineServer(
 
     private fun bindMatchDoor(
         mdSsl: SslContext,
-        coordinator: MatchCoordinator,
+        authenticator: LocalAccountAuthenticator,
+        pairingService: LocalPairingService,
+        coordinatorFactory: (PlayerId) -> MatchCoordinator,
     ): Channel {
         val ch =
             NativeMatchDoorBootstrap.bind(
@@ -283,12 +297,15 @@ class LeylineServer(
                 port = matchDoorPort,
                 engineSettings = engineSettings,
                 puzzlesDir = puzzlesDir,
-                coordinator = coordinator,
+                coordinator = coordinatorFactory(PlayerId("9da3ee9f-0d6a-4b18-a3e0-c9e315d2475b")),
                 cardRepository = cardRepo,
                 debugSink = debugSink,
                 puzzleIdentity = { runtimePuzzle.get() },
                 runtimeMatchConfigs = runtimeMatchConfigs,
                 aiDeckNameOverride = { aiDeckOverride.getAndSet(null) },
+                accountAuthenticator = authenticator,
+                pairingService = pairingService,
+                coordinatorFactory = coordinatorFactory,
             )
         log.info("Client Match Door listening on {}:{}", bindAddress, matchDoorPort)
         return ch

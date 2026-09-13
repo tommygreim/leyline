@@ -29,6 +29,7 @@ internal class MatchConnectFlow(
     private val resolveSeatDecks: () -> Pair<DeckSource, DeckSource>,
     private val resolveGameVariant: () -> String?,
     private val isSpectatorMode: () -> Boolean,
+    private val isHumanVsHuman: () -> Boolean,
     private val onLocalPlayerConnected: (GameBridge) -> Unit,
 ) {
     private val log = LoggerFactory.getLogger(MatchConnectFlow::class.java)
@@ -62,7 +63,7 @@ internal class MatchConnectFlow(
     }
 
     private fun connectConstructed(attempt: ConnectAttempt) {
-        // Constructed mode: normal local player + built-in AI flow.
+        require(!isHumanVsHuman() || !attempt.familiar) { "Two-human matches do not accept Familiar observers" }
         val gameVariant = resolveGameVariant()
         val match =
             registry.getOrCreateMatch(attempt.matchId) {
@@ -81,7 +82,14 @@ internal class MatchConnectFlow(
                     // bundles. Mirrors the non-spectator flow; avoids two connects
                     // racing to start it.
                     val decks = resolveSeatDecks()
-                    if (isSpectatorMode()) {
+                    if (isHumanVsHuman()) {
+                        newMatch.startHumanVsHuman(
+                            seed = engineSettings.seed,
+                            deck1 = decks.first,
+                            deck2 = decks.second,
+                            variant = gameVariant,
+                        )
+                    } else if (isSpectatorMode()) {
                         newMatch.startAiVsAi(
                             seed = engineSettings.seed,
                             deck1 = decks.first,

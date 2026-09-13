@@ -4,6 +4,30 @@ import wotc.mtgo.gre.external.messaging.Messages.*
 
 /** Head-owned room, completion, and settings transport messages. */
 object HandshakeMessages {
+    data class RoomPlayer(
+        val playerId: String,
+        val displayName: String,
+        val seatId: Int,
+    )
+
+    /** Both connections receive the same authenticated human roster. */
+    fun roomState(
+        matchId: String,
+        eventId: String,
+        players: List<RoomPlayer>,
+    ): MatchServiceToClientMessage {
+        require(players.map { it.seatId }.toSet() == setOf(1, 2) && players.size == 2)
+        val config = humanRoomConfig(matchId, eventId, players)
+        val roster = config.reservedPlayersList
+        return wrapRoomState(
+            MatchGameRoomInfo
+                .newBuilder()
+                .setGameRoomConfig(config)
+                .setStateType(MatchGameRoomStateType.Playing)
+                .addAllPlayers(roster),
+        )
+    }
+
     fun roomState(
         matchId: String,
         playerId: String,
@@ -27,6 +51,8 @@ object HandshakeMessages {
         playerId: String,
         resultType: ResultType = ResultType.WinLoss,
         reason: ResultReason = ResultReason.Concede,
+        players: List<RoomPlayer> = emptyList(),
+        eventId: String = "AIBotMatch",
     ): MatchServiceToClientMessage {
         val result =
             FinalMatchResult
@@ -38,10 +64,24 @@ object HandshakeMessages {
         val roomInfo =
             MatchGameRoomInfo
                 .newBuilder()
-                .setGameRoomConfig(buildRoomConfig(matchId, playerId))
-                .setStateType(MatchGameRoomStateType.MatchCompleted)
+                .setGameRoomConfig(
+                    if (players.isEmpty()) buildRoomConfig(matchId, playerId) else humanRoomConfig(matchId, eventId, players),
+                ).setStateType(MatchGameRoomStateType.MatchCompleted)
                 .setFinalMatchResult(result)
         return wrapRoomState(roomInfo)
+    }
+
+    private fun humanRoomConfig(
+        matchId: String,
+        eventId: String,
+        players: List<RoomPlayer>,
+    ): MatchGameRoomConfig.Builder {
+        val roster = players.map { playerInfo(it.playerId, it.displayName, it.seatId, it.seatId).setEventId(eventId).build() }
+        return MatchGameRoomConfig
+            .newBuilder()
+            .setMatchId(matchId)
+            .setEventId(eventId)
+            .addAllReservedPlayers(roster)
     }
 
     private fun resultSpec(

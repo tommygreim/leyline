@@ -71,7 +71,8 @@ class MatchSession(
      * puzzle hot-swap MatchHandler builds a fresh instance for the new
      * game, so this snapshot stays valid for the session's lifetime.
      */
-    val ctx: SessionContext = SessionContext(requireNotNull(gameBridge.getGame()) { "MatchSession requires non-null game" }, gameBridge)
+    val ctx: SessionContext =
+        SessionContext(requireNotNull(gameBridge.getGame()) { "MatchSession requires non-null game" }, gameBridge, seatId)
 
     /** Sub-handlers for combat, targeting, and routed interaction flows. */
     val combatHandler =
@@ -100,7 +101,7 @@ class MatchSession(
             sink = this,
             counters = this,
             targetingHandler = targetingHandler,
-            priorityPolicy = gameBridge.priorityPolicy,
+            priorityPolicy = gameBridge.priorityPolicy(seatId),
             ctx = ctx,
             continuation = runtimeContinuation,
             matchId = matchId,
@@ -296,7 +297,7 @@ class MatchSession(
     internal fun admitSettled(greMsg: ClientToGREMessage): SettledPromptAdmission =
         synchronized(sessionLock) {
             val completedActionId = gameBridge.actionBridge(seatId).getPending()?.actionId
-            gameBridge.cutCoordinator.prompts.settled.admit(greMsg).also {
+            gameBridge.cutCoordinator.promptRuntimes(seatId).settled.admit(greMsg).also {
                 when (it) {
                     is SettledPromptAdmission.Accepted ->
                         runtimeContinuation.awaitHorizon(completedActionId, it.afterEngineResume)
@@ -323,7 +324,15 @@ class MatchSession(
         block: (completedActionId: String?) -> Unit,
     ): Unit =
         synchronized(sessionLock) {
-            val failure = ResponseEnvelopeGuard.mismatchReason(greMsg, gameBridge.committedSequence(), gameBridge.responseAcceptance)
+            val wrongSeat = greMsg.systemSeatId != 0 && greMsg.systemSeatId != seatId.value
+            val wrongPrompt =
+                gameBridge.humanVsHuman && greMsg.type in CORRELATED_CLIENT_MESSAGE_TYPES && lastPrompt?.msgId != greMsg.respId
+            val failure =
+                if (wrongSeat || wrongPrompt) {
+                    FailureReason.ReqRespMismatch
+                } else {
+                    ResponseEnvelopeGuard.mismatchReason(greMsg, gameBridge.committedSequence(), gameBridge.responseAcceptance)
+                }
             if (failure == null) {
                 log
                     .atDebug()
@@ -365,6 +374,13 @@ class MatchSession(
      */
     override fun onCancelAction(greMsg: ClientToGREMessage): Unit =
         synchronized(sessionLock) {
+            if (gameBridge.humanVsHuman &&
+                (lastPrompt == null || lastPrompt?.msgId != gameBridge.committedSequence().lastPromptMsgId)
+            ) {
+                gameBridge.cutCoordinator.publishIllegalRequest(seatId, greMsg, FailureReason.ReqRespMismatch)
+                drainCoordinatorFeed()
+                return@synchronized
+            }
             val completedActionId = gameBridge.actionBridge(seatId).getPending()?.actionId
             // During combat declaration, cancel means "pass combat" (submit empty attackers).
             if (combatHandler.hasPendingAttackers()) {
@@ -394,7 +410,7 @@ class MatchSession(
                 incoming.transientStopsCount,
             )
 
-            val settings = gameBridge.priorityPolicy.submit(incoming, reqSettings.turnNumber)
+            val settings = gameBridge.priorityPolicy(seatId).submit(incoming, reqSettings.turnNumber)
             gameBridge.cutCoordinator.publishSettings(seatId, settings)
             drainCoordinatorFeed()
         }
@@ -455,7 +471,15 @@ class MatchSession(
 
         // Send MatchCompleted room state — triggers the client's result screen
         val matchCompletedMsg =
-            HandshakeMessages.matchCompleted(matchId, outcome.winningTeam, playerId, outcome.result, outcome.reason)
+            HandshakeMessages.matchCompleted(
+                matchId,
+                outcome.winningTeam,
+                playerId,
+                outcome.result,
+                outcome.reason,
+                connection.roomPlayers,
+                connection.eventName,
+            )
         sink.sendRaw(matchCompletedMsg)
         terminalCompleted = true
         log
@@ -480,6 +504,8 @@ class MatchSession(
                 .log("Match result reporting failed")
         }
 
+        if (bridge.humanVsHuman && !bridge.markHumanTerminalDelivered(seatId)) return
+
         registry.teardownMatch(
             matchId = matchId,
             reason = if (outcome.reason == ResultReason.Concede) MatchTeardownReason.Concede else MatchTeardownReason.GameOver,
@@ -498,9 +524,8 @@ class MatchSession(
     override fun sendBundledGRE(messages: List<GREToClientMessage>) {
         val firstMsgId = messages.firstOrNull()?.msgId
         val maxGsId = messages.maxOfOrNull { it.gameStateId } ?: 0
-        val playback = firstMsgId?.let { ctx.bridge.playbackFor(seatId) }
-        if (playback != null) {
-            for (batch in playback.drainQueueBeforeMsgId(firstMsgId, maxGsId)) {
+        if (firstMsgId != null) {
+            for (batch in ctx.bridge.cutCoordinator.drain(seatId, firstMsgId, maxGsId)) {
                 sendBundledGREDirect(batch)
             }
         }
