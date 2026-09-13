@@ -17,7 +17,7 @@ import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
 
 /**
  * Keyword grant annotation pipeline tests — effectAnnotations keyword branch,
- * LayeredEffectCreated/Destroyed, AddAbility pAnn emission, unknown keyword skip.
+ * LayeredEffectCreated/Destroyed, AddAbility pAnn emission, unmapped keyword skip.
  */
 class KeywordGrantAnnotationTest :
     FunSpec({
@@ -30,9 +30,9 @@ class KeywordGrantAnnotationTest :
                 EffectTracker.KeywordDiffResult(
                     created =
                         listOf(
-                            trackedKeyword(7010, 389, 1L, 5L, "Trample", affector = 435),
-                            trackedKeyword(7010, 425, 1L, 5L, "Trample", affector = 435),
-                            trackedKeyword(7010, 432, 1L, 5L, "Trample", affector = 435),
+                            trackedKeyword(7010, 389, 1L, 5L, "Flanking", affector = 435),
+                            trackedKeyword(7010, 425, 1L, 5L, "Flanking", affector = 435),
+                            trackedKeyword(7010, 432, 1L, 5L, "Flanking", affector = 435),
                         ),
                     destroyed = emptyList(),
                 )
@@ -53,7 +53,7 @@ class KeywordGrantAnnotationTest :
             assertSoftly {
                 pAnn.affectedIdsList shouldHaveSize 3
                 pAnn.detailsList.filter { it.key == "UniqueAbilityId" } shouldHaveSize 3
-                pAnn.detailUint("grpid") shouldBe 14
+                pAnn.detailUint("grpid") shouldBe 26
             }
         }
 
@@ -111,12 +111,12 @@ class KeywordGrantAnnotationTest :
             transient.filter { it.typeList.contains(AnnotationType.LayeredEffectDestroyed) } shouldHaveSize 1
         }
 
-        test("effectAnnotations skips unknown keyword grpIds") {
+        test("effectAnnotations skips keywords without a GRE ability id") {
             val kwDiff =
                 EffectTracker.KeywordDiffResult(
                     created =
                         listOf(
-                            EffectTracker.TrackedKeywordEffect(7010, EffectTracker.KeywordFingerprint(389, 1L, 5L, "Flanking"), "Flanking"),
+                            EffectTracker.TrackedKeywordEffect(7010, EffectTracker.KeywordFingerprint(389, 1L, 5L, "Assist"), "Assist"),
                         ),
                     destroyed = emptyList(),
                 )
