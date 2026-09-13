@@ -18,6 +18,9 @@ class TimerMessageTest :
 
         fun bb() = BundleBuilder(GameBridge(cardRepository = InMemoryCardRepository()), "test-match", 1)
 
+        // LowTimeWarning.SHOW_TIMER_THRESHOLD in the installed client.
+        val ropeShowThresholdSec = 30
+
         test("timerStart builds TimerStateMessage with Decision timer running") {
             val counter = LogicalSequencePlanner()
             val result = bb().timerStart(counter = counter, durationSec = 30)
@@ -35,6 +38,22 @@ class TimerMessageTest :
                 timer.type shouldBe TimerType.Decision
                 timer.durationSec shouldBe 30
                 timer.running shouldBe true
+                timer.elapsedSec shouldBe 0
+            }
+        }
+
+        test("the default decision timer leaves quiet thinking time before the rope") {
+            val timer =
+                bb()
+                    .timerStart(counter = LogicalSequencePlanner())
+                    .messages[0]
+                    .timerStateMessage.timersList[0]
+
+            // The client reveals the rope at LowTimeWarning.SHOW_TIMER_THRESHOLD seconds
+            // remaining, so the duration has to clear that threshold to buy any grace.
+            assertSoftly {
+                timer.durationSec shouldBe BundleBuilder.DECISION_TIMER_SEC
+                timer.durationSec - ropeShowThresholdSec shouldBe 30
                 timer.elapsedSec shouldBe 0
             }
         }

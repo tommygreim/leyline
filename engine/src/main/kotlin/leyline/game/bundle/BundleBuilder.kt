@@ -2306,7 +2306,7 @@ class BundleBuilder(
      */
     fun timerStart(
         counter: LogicalSequencePlanner,
-        durationSec: Int = 30,
+        durationSec: Int = DECISION_TIMER_SEC,
     ): BundleResult = buildTimerBundle(counter, running = true, durationSec = durationSec)
 
     /**
@@ -2315,7 +2315,7 @@ class BundleBuilder(
      */
     fun timerStop(
         counter: LogicalSequencePlanner,
-        durationSec: Int = 30,
+        durationSec: Int = DECISION_TIMER_SEC,
     ): BundleResult = buildTimerBundle(counter, running = false, durationSec = durationSec)
 
     private fun buildTimerBundle(
@@ -2444,6 +2444,19 @@ class BundleBuilder(
     companion object {
         private const val COIN_FLIP_WIN_LOCALIZATION_ID = 47
         private const val COIN_FLIP_LOSS_LOCALIZATION_ID = 48
+
+        /**
+         * The client reveals the rope once the running timer has this much time left
+         * (`LowTimeWarning.SHOW_TIMER_THRESHOLD`; it hides again at 40s). Anything at
+         * or below this duration puts the rope on screen the instant priority arrives.
+         */
+        private const val ROPE_VISIBLE_SEC = 30
+
+        /** Quiet thinking time before the rope appears. */
+        private const val DECISION_GRACE_SEC = 30
+
+        /** Decision timer duration: grace first, then the rope for its last stretch. */
+        const val DECISION_TIMER_SEC = ROPE_VISIBLE_SEC + DECISION_GRACE_SEC
 
         /**
          * True when the drained [events] describe a turn-boundary or trigger-driven
