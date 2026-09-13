@@ -7,6 +7,13 @@
 # --- AnnotationType (collides with other enums) ---
 s/\tCounter = 14;/\tCounter_803b = 14;/
 s/\tReplacementEffect = 62;/\tReplacementEffect_803b = 62;/
+/\tMultiplayerNumericAid = 114;/a\
+\tHighlightReason = 115;\
+\tPersistentChoiceResult = 116;\
+\tEnteredZoneAtSameTime = 117;
+
+# --- CardMechanicType current client names ---
+s/\tEnweb = 54;/\tWebslinging = 54;/
 
 # --- ClientMessageType (collides with ServerMessageType) ---
 s/\tConnectReq = 1;/\tConnectReq_097b = 1;/
@@ -120,24 +127,28 @@ s/\tRequirementViolated = 16;/\tRequirementViolated_a500 = 16;/
 # --- AbilityType collision ---
 s/\tTriggeredAbility = 4;/\tTriggeredAbility_c799 = 4;/
 
+# --- CounterType current client names ---
+s/\tPhct212 = 212;/\tSaurian = 212;/
+/\tSaurian = 212;/a\
+\tPhct213 = 213;\
+\tPhct214 = 214;\
+\tHaste = 215;\
+\tShadow = 216;\
+\tRefine = 217;\
+\tPhct218 = 218;\
+\tPhct219 = 219;\
+\tPhct220 = 220;
+
 # --- SubType placeholders (upstream has names we don't recognize) ---
 s/\tMutagen = 469;/\tPlaceholderSubType469 = 469;/
 s/\tUtrom = 470;/\tPlaceholderSubType470 = 470;/
-
-# --- Keyword ability collision ---
-s/\tSneak = 55;/\tPlaceholder55 = 55;/
-
-# --- Delete entries not in our version ---
-/PhaseOrStepTransitionSkipNext = 57;/d
-/MultiplayerNumericAid = 114;/d
-/Phct212 = 212;/d
-/PlaceholderSubType482 = 482;/d
-/PlaceholderSubType483 = 483;/d
-/PlaceholderSubType484 = 484;/d
-/PlaceholderSubType485 = 485;/d
-/PlaceholderSubType486 = 486;/d
-/PlaceholderSubType487 = 487;/d
-/PlaceholderSubType488 = 488;/d
+s/\tPlaceholderSubType482 = 482;/\tEternal = 482;/
+s/\tPlaceholderSubType483 = 483;/\tGamma = 483;/
+s/\tPlaceholderSubType484 = 484;/\tInhuman = 484;/
+s/\tPlaceholderSubType485 = 485;/\tKree = 485;/
+s/\tPlaceholderSubType486 = 486;/\tSkrull = 486;/
+s/\tPlaceholderSubType487 = 487;/\tVibranium = 487;/
+s/\tPlaceholderSubType488 = 488;/\tShiar = 488;/
 
 # --- TurnStep collision ---
 s/\tStop = 7;/\tStop_2117 = 7;/
