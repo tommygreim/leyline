@@ -93,6 +93,16 @@ class BundleBuilderTest :
 
         // --- Unit tests (pure proto, no game) ---
 
+        test("transition game info retains timer lookup identity") {
+            val gameInfo = GsmBuilder.buildTransitionGameInfo("test-match")
+
+            assertSoftly {
+                gameInfo.gameNumber shouldBe 1
+                gameInfo.type shouldBe Messages.GameType.Duel
+                gameInfo.variant shouldBe Messages.GameVariant.Normal
+            }
+        }
+
         test("queuedGameState wraps GSM with type 51") {
             val gs =
                 Messages.GameStateMessage

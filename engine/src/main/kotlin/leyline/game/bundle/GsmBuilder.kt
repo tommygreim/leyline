@@ -72,8 +72,13 @@ object GsmBuilder {
         GameInfo
             .newBuilder()
             .setMatchID(matchId)
+            .setGameNumber(1)
             .setStage(GameStage.Play_a920)
+            .setType(GameType.Duel)
+            .setVariant(GameVariant.Normal)
             .setMatchState(MatchState.GameInProgress)
+            .setMatchWinCondition(MatchWinCondition.SingleElimination)
+            .setSuperFormat(SuperFormat.Constructed)
             .setMulliganType(MulliganType.London)
             .build()
 

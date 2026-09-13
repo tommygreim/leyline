@@ -16,7 +16,7 @@ data class EngineSettings(
     val bridgeTimeoutMs: Long? = null,
     /** Client-visible prompt fail-safe (ms). Null = no prompt timeout. */
     @SerialName("prompt_failsafe_ms")
-    val promptFailsafeMs: Long? = 45_000L,
+    val promptFailsafeMs: Long? = null,
     /** How long the engine waits for the AI turn before suppressing action prompts (ms). */
     @SerialName("ai_turn_wait_ms")
     val aiTurnWaitMs: Long = 30_000L,

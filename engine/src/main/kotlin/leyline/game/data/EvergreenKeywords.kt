@@ -5,10 +5,9 @@ package leyline.game.data
  * Each is a single shared ability row every printing references, so membership
  * is an integer test rather than a match against ability text.
  *
- * Ids are read off card rows rather than transcribed, so they are not the same
- * values as `leyline.game.codes.KeywordGrpIds`, which disagrees for five of the
- * keywords here. Printed keywords come from card data; temporary grants come
- * from game state.
+ * Ids are read off card rows rather than inferred from rules text. Printed
+ * keywords come from card data; temporary grants come from game state and use
+ * the corresponding GRE AbilityType value.
  */
 object EvergreenKeywords {
     private val BY_ABILITY_ID: Map<Int, String> =

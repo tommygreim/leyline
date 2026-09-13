@@ -59,6 +59,7 @@ class TargetingHandler(
     internal fun onSelectTargets(greMsg: ClientToGREMessage): HandlerResult {
         val bridge = ctx.bridge
         val resp = greMsg.selectTargetsResp
+        Tap.targetSelection(ctx.seatId.value, greMsg.gameStateId, resp.target.targetIdx, resp.target.targetsList)
         val compatibility =
             bridge.cutCoordinator
                 .promptRuntimes(ctx.seatId)

@@ -81,6 +81,7 @@ object HandshakeMessages {
             .newBuilder()
             .setMatchId(matchId)
             .setEventId(eventId)
+            .setMatchConfig(constructedMatchConfig())
             .addAllReservedPlayers(roster)
     }
 
@@ -115,7 +116,11 @@ object HandshakeMessages {
         eventId: String = "AIBotMatch",
         isBot: Boolean = true,
     ): MatchGameRoomConfig.Builder {
-        val builder = MatchGameRoomConfig.newBuilder().setMatchId(matchId)
+        val builder =
+            MatchGameRoomConfig
+                .newBuilder()
+                .setMatchId(matchId)
+                .setMatchConfig(constructedMatchConfig())
         if (isBot) builder.setEventId(eventId)
         val player =
             playerInfo(playerId, "Player", 1, 1)
@@ -129,6 +134,16 @@ object HandshakeMessages {
         if (isBot) opponent.setIsBotPlayer(true)
         return builder.addReservedPlayers(player).addReservedPlayers(opponent)
     }
+
+    private fun constructedMatchConfig(): MatchConfig =
+        MatchConfig
+            .newBuilder()
+            .setGameType(GameType.Duel)
+            .setGameVariant(GameVariant.Normal)
+            .setWinCondition(MatchWinCondition.SingleElimination)
+            .setMulliganType(MulliganType.London)
+            .setSuperFormat(SuperFormat.Constructed)
+            .build()
 
     private fun wrapRoomState(roomInfo: MatchGameRoomInfo.Builder): MatchServiceToClientMessage =
         MatchServiceToClientMessage

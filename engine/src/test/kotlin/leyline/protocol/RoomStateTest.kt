@@ -4,6 +4,7 @@ import io.kotest.assertions.assertSoftly
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import leyline.UnitTag
+import wotc.mtgo.gre.external.messaging.Messages.GameType
 import wotc.mtgo.gre.external.messaging.Messages.MatchGameRoomStateType
 
 class RoomStateTest :
@@ -17,6 +18,7 @@ class RoomStateTest :
                 room.stateType shouldBe MatchGameRoomStateType.Playing
                 room.gameRoomConfig.matchId shouldBe "local-match"
                 room.gameRoomConfig.eventId shouldBe "Play"
+                room.gameRoomConfig.matchConfig.gameType shouldBe GameType.Duel
                 room.playersList.map { it.userId } shouldBe listOf("alice", "bob")
                 room.playersList.map { it.playerName } shouldBe listOf("Alice", "Bob")
                 room.gameRoomConfig.reservedPlayersList.map { it.systemSeatId } shouldBe listOf(1, 2)

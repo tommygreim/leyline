@@ -3,6 +3,7 @@ package leyline.match
 import leyline.bridge.types.ForgeCardId
 import org.slf4j.LoggerFactory
 import wotc.mtgo.gre.external.messaging.Messages.*
+import wotc.mtgo.gre.external.messaging.Messages.Target as GreTarget
 
 /**
  * Structured client proto compression for selected connection-boundary facts.
@@ -46,6 +47,24 @@ object Tap {
             .addKeyValue("seat", seatId)
             .addKeyValue("game_state_id", gsId)
             .log("Client GRE message received")
+    }
+
+    fun targetSelection(
+        seatId: Int,
+        gsId: Int,
+        targetIdx: Int,
+        targets: List<GreTarget>,
+    ) {
+        if (!log.isDebugEnabled) return
+        log
+            .atDebug()
+            .addKeyValue("event", "client.target_selection")
+            .addKeyValue("seat", seatId)
+            .addKeyValue("game_state_id", gsId)
+            .addKeyValue("target_index", targetIdx)
+            .addKeyValue("target_ids", targets.map { it.targetInstanceId })
+            .addKeyValue("actions", targets.map { it.legalAction.name.removeSuffix("_a1ad") })
+            .log("Client target selection received")
     }
 
     fun outboundTemplate(
