@@ -17,6 +17,17 @@ interface CardRepository {
 
     fun findGrpIdByName(name: String): Int?
 
+    /** Deck-entry lookup. Repositories may accept exact catalog aliases while returning the deck-legal parent. */
+    fun findDeckGrpIdByName(name: String): Int? = findGrpIdByName(name)
+
+    fun findDeckGrpIdByNameAndSet(
+        name: String,
+        setCode: String,
+    ): Int? = findGrpIdByNameAndSet(name, setCode) ?: findDeckGrpIdByName(name)
+
+    /** Names that identify one primary card in catalog search. */
+    fun findNamesByGrpId(grpId: Int): List<String> = listOfNotNull(findNameByGrpId(grpId))
+
     /** Like [findGrpIdByName] but includes secondary faces and derived forms. */
     fun findGrpIdByNameAnyFace(name: String): Int? = findGrpIdByName(name)
 

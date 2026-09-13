@@ -491,6 +491,34 @@ class ForgeCatalogProbeTest :
                 restarted.findGrpIdByName("Zombie") shouldBe null
             }
         }
+        test("deck entry resolves case and linked-face names to the primary identity") {
+            val repo = ForgeCardRepository.open()
+            val delver = requireNotNull(repo.findGrpIdByName("Delver of Secrets"))
+            val backFace = requireNotNull(repo.findGrpIdByNameAnyFace("Insectile Aberration"))
+            val kenrith = requireNotNull(repo.findGrpIdByName("Kenrith, the Returned King"))
+
+            assertSoftly {
+                repo.findDeckGrpIdByName("delver of secrets") shouldBe delver
+                repo.findDeckGrpIdByName("Insectile Aberration") shouldBe delver
+                repo.findDeckGrpIdByName("Delver of Secrets // Insectile Aberration") shouldBe delver
+                repo.findDeckGrpIdByNameAndSet("Insectile Aberration", "ISD") shouldBe delver
+                repo.findGrpIdByNameAnyFace("Insectile Aberration") shouldBe backFace
+                repo.findDeckGrpIdByName("Delver of Secrets // Revealing Eye") shouldBe null
+                repo.findDeckGrpIdByName("kenrith, the returned king") shouldBe kenrith
+                repo.findDeckGrpIdByName("Kenrith, the Returned King (leader)") shouldBe null
+            }
+        }
+        test("catalog names include linked faces and their combined name") {
+            val repo = ForgeCardRepository.open()
+            val delver = requireNotNull(repo.findGrpIdByName("Delver of Secrets"))
+
+            repo.findNamesByGrpId(delver) shouldBe
+                listOf(
+                    "Delver of Secrets",
+                    "Insectile Aberration",
+                    "Delver of Secrets // Insectile Aberration",
+                )
+        }
         test("combined and specialize faces keep cold catalog identities") {
             val first = ForgeCardRepository.open()
             val splitParent = requireNotNull(first.findGrpIdByName("Dead // Gone"))

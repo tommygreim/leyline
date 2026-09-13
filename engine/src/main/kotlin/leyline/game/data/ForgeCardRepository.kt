@@ -31,6 +31,17 @@ class ForgeCardRepository private constructor(
     private val tokens = mutableMapOf<String, MutableSet<Int>>()
     private val primaryIds = cardIndexByName.values.map { CARD_BASE + it }.toSet()
     private val primaryNameById = cardIndexByName.entries.associate { (name, index) -> CARD_BASE + index to name }
+    private val primaryNamesByLookup = cardIndexByName.keys.groupBy(::lookupKey)
+    private val faceAliasesByParent = faceAliases.values.flatten().groupBy(FaceAlias::parentName)
+    private val faceAliasesByLookup = faceAliases.values.flatten().groupBy { lookupKey(it.name) }
+    private val combinedNamesByParent =
+        faceAliasesByParent.mapValues { (parentName, aliases) ->
+            if (aliases.size == 1 && " // " !in parentName) "$parentName // ${aliases.single().name}" else null
+        }
+    private val combinedParentsByLookup =
+        combinedNamesByParent.entries
+            .mapNotNull { (parentName, combinedName) -> combinedName?.let { lookupKey(it) to parentName } }
+            .groupBy({ it.first }, { it.second })
     private val faceAliasById =
         faceAliases.values.flatten().associateBy { alias -> catalogIdentityIds.getValue(alias.identityKey) }
     internal val identityKeys = primaryNameById.mapValuesTo(linkedMapOf()) { (_, name) -> "card:$name" }
@@ -221,6 +232,32 @@ class ForgeCardRepository private constructor(
         } finally {
             loading.remove(name)
         }
+    }
+
+    @Synchronized
+    override fun findDeckGrpIdByName(name: String): Int? {
+        val key = lookupKey(name)
+        val parentName =
+            primaryNamesByLookup[key]?.singleOrNull()
+                ?: faceAliasesByLookup[key]?.map(FaceAlias::parentName)?.distinct()?.singleOrNull()
+                ?: combinedParentsByLookup[key]?.distinct()?.singleOrNull()
+                ?: return null
+        return findGrpIdByName(parentName)
+    }
+
+    override fun findDeckGrpIdByNameAndSet(
+        name: String,
+        setCode: String,
+    ): Int? = findDeckGrpIdByName(name)
+
+    @Synchronized
+    override fun findNamesByGrpId(grpId: Int): List<String> {
+        val parentName = primaryNameById[grpId] ?: return super.findNamesByGrpId(grpId)
+        return buildList {
+            add(parentName)
+            addAll(faceAliasesByParent[parentName].orEmpty().map(FaceAlias::name))
+            combinedNamesByParent[parentName]?.let(::add)
+        }.distinct()
     }
 
     private fun registerRules(
@@ -504,6 +541,8 @@ class ForgeCardRepository private constructor(
     }
 
     override fun findAllGrpIds(): List<Int> = primaryIds.toList()
+
+    private fun lookupKey(name: String): String = name.lowercase()
 
     @Synchronized
     override fun lookupModalOptions(cardGrpId: Int): ModalAbilityInfo? = rows.lookupModalOptions(cardGrpId)
