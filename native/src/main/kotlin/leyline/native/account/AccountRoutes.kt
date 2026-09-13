@@ -5,6 +5,9 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -30,6 +33,7 @@ fun Route.accountRoutes(
     ageGateStub()
     moderateStub()
     skusStub()
+    localSocialRoutes(store, tokens)
     catchAll()
 }
 
@@ -173,6 +177,45 @@ private fun Route.skusStub() {
             ContentType.Application.Json,
             HttpStatusCode.OK,
         )
+    }
+}
+
+private fun Route.localSocialRoutes(
+    store: AccountStore,
+    tokens: TokenService,
+) {
+    get("/friends/friendship/all") {
+        // The social client enumerates this list even when no friends exist.
+        call.respondText("""{"friends":[]}""", ContentType.Application.Json, HttpStatusCode.OK)
+    }
+    post("/presence/app-presence") {
+        val bearer =
+            call.request
+                .header("Authorization")
+                ?.removePrefix("Bearer ")
+                ?.trim()
+                ?: return@post call.respondError(AccountError.MISSING_AUTH)
+        val personaId =
+            tokens.validateAccessToken(bearer)
+                ?: return@post call.respondError(AccountError.INVALID_TOKEN)
+        val account =
+            store.findByPersonaId(personaId)
+                ?: return@post call.respondError(AccountError.NOT_FOUND)
+        val request = call.receive<JsonObject>()
+        val now = System.currentTimeMillis() / 1000
+        // Acknowledge the local user's presence without publishing it to a social service.
+        val response =
+            buildJsonObject {
+                put("accountId", account.accountId)
+                put("personaId", account.personaId)
+                put("gameId", "arena")
+                put("updatedAt", now)
+                put("expiry", request["expiry"]?.takeUnless { it == JsonNull } ?: JsonPrimitive(now + 60))
+                put("platformStatus", request["platformStatus"] ?: JsonPrimitive(0))
+                put("gameStatus", request["gameStatus"] ?: JsonPrimitive(""))
+                put("data", request["data"] ?: JsonNull)
+            }
+        call.respondText(response.toString(), ContentType.Application.Json, HttpStatusCode.OK)
     }
 }
 

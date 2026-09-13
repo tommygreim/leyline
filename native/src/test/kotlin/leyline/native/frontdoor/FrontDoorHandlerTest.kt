@@ -9,6 +9,7 @@ import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
+import com.google.protobuf.CodedOutputStream
 import io.kotest.assertions.assertSoftly
 import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
@@ -52,7 +53,9 @@ import leyline.native.frontdoor.wire.FdEnvelope
 import leyline.native.frontdoor.wire.FdResponseWriter
 import leyline.native.frontdoor.wire.FdWireConstants
 import org.slf4j.LoggerFactory
+import java.io.ByteArrayOutputStream
 import java.util.UUID
+import com.google.protobuf.Any as ProtoAny
 
 /**
  * Wire-level integration tests for [FrontDoorHandler].
@@ -286,6 +289,32 @@ class FrontDoorHandlerTest :
             // Proto response — jsonPayload may be null but response must exist
         }
 
+        test("CmdType 2300 - typed inbox request receives GetPlayerInboxResp") {
+            val ch = fdChannel()
+            val request =
+                ProtoAny
+                    .newBuilder()
+                    .setTypeUrl("type.googleapis.com/Wizards.Arena.Models.Network.GetPlayerInboxReq")
+                    .build()
+            val bytes = ByteArrayOutputStream()
+            CodedOutputStream.newInstance(bytes).apply {
+                writeUInt32(1, 2300)
+                writeString(2, UUID.randomUUID().toString())
+                writeByteArray(3, request.toByteArray())
+                flush()
+            }
+            val envelope = bytes.toByteArray()
+            ch.writeInbound(Unpooled.wrappedBuffer(FdEnvelope.buildOutgoingHeader(envelope.size), envelope))
+
+            val response = ch.readAllResponses().single()
+            response.protobufTypeUrl shouldBe "type.googleapis.com/Wizards.Arena.Models.Network.GetPlayerInboxResp"
+            response.jsonPayload shouldBe null
+        }
+
+        test("CmdType 2300 - legacy inbox request retains empty Messages JSON") {
+            sendJson(2300)["Messages"]!!.jsonArray.shouldBeEmpty()
+        }
+
         test("CmdType 612 - AiBotMatch returns ack then MatchCreated with correct EventId") {
             val ch = fdChannel()
             val responses = ch.sendCmdAll(612, """{"deckId":"$testDeckId","eventName":"AIBotMatch"}""")
@@ -442,6 +471,62 @@ class FrontDoorHandlerTest :
             val obj = sendJson(1100)
             obj["constructedClass"].shouldNotBeNull()
             obj["limitedClass"].shouldNotBeNull()
+        }
+
+        test("current deck commands save, list, and reload all deck zones") {
+            val deckId = "11111111-1111-1111-1111-111111111111"
+            val request =
+                """
+                {
+                    "Summary": {"DeckId":"$deckId","Name":"Round Trip","DeckTileId":75515,
+                        "Attributes":[{"name":"Format","value":"Historic"}]},
+                    "Deck": {
+                        "MainDeck": [{"cardId":75515,"quantity":24},{"cardId":75516,"quantity":36}],
+                        "Sideboard": [{"cardId":75517,"quantity":2}],
+                        "CommandZone": [{"cardId":75518,"quantity":1}],
+                        "Companions": [{"cardId":75519,"quantity":1}],
+                        "CardSkins": []
+                    },
+                    "ActionType": "CreatedNew"
+                }
+                """.trimIndent()
+            val ch = fdChannel()
+            val saved = sendJson(412, request, ch)
+            saved["DeckId"]!!.jsonPrimitive.content shouldBe deckId
+
+            val listed = sendJson(411, ch = ch)
+            listed.keys shouldBe setOf("Summaries")
+            val summary =
+                listed["Summaries"]!!
+                    .jsonArray
+                    .map { it.jsonObject }
+                    .single { it["DeckId"]!!.jsonPrimitive.content == deckId }
+            summary shouldBe saved
+
+            val loaded = sendJson(400, """{"DeckId":"$deckId"}""", ch)
+            loaded shouldBe json.parseToJsonElement(request).jsonObject["Deck"]!!.jsonObject
+        }
+
+        test("CmdType 400 does not return another player's deck or fabricate a missing deck") {
+            val foreignDeck =
+                Deck(
+                    id = DeckId("foreign-deck"),
+                    playerId = PlayerId("other-player"),
+                    name = "Other Player Deck",
+                    format = Format.Standard,
+                    tileId = 12345,
+                    mainDeck = sampleMainDeck,
+                    sideboard = emptyList(),
+                    commandZone = emptyList(),
+                    companions = emptyList(),
+                )
+            store.save(foreignDeck)
+            val ch = fdChannel()
+            for (deckId in listOf("foreign-deck", "missing-deck")) {
+                val response = ch.sendCmd(400, """{"DeckId":"$deckId"}""")
+                response.transactionId.shouldNotBeNull()
+                response.jsonPayload shouldBe null
+            }
         }
 
         test("CmdType 403 - DeleteDeck removes deck and returns Success") {

@@ -4,11 +4,20 @@ import com.google.protobuf.ByteString
 import com.google.protobuf.UnknownFieldSet
 import kotlinx.serialization.Serializable
 import leyline.domain.json.productionJson
+import java.nio.file.Path
 
 private val json = productionJson { ignoreUnknownKeys = true }
 
-/** Builds GetFormats and GetSets protobuf responses from JSON data. */
+/** Builds typed Front Door responses from synthetic server data. */
 object FdProtoBuilder {
+    private val clientCodec by lazy {
+        val schema = System.getenv("LEYLINE_CLIENT_SCHEMA")
+        require(!schema.isNullOrBlank()) { "Typed StartHook requires LEYLINE_CLIENT_SCHEMA pointing to local client descriptors" }
+        ClientProtobufCodec.load(Path.of(schema))
+    }
+
+    fun buildStartHookProto(payload: String): ByteArray = clientCodec.pack("Wizards.Arena.Models.Network.StartHookResponseV2", payload)
+
     private const val FORMATS_TYPE_URL =
         "type.googleapis.com/Wizards.Arena.Models.Network.GetFormatsResponse"
     private const val SETS_TYPE_URL =

@@ -23,10 +23,12 @@ value class CmdType(
         val GET_FORMATS = CmdType(6)
 
         // --- Decks ---
+        val DECK_GET = CmdType(400)
         val DECK_DELETE = CmdType(403)
         val DECK_UPSERT_V2 = CmdType(406)
         val DECK_GET_SUMMARIES_V2 = CmdType(407)
         val DECK_GET_PRECONS_V3 = CmdType(410)
+        val DECK_GET_SUMMARIES_V3 = CmdType(411)
         val DECK_UPSERT_V3 = CmdType(412)
 
         // --- Cards ---
@@ -109,6 +111,7 @@ value class CmdType(
                 406 to "Deck_UpsertDeckV2",
                 407 to "Deck_GetDeckSummariesV2",
                 410 to "Deck_GetAllPreconDecksV3",
+                411 to "Deck_GetDeckSummariesV3",
                 412 to "Deck_UpsertDeckV3",
                 550 to "Card_GetCardSet",
                 551 to "Card_GetAllCards",

@@ -67,6 +67,8 @@ object FdEnvelope {
         val key: String? = null,
         /** Which envelope type this was decoded from. */
         val envelopeType: EnvelopeType = EnvelopeType.UNKNOWN,
+        /** Any type URL for typed payloads, without the payload or account data. */
+        val protobufTypeUrl: String? = null,
     )
 
     enum class EnvelopeType { CMD, REQUEST, RESPONSE, UNKNOWN }
@@ -108,6 +110,7 @@ object FdEnvelope {
                     transactionId = transId,
                     jsonPayload = json,
                     envelopeType = EnvelopeType.RESPONSE,
+                    protobufTypeUrl = protobufTypeUrl(fields.firstOrNull { it.fieldNumber == RESP_PROTO_PAYLOAD }),
                 )
             }
             // Cmd or Request: field 1 is varint (type)
@@ -135,21 +138,19 @@ object FdEnvelope {
         isCompressed: Boolean,
     ): FdMessage {
         val transId = fields.firstOrNull { it.fieldNumber == 2 }?.asString()
-        val rawField5 = fields.firstOrNull { it.fieldNumber == 5 }
+        val rawField3 = fields.firstOrNull { it.fieldNumber == 3 }
+        val rawField5 = fields.firstOrNull { it.fieldNumber == 5 && it.wireType == WIRE_LENGTH_DELIMITED }
         val rawField4 = fields.firstOrNull { it.fieldNumber == 4 }
-        val key =
-            fields
-                .firstOrNull { it.fieldNumber == 3 }
-                ?.takeIf { rawField5 != null }
-                ?.asString()
+        val requestProtoType = protobufTypeUrl(rawField4)
 
-        return if (rawField5 != null) {
+        return if (rawField5 != null || requestProtoType != null) {
             FdMessage(
                 cmdType = cmdType,
                 transactionId = transId,
-                jsonPayload = decompress(rawField5.data, isCompressed),
-                key = key,
+                jsonPayload = rawField5?.let { decompress(it.data, isCompressed) },
+                key = rawField3?.asString(),
                 envelopeType = EnvelopeType.REQUEST,
+                protobufTypeUrl = requestProtoType,
             )
         } else {
             FdMessage(
@@ -157,8 +158,17 @@ object FdEnvelope {
                 transactionId = transId,
                 jsonPayload = rawField4?.let { decompress(it.data, isCompressed) },
                 envelopeType = EnvelopeType.CMD,
+                protobufTypeUrl = protobufTypeUrl(rawField3),
             )
         }
+    }
+
+    private fun protobufTypeUrl(field: ProtoField?): String? {
+        if (field?.wireType != WIRE_LENGTH_DELIMITED) return null
+        return parseProtoFields(field.data)
+            .firstOrNull { it.fieldNumber == ANY_TYPE_URL && it.wireType == WIRE_LENGTH_DELIMITED }
+            ?.asString()
+            ?.takeIf { it.startsWith("type.googleapis.com/") }
     }
 
     private fun fallback(fields: List<ProtoField>): FdMessage {

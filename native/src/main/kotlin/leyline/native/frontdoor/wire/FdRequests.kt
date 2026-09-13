@@ -67,6 +67,11 @@ object FdRequests {
         val sideboard: List<DeckCard> = emptyList(),
     )
 
+    /** CmdType 400 */
+    data class GetDeck(
+        val deckId: String,
+    )
+
     /** CmdType 403 */
     data class DeleteDeck(
         val deckId: String,
@@ -146,6 +151,12 @@ object FdRequests {
                 mainDeck = DeckWireBuilder.parseCardList(mainElement, defaultQuantity = 1),
                 sideboard = DeckWireBuilder.parseCardList(sideElement, defaultQuantity = 1),
             )
+        }
+
+    fun parseGetDeck(json: String?): GetDeck? =
+        parse(json) { obj ->
+            val id = obj["DeckId"]?.jsonPrimitive?.content ?: return@parse null
+            GetDeck(id)
         }
 
     fun parseDeleteDeck(json: String?): DeleteDeck? =

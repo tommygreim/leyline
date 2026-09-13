@@ -67,6 +67,99 @@ class ClientCardDatabaseTest :
             return raw
         }
 
+        test("Downloads override selects card data outside the default Steam library") {
+            val home = tempDir()
+            val defaultDownloads = home.resolve(".local/share/Steam/steamapps/common/MTGA/MTGA_Data/Downloads")
+            createUsableDb(defaultDownloads.resolve("Raw/Raw_CardDatabase_default.mtga"))
+            val customDownloads = home.resolve("custom-library/MTGA_Data/Downloads")
+            val customDb = customDownloads.resolve("Raw/Raw_CardDatabase_custom.mtga")
+            createUsableDb(customDb)
+            val environment = mapOf("LEYLINE_ARENA_DOWNLOADS" to customDownloads.absolutePath)
+
+            val downloads = ClientCardDatabase.detectArenaDownloadsDir(environment, "Linux", home)
+            val db = ClientCardDatabase.resolveValidatedPath(overridePath = null, standardLocation = { downloads })
+
+            downloads shouldBe customDownloads
+            db shouldBe customDb
+        }
+
+        test("invalid Downloads override fails even when the standard library exists") {
+            val home = tempDir()
+            home.resolve(".local/share/Steam/steamapps/common/MTGA/MTGA_Data/Downloads").mkdirs()
+
+            val thrown =
+                shouldThrow<IllegalArgumentException> {
+                    ClientCardDatabase.detectArenaDownloadsDir(
+                        environment = mapOf("LEYLINE_ARENA_DOWNLOADS" to home.resolve("missing").absolutePath),
+                        osName = "Linux",
+                        home = home,
+                    )
+                }
+
+            thrown.message shouldContain "LEYLINE_ARENA_DOWNLOADS is not a directory"
+        }
+
+        test("explicit card database does not consult Downloads discovery") {
+            val home = tempDir()
+            val db = home.resolve("override.sqlite")
+            createUsableDb(db)
+
+            val resolved =
+                ClientCardDatabase.resolveValidatedPath(
+                    overridePath = db.absolutePath,
+                    standardLocation = { error("Downloads discovery must not run for an explicit card database") },
+                )
+
+            resolved shouldBe db
+        }
+
+        listOf(
+            ".local/share/Steam",
+            ".steam/steam",
+            ".steam/root",
+            ".var/app/com.valvesoftware.Steam/.local/share/Steam",
+        ).forEach { steamRoot ->
+            test("Linux discovers the Steam library under $steamRoot") {
+                val home = tempDir()
+                val downloads = home.resolve("$steamRoot/steamapps/common/MTGA/MTGA_Data/Downloads").apply { mkdirs() }
+
+                ClientCardDatabase.detectArenaDownloadsDir(emptyMap(), "Linux", home) shouldBe downloads
+            }
+        }
+
+        test("blank Downloads override keeps macOS discovery") {
+            val home = tempDir()
+            val downloads = home.resolve("Library/Application Support/com.wizards.mtga/Downloads").apply { mkdirs() }
+
+            ClientCardDatabase.detectArenaDownloadsDir(
+                environment = mapOf("LEYLINE_ARENA_DOWNLOADS" to " "),
+                osName = "Mac OS X",
+                home = home,
+            ) shouldBe downloads
+        }
+
+        listOf(
+            "PROGRAMFILES" to "Epic Games/MagicTheGathering/MTGA_Data/Downloads",
+            "PROGRAMFILES(X86)" to "Epic Games/MagicTheGathering/MTGA_Data/Downloads",
+            "PROGRAMFILES(X86)" to "Steam/steamapps/common/MTGA/MTGA_Data/Downloads",
+        ).forEach { (variable, relativePath) ->
+            test("Windows discovers $relativePath under $variable") {
+                val home = tempDir()
+                val environment =
+                    mapOf(
+                        "PROGRAMFILES" to home.resolve("program-files").absolutePath,
+                        "PROGRAMFILES(X86)" to home.resolve("program-files-x86").absolutePath,
+                    )
+                val downloads = File(environment.getValue(variable), relativePath).apply { mkdirs() }
+
+                ClientCardDatabase.detectArenaDownloadsDir(environment, "Windows 11", home) shouldBe downloads
+            }
+        }
+
+        test("missing Linux installation leaves Downloads unresolved") {
+            ClientCardDatabase.detectArenaDownloadsDir(emptyMap(), "Linux", tempDir()) shouldBe null
+        }
+
         test("explicit override opens a usable database") {
             val dir = tempDir()
             val db = File(dir, "override.sqlite")

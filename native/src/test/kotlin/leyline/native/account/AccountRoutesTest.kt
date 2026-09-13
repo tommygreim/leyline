@@ -1,6 +1,9 @@
 package leyline.native.account
 
+import io.kotest.assertions.assertSoftly
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.longs.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.ktor.client.request.*
@@ -13,6 +16,11 @@ import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.routing.*
 import io.ktor.server.testing.*
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import leyline.native.NativeTag
 import org.jetbrains.exposed.v1.jdbc.Database
 
@@ -226,6 +234,94 @@ class AccountRoutesTest :
                 val resp = client.get("/xsollaconnector/client/skus")
                 resp.status shouldBe HttpStatusCode.OK
                 resp.bodyAsText() shouldContain """"items":[]"""
+            }
+        }
+
+        test("local social friends response contains an empty iterable list") {
+            testApp {
+                val resp = client.get("/friends/friendship/all")
+
+                resp.status shouldBe HttpStatusCode.OK
+                resp.bodyAsText() shouldBe """{"friends":[]}"""
+            }
+        }
+
+        test("local presence acknowledges the authenticated account and supplied status") {
+            testApp {
+                val login =
+                    Json
+                        .parseToJsonElement(
+                            postToken(
+                                "grant_type" to "password",
+                                "username" to "existing@test.com",
+                                "password" to "password123",
+                            ).bodyAsText(),
+                        ).jsonObject
+                val token = login.getValue("access_token").jsonPrimitive.content
+                val resp =
+                    client.post("/presence/app-presence") {
+                        header("Authorization", "Bearer $token")
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"platformStatus":3,"gameStatus":"Local","expiry":2000000000,"data":"e30="}""")
+                    }
+                val presence = Json.parseToJsonElement(resp.bodyAsText()).jsonObject
+
+                assertSoftly {
+                    resp.status shouldBe HttpStatusCode.OK
+                    presence["accountId"] shouldBe login["account_id"]
+                    presence["personaId"] shouldBe login["persona_id"]
+                    presence["gameId"] shouldBe JsonPrimitive("arena")
+                    presence["platformStatus"] shouldBe JsonPrimitive(3)
+                    presence["gameStatus"] shouldBe JsonPrimitive("Local")
+                    presence["expiry"] shouldBe JsonPrimitive(2000000000L)
+                    presence["data"] shouldBe JsonPrimitive("e30=")
+                    presence
+                        .getValue("updatedAt")
+                        .jsonPrimitive.isString
+                        .shouldBeFalse()
+                    presence.getValue("updatedAt").jsonPrimitive.long shouldBeGreaterThan 0L
+                }
+            }
+        }
+
+        test("local presence accepts an omitted expiry and nullable data") {
+            testApp {
+                val login =
+                    Json
+                        .parseToJsonElement(
+                            postToken(
+                                "grant_type" to "password",
+                                "username" to "existing@test.com",
+                                "password" to "password123",
+                            ).bodyAsText(),
+                        ).jsonObject
+                val token = login.getValue("access_token").jsonPrimitive.content
+                val resp =
+                    client.post("/presence/app-presence") {
+                        header("Authorization", "Bearer $token")
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"platformStatus":0,"gameStatus":"","expiry":null,"data":null}""")
+                    }
+                val presence = Json.parseToJsonElement(resp.bodyAsText()).jsonObject
+
+                assertSoftly {
+                    resp.status shouldBe HttpStatusCode.OK
+                    presence["data"] shouldBe JsonNull
+                    presence.getValue("expiry").jsonPrimitive.long shouldBeGreaterThan presence.getValue("updatedAt").jsonPrimitive.long
+                }
+            }
+        }
+
+        test("local presence rejects an unknown bearer token") {
+            testApp {
+                val resp =
+                    client.post("/presence/app-presence") {
+                        header("Authorization", "Bearer ll_fake")
+                        contentType(ContentType.Application.Json)
+                        setBody("{}")
+                    }
+
+                resp.status shouldBe HttpStatusCode.Unauthorized
             }
         }
 

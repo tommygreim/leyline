@@ -1,6 +1,7 @@
 package leyline.domain.service
 
 import io.kotest.assertions.assertSoftly
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -131,6 +132,64 @@ class RepositoryMatchCoordinatorTest :
                 commandZone = emptyList(),
                 companions = emptyList(),
             )
+
+        test("direct bot match results do not require or create a course") {
+            val courseRepo = FakeCourseRepo()
+            val coord = coordinator(courseRepo = courseRepo)
+
+            for (botEvent in listOf("AIBotMatch", "AIBotMatch_Rebalanced")) {
+                coord.selectEvent(botEvent)
+                coord.reportMatchResult(won = false)
+                coord.reportMatchResult(won = true)
+            }
+
+            courseRepo.findByPlayer(playerId) shouldBe emptyList()
+        }
+
+        test("direct bot result leaves an existing completed course unchanged") {
+            val courseRepo = FakeCourseRepo()
+            val course =
+                Course(
+                    id = CourseId("bot-course"),
+                    playerId = playerId,
+                    eventName = "AIBotMatch",
+                    module = CourseModule.Complete,
+                )
+            courseRepo.save(course)
+            val coord = coordinator(courseRepo = courseRepo)
+            coord.selectEvent("AIBotMatch")
+
+            coord.reportMatchResult(won = false)
+
+            courseRepo.findById(course.id) shouldBe course
+        }
+
+        test("joined event results still advance the selected course") {
+            val courseRepo = FakeCourseRepo()
+            val course =
+                Course(
+                    id = CourseId("course"),
+                    playerId = playerId,
+                    eventName = event,
+                    module = CourseModule.CreateMatch,
+                )
+            courseRepo.save(course)
+            val coord = coordinator(courseRepo = courseRepo)
+            coord.selectEvent(event)
+
+            coord.reportMatchResult(won = false)
+            coord.reportMatchResult(won = true)
+
+            courseRepo.findById(course.id) shouldBe course.copy(wins = 1, losses = 1)
+        }
+
+        test("joined event result without a course still reports invalid lifecycle") {
+            val coord = coordinator()
+            coord.selectEvent(event)
+
+            shouldThrow<IllegalArgumentException> { coord.reportMatchResult(won = false) }
+                .message shouldBe "No course for $event"
+        }
 
         test("resolveOpponentDeckCards returns null when no draft session") {
             coordinator().resolveOpponentDeckCards(event) shouldBe null

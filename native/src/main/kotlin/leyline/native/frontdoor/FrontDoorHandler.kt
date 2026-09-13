@@ -153,9 +153,16 @@ class FrontDoorHandler(
             val cmdType = decoded.cmdType
             val cmdName = cmdType?.let { CmdType.nameOf(it) } ?: "unknown"
 
-            log.debug("Front Door: cmd={} cmdType={} txId={}", cmdName, cmdType, transactionId)
+            log.debug(
+                "Front Door: cmd={} cmdType={} txId={} envelope={} protobufType={}",
+                cmdName,
+                cmdType,
+                transactionId,
+                decoded.envelopeType,
+                decoded.protobufTypeUrl,
+            )
 
-            dispatch(ctx, cmdType, transactionId, json)
+            dispatch(ctx, cmdType, transactionId, json, decoded.protobufTypeUrl)
         } finally {
             msg.release()
         }
@@ -184,7 +191,6 @@ class FrontDoorHandler(
             CmdType.RENEWAL_GET_CURRENT.value to { FdResponse.Json(LobbyStubs.periodicRewards()) },
             CmdType.COSMETICS_GET_OWNED.value to { FdResponse.Json(LobbyStubs.cosmetics()) },
             CmdType.GET_NET_DECK_FOLDERS.value to { FdResponse.Json(LobbyStubs.netDeckFolders()) },
-            CmdType.GET_PLAYER_INBOX.value to { FdResponse.Json(LobbyStubs.playerInbox()) },
             CmdType.STATIC_CONTENT.value to { FdResponse.Json(LobbyStubs.staticContent()) },
             CmdType.GET_ALL_PREFERRED_PRINTINGS.value to { FdResponse.Json(LobbyStubs.preferredPrintings()) },
             CmdType.GET_ALL_PRIZE_WALLS.value to { FdResponse.Json(LobbyStubs.prizeWalls()) },
@@ -207,7 +213,7 @@ class FrontDoorHandler(
         "CyclomaticComplexMethod",
         "LongMethod",
     ) // `json` comes from the decoder which may emit null for empty bodies.
-    private fun dispatch(ctx: ChannelHandlerContext, cmdType: Int?, txId: String?, json: String?) {
+    private fun dispatch(ctx: ChannelHandlerContext, cmdType: Int?, txId: String?, json: String?, protobufTypeUrl: String?) {
         // Fast path: table-driven stubs (no logic, just data)
         stubs[cmdType]?.let { supplier ->
             writer.send(ctx, txId, supplier())
@@ -226,7 +232,23 @@ class FrontDoorHandler(
                 val decks = deckRepository.findAllForPlayer(playerId)
                 val hook = StartHookBuilder.build(decks)
                 log.info("Front Door: StartHook ({}B, {} decks)", hook.length, decks.size)
-                writer.send(ctx, txId, FdResponse.Json(hook))
+                val response =
+                    if (protobufTypeUrl != null) {
+                        FdResponse.RawProto(FdProtoBuilder.buildStartHookProto(hook))
+                    } else {
+                        FdResponse.Json(hook)
+                    }
+                writer.send(ctx, txId, response)
+            }
+
+            CmdType.GET_PLAYER_INBOX.value -> {
+                val response =
+                    if (protobufTypeUrl != null) {
+                        FdResponse.TypedProto("Wizards.Arena.Models.Network.GetPlayerInboxResp")
+                    } else {
+                        FdResponse.Json(LobbyStubs.playerInbox())
+                    }
+                writer.send(ctx, txId, response)
             }
 
             CmdType.GRAPH_GET_STATE.value -> handleGraphRequest(ctx, txId, json)
@@ -286,6 +308,20 @@ class FrontDoorHandler(
                 }
             }
 
+            CmdType.DECK_GET.value -> {
+                val req = FdRequests.parseGetDeck(json)
+                val deck = req?.let { deckRepository.findById(DeckId(it.deckId)) }?.takeIf { it.playerId == playerId }
+                val response =
+                    if (deck != null) {
+                        log.info("Front Door: Deck_GetDeck '{}'", deck.name)
+                        FdResponse.Json(DeckWireBuilder.toStartHookEntry(deck).toString())
+                    } else {
+                        log.warn("Front Door: Deck_GetDeck requested an unavailable deck")
+                        FdResponse.Empty
+                    }
+                writer.send(ctx, txId, response)
+            }
+
             CmdType.DECK_DELETE.value -> {
                 val req = FdRequests.parseDeleteDeck(json)
                 if (req != null) {
@@ -334,6 +370,14 @@ class FrontDoorHandler(
                 log.info("Front Door: DeckSummariesV2 ({} decks)", decks.size)
                 val resp = buildJsonObject { put("Summaries", summaries) }
                 writer.send(ctx, txId, FdResponse.Json(lenientJson.encodeToString(JsonObject.serializer(), resp)))
+            }
+
+            CmdType.DECK_GET_SUMMARIES_V3.value -> {
+                val decks = deckRepository.findAllForPlayer(playerId)
+                val summaries = buildJsonArray { decks.forEach { add(DeckWireBuilder.toStartHookSummary(it)) } }
+                val response = buildJsonObject { put("Summaries", summaries) }
+                log.info("Front Door: DeckSummariesV3 ({} decks)", decks.size)
+                writer.send(ctx, txId, FdResponse.Json(response.toString()))
             }
 
             CmdType.CARD_GET_ALL.value -> {

@@ -144,6 +144,12 @@ class RepositoryMatchCoordinator(
 
     override fun reportMatchResult(won: Boolean) {
         val event = selectedEventName ?: return
+        // Direct bot matches launch without joining a course. Their outcomes do
+        // not advance event records, including any completed bootstrap course.
+        if (EventRegistry.aiBotMatches.any { it.publicEventName == event || it.internalEventName == event }) {
+            log.info("Practice match completed: event={} won={}", event, won)
+            return
+        }
         courseService.recordMatchResult(playerId, event, won)
         log.info("Match result recorded: event={} won={}", event, won)
     }

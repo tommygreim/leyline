@@ -14,8 +14,8 @@ import java.io.File
  * Resolution policy:
  *  1. `LEYLINE_CARD_DB`, when set, is an authoritative override. An invalid
  *     override fails without falling back to discovery.
- *  2. Otherwise the newest *usable* database under the standard client
- *     installation location is selected, and the selected database filename is
+ *  2. Otherwise the newest *usable* database under `LEYLINE_ARENA_DOWNLOADS`
+ *     or the standard client installation location is selected, and its filename is
  *     reported so diagnostics can show which database a run is using.
  *
  * *Usable* means the file exists, is larger than a placeholder, opens as
@@ -75,9 +75,10 @@ class ClientCardDatabase private constructor(
                 .firstNotNullOfOrNull { validateUsableOrNull(it) }
                 ?.let { return it }
             error(
-                "Card database not found. Set LEYLINE_CARD_DB or install the compatible client.\n" +
+                "Card database not found. Set LEYLINE_CARD_DB or LEYLINE_ARENA_DOWNLOADS, or install the compatible client.\n" +
                     "  macOS: ~/Library/Application Support/com.wizards.mtga/Downloads/Raw/Raw_CardDatabase_*.mtga\n" +
-                    "  Windows: C:/Program Files/Epic Games/MagicTheGathering/MTGA_Data/Downloads/Raw/Raw_CardDatabase_*.mtga",
+                    "  Windows: C:/Program Files/Epic Games/MagicTheGathering/MTGA_Data/Downloads/Raw/Raw_CardDatabase_*.mtga\n" +
+                    "  Linux (Steam/Proton): ~/.local/share/Steam/steamapps/common/MTGA/MTGA_Data/Downloads/Raw/Raw_CardDatabase_*.mtga",
             )
         }
 
@@ -120,12 +121,33 @@ class ClientCardDatabase private constructor(
         /**
          * Locate the local client Downloads directory across platforms.
          *
+         * `LEYLINE_ARENA_DOWNLOADS` overrides discovery for both card data and
+         * cached manifests. An invalid override fails instead of silently using
+         * assets from a different client installation.
+         *
          * macOS: ~/Library/Application Support/com.wizards.mtga/Downloads
          * Windows: <Epic install>/MTGA_Data/Downloads (card data lives inside the install)
+         * Linux: native or Flatpak Steam library (the client runs through Proton)
          */
-        fun detectArenaDownloadsDir(): File? {
-            val home = File(System.getProperty("user.home"))
-            val os = System.getProperty("os.name").lowercase()
+        fun detectArenaDownloadsDir(): File? =
+            detectArenaDownloadsDir(
+                environment = System.getenv(),
+                osName = System.getProperty("os.name"),
+                home = File(System.getProperty("user.home")),
+            )
+
+        internal fun detectArenaDownloadsDir(
+            environment: Map<String, String>,
+            osName: String,
+            home: File,
+        ): File? {
+            environment["LEYLINE_ARENA_DOWNLOADS"]?.takeIf { it.isNotBlank() }?.let { path ->
+                val dir = File(path)
+                require(dir.isDirectory) { "LEYLINE_ARENA_DOWNLOADS is not a directory: $path" }
+                return dir
+            }
+
+            val os = osName.lowercase()
 
             // macOS: user-local application support
             if (os.contains("mac")) {
@@ -135,8 +157,8 @@ class ClientCardDatabase private constructor(
 
             // Windows: inside Epic Games or Steam install directory
             if (os.contains("win")) {
-                val programFiles = System.getenv("PROGRAMFILES") ?: "C:/Program Files"
-                val programFilesX86 = System.getenv("PROGRAMFILES(X86)") ?: "C:/Program Files (x86)"
+                val programFiles = environment["PROGRAMFILES"] ?: "C:/Program Files"
+                val programFilesX86 = environment["PROGRAMFILES(X86)"] ?: "C:/Program Files (x86)"
                 val candidates =
                     listOf(
                         File(programFiles, "Epic Games/MagicTheGathering/MTGA_Data/Downloads"),
@@ -144,6 +166,20 @@ class ClientCardDatabase private constructor(
                         File(programFilesX86, "Steam/steamapps/common/MTGA/MTGA_Data/Downloads"),
                     )
                 candidates.firstOrNull { it.isDirectory }?.let { return it }
+            }
+
+            if (os.contains("linux")) {
+                val steamRoots =
+                    listOf(
+                        ".local/share/Steam",
+                        ".steam/steam",
+                        ".steam/root",
+                        ".var/app/com.valvesoftware.Steam/.local/share/Steam",
+                    )
+                steamRoots
+                    .map { home.resolve("$it/steamapps/common/MTGA/MTGA_Data/Downloads") }
+                    .firstOrNull { it.isDirectory }
+                    ?.let { return it }
             }
 
             return null

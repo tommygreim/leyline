@@ -1,5 +1,6 @@
 package leyline.game.data
 
+import io.kotest.assertions.assertSoftly
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -99,6 +100,54 @@ class SqliteCardRepositoryNameLookupTest :
                 val grpId = repo.findGrpIdByNameAndSet("Detect Intrusion", "OM1")
                 grpId.shouldNotBeNull()
                 repo.findNameByGrpId(grpId) shouldBe "Detect Intrusion"
+            }
+        }
+
+        test("aftermath titles normalize for Forge and round-trip through the name cache") {
+            withDb { repo, url ->
+                insertCard(url, grpId = 401, titleId = 1, name = "<nobr>Morning /// Evening</nobr>", expansion = "SYN", isPrimary = 1)
+
+                repo.findNameByGrpId(401) shouldBe "Morning // Evening"
+                repo.findGrpIdByName("Morning // Evening") shouldBe 401
+            }
+        }
+
+        test("Forge aftermath names resolve through every uncached SQL lookup") {
+            withDb { _, url ->
+                insertCard(url, grpId = 402, titleId = 1, name = "<nobr>Morning /// Evening</nobr>", expansion = "SYN", isPrimary = 1)
+
+                fun fresh() = SqliteCardRepository(Database.connect(url, "org.sqlite.JDBC"))
+
+                assertSoftly {
+                    fresh().findGrpIdByName("Morning // Evening") shouldBe 402
+                    fresh().findGrpIdByNameAnyFace("Morning // Evening") shouldBe 402
+                    fresh().findGrpIdByNameAndSet("Morning // Evening", "SYN") shouldBe 402
+                }
+            }
+        }
+
+        test("reverse lookup using an Arena aftermath name still caches the Forge name") {
+            withDb { repo, url ->
+                insertCard(url, grpId = 403, titleId = 1, name = "Morning /// Evening", expansion = "SYN", isPrimary = 1)
+
+                assertSoftly {
+                    repo.findGrpIdByName("Morning /// Evening") shouldBe 403
+                    repo.findNameByGrpId(403) shouldBe "Morning // Evening"
+                    repo.findGrpIdByName("Morning // Evening") shouldBe 403
+                }
+            }
+        }
+
+        test("ordinary names and existing split separators remain unchanged") {
+            withDb { repo, url ->
+                val names = listOf("Plain Name", "Left // Right", "Literal///Name")
+                names.forEachIndexed { index, name ->
+                    val grpId = 500 + index
+                    insertCard(url, grpId, titleId = index + 1, name, expansion = "SYN", isPrimary = 1)
+
+                    repo.findNameByGrpId(grpId) shouldBe name
+                    repo.findGrpIdByName(name) shouldBe grpId
+                }
             }
         }
     })

@@ -84,6 +84,9 @@ internal class SqliteCardRepository(
 
     private val tagRegex = Regex("</?[a-zA-Z][^>]*>")
 
+    /** Arena aftermath titles use three slashes; Forge combines split faces with two. */
+    private fun forgeName(name: String): String = name.replace(" /// ", " // ")
+
     // --- In-memory caches ---
 
     private val dataCache = ConcurrentHashMap<Int, CardData?>()
@@ -176,8 +179,10 @@ internal class SqliteCardRepository(
         clearPrimaryMiss: Boolean = false,
         clearAnyFaceMiss: Boolean = false,
     ) {
+        val canonicalName = forgeName(name)
         nameToGrpId[name] = grpId
-        grpIdToName[grpId] = name
+        nameToGrpId[canonicalName] = grpId
+        grpIdToName[grpId] = canonicalName
         if (clearPrimaryMiss) missingNames.remove(name)
         if (clearAnyFaceMiss) missingAnyFaceNames.remove(name)
     }
@@ -351,6 +356,7 @@ internal class SqliteCardRepository(
                     .firstOrNull()
                     ?.get(Localizations.loc)
                     ?.let(::stripTags)
+                    ?.let(::forgeName)
             }
         } catch (e: Exception) {
             log.warn("Failed to query name for grpId={}: {}", grpId, e.message)
@@ -358,8 +364,8 @@ internal class SqliteCardRepository(
         }
 
     /**
-     * Match card name against Loc column, tolerating HTML tags like `<nobr>`.
-     * Tries exact match first, falls back to stripping tags via SQL REPLACE.
+     * Match card name against Loc, tolerating `<nobr>` tags and the Arena
+     * aftermath separator so names returned to Forge also resolve back to IDs.
      */
     private fun locMatches(cardName: String) =
         (Localizations.loc eq cardName) or
@@ -370,13 +376,19 @@ internal class SqliteCardRepository(
                     CustomFunction<String>(
                         "REPLACE",
                         TextColumnType(),
-                        Localizations.loc,
-                        stringLiteral("<nobr>"),
+                        CustomFunction<String>(
+                            "REPLACE",
+                            TextColumnType(),
+                            Localizations.loc,
+                            stringLiteral("<nobr>"),
+                            stringLiteral(""),
+                        ),
+                        stringLiteral("</nobr>"),
                         stringLiteral(""),
                     ),
-                    stringLiteral("</nobr>"),
-                    stringLiteral(""),
-                ) eq cardName
+                    stringLiteral(" /// "),
+                    stringLiteral(" // "),
+                ) eq forgeName(cardName)
             )
 
     private fun queryGrpIdByNameAndSet(
