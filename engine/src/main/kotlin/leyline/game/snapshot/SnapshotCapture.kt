@@ -482,6 +482,10 @@ object SnapshotCapture {
 
         val ownerSeat = bridge.seatOf(card.owner) ?: SeatId(1)
         val controllerSeat = bridge.seatOf(card.controller) ?: ownerSeat
+        val mayLookSeatIds =
+            listOf(SeatId(1), SeatId(2)).filterTo(linkedSetOf()) { seatId ->
+                bridge.getPlayer(seatId)?.let(card::mayPlayerLook) == true
+            }
 
         // ActionMapper shape flags — read once here, not in the mapper.
         val isLand = type.isLand
@@ -511,6 +515,7 @@ object SnapshotCapture {
             grpId = grpId,
             owner = ownerSeat,
             controller = controllerSeat,
+            mayLookSeatIds = mayLookSeatIds,
             isProjectable =
                 card.gamePieceType == forge.card.GamePieceType.CARD ||
                     card.gamePieceType == forge.card.GamePieceType.COPIED_SPELL ||

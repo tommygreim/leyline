@@ -1,0 +1,31 @@
+# Design Narrative
+# Mechanic: Inspect the current top card of the library while Glarb is on the battlefield.
+# Forcing: Think Twice changes the top card, then Unsummon removes Glarb and withdraws inspection.
+# AI behavior: The opponent has no battlefield or hand, so it makes no decisions.
+# Failure modes:
+#   WIN = Command Tower is visible, Lightning Bolt replaces it after the draw, and inspection ends with Glarb gone.
+#   LOSE = the current top identity is missing, stale, or remains inspectable after Glarb leaves.
+#   TIMEOUT = casting, targeting, or resolution stops advancing.
+# Card roles:
+#   Glarb, Calamity's Augur — grants permission to inspect the library's top card.
+#   Think Twice — draws Command Tower and exposes the next top card.
+#   Unsummon — removes Glarb and withdraws the permission.
+#   Command Tower and Lightning Bolt — distinct consecutive library tops.
+
+[metadata]
+Name:Library Top Inspection
+Goal:Win
+Turns:4
+Difficulty:Easy
+Description:Draw the visible top card, then return Glarb to withdraw library inspection.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+
+humanhand=Think Twice;Unsummon;Forest
+humanbattlefield=Glarb, Calamity's Augur;Island;Island;Island;Forest;Swamp
+humanlibrary=Command Tower;Lightning Bolt;Forest;Island;Swamp
+ailibrary=Plains;Plains;Plains;Plains;Plains

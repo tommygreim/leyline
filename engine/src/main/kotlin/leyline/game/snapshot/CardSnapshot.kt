@@ -15,6 +15,8 @@ data class CardSnapshot(
     val grpId: Int,
     val owner: SeatId,
     val controller: SeatId,
+    /** Seats that Forge currently allows to inspect this card in a hidden zone. */
+    val mayLookSeatIds: Set<SeatId> = emptySet(),
     /** True when this engine object is a client-visible card or token. */
     val isProjectable: Boolean = true,
     /** Implicit client mana-ability grpId for a basic land; 0 otherwise. */

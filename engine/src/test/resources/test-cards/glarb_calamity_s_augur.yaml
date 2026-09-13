@@ -1,0 +1,32 @@
+name: "Glarb, Calamity's Augur"
+grpId: 91751
+titleId: 811743
+abilities:
+  - id: 1
+    textId: 100
+    category: 3
+  - id: 14523
+    textId: 272795
+    category: 3
+  - id: 174122
+    textId: 811745
+    category: 3
+  - id: 174123
+    textId: 811746
+    category: 1
+expansionCode: "BLB"
+power: "2"
+toughness: "4"
+colors:
+  - 2
+  - 3
+  - 5
+types:
+  - 2
+subtypes:
+  - 145
+  - 78
+  - 365
+supertypes:
+  - 2
+manaCost: "oBoGoU"

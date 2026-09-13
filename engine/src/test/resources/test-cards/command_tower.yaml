@@ -1,0 +1,8 @@
+name: "Command Tower"
+grpId: 103830
+titleId: 10756
+abilities:
+  - id: 90126
+    textId: 288579
+    category: 1
+expansionCode: "LTC"

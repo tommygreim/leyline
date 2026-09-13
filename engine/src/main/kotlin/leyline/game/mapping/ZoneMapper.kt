@@ -47,6 +47,7 @@ object ZoneMapper {
         viewingSeatId: Int = 0,
         revealForSeat: Int? = null,
         revealHand: Boolean = false,
+        previousSnapshot: GsmSnapshot? = null,
     ) {
         val canSeeHand = viewingSeatId == 0 || viewingSeatId == seatId.value || revealHand
         val handVisibility = if (revealHand) Visibility.Public else Visibility.Private
@@ -75,40 +76,23 @@ object ZoneMapper {
                     cardVisibility,
                     "hand",
                     gameObjects,
-                    addViewer = seatId.value,
+                    viewers = setOf(seatId.value),
                 )
             }
         }
         zones.add(handBuilder.build())
 
-        val revealLib = revealForSeat == seatId.value
-        val libBuilder =
-            ZoneInfo
-                .newBuilder()
-                .setZoneId(libZoneId)
-                .setType(ZoneType.Library)
-                .setOwnerSeatId(seatId.value)
-                .setVisibility(Visibility.Hidden)
-        for (fid in snap.zones[libZoneId]?.contents ?: emptyList()) {
-            val instanceId = instanceIdLookup(fid).value
-            libBuilder.addObjectInstanceIds(instanceId)
-            if (revealLib) {
-                addPlayerCardObjects(
-                    snap,
-                    fid,
-                    instanceId,
-                    libZoneId,
-                    seatId,
-                    environment,
-                    instanceIdLookup,
-                    Visibility.Private,
-                    "library",
-                    gameObjects,
-                    addViewer = seatId.value,
-                )
-            }
-        }
-        zones.add(libBuilder.build())
+        addLibraryZoneFromSnapshot(
+            seatId,
+            snap,
+            previousSnapshot,
+            environment,
+            instanceIdLookup,
+            zones,
+            gameObjects,
+            libZoneId,
+            revealForSeat == seatId.value,
+        )
 
         if (gyZoneId != null) {
             val gyBuilder =
@@ -162,13 +146,91 @@ object ZoneMapper {
                         Visibility.Private,
                         "sideboard",
                         gameObjects,
-                        addViewer = seatId.value,
+                        viewers = setOf(seatId.value),
                     )
                 }
             }
             zones.add(sbBuilder.build())
         }
     }
+
+    @Suppress("detekt:LongParameterList")
+    private fun addLibraryZoneFromSnapshot(
+        seatId: SeatId,
+        snap: GsmSnapshot,
+        previousSnapshot: GsmSnapshot?,
+        environment: StateProjectionEnvironment,
+        instanceIdLookup: (ForgeCardId) -> InstanceId,
+        zones: MutableList<ZoneInfo>,
+        gameObjects: MutableList<GameObjectInfo>,
+        libraryZoneId: Int,
+        revealLibrary: Boolean,
+    ) {
+        val libraryContents = snap.zones[libraryZoneId]?.contents.orEmpty()
+        val currentTop = libraryContents.firstOrNull()
+        val previousTop =
+            previousSnapshot
+                ?.zones
+                ?.get(libraryZoneId)
+                ?.contents
+                ?.firstOrNull()
+        val previousInspectionViewers =
+            if (previousSnapshot == null || previousTop == null) {
+                emptySet()
+            } else {
+                previousSnapshot.objects[previousTop]?.mayLookSeatIds.orEmpty()
+            }
+        val library =
+            ZoneInfo
+                .newBuilder()
+                .setZoneId(libraryZoneId)
+                .setType(ZoneType.Library)
+                .setOwnerSeatId(seatId.value)
+                .setVisibility(Visibility.Hidden)
+        for (fid in libraryContents) {
+            val instanceId = instanceIdLookup(fid).value
+            library.addObjectInstanceIds(instanceId)
+            val inspectionViewers = if (fid == currentTop) snap.objects[fid]?.mayLookSeatIds.orEmpty() else emptySet()
+            val inspectionWithdrawn =
+                fid == previousTop &&
+                    previousInspectionViewers.isNotEmpty() &&
+                    inspectionViewers.isEmpty() &&
+                    !revealLibrary
+            if (inspectionWithdrawn) {
+                gameObjects.add(hiddenLibraryObject(instanceId, libraryZoneId, seatId))
+            } else if (revealLibrary || inspectionViewers.isNotEmpty()) {
+                addPlayerCardObjects(
+                    snap,
+                    fid,
+                    instanceId,
+                    libraryZoneId,
+                    seatId,
+                    environment,
+                    instanceIdLookup,
+                    Visibility.Private,
+                    "library",
+                    gameObjects,
+                    viewers = inspectionViewers.mapTo(linkedSetOf()) { it.value }.apply { if (revealLibrary) add(seatId.value) },
+                )
+            }
+        }
+        zones.add(library.build())
+    }
+
+    private fun hiddenLibraryObject(
+        instanceId: Int,
+        zoneId: Int,
+        owner: SeatId,
+    ): GameObjectInfo =
+        GameObjectInfo
+            .newBuilder()
+            .setInstanceId(instanceId)
+            .setType(GameObjectType.Card)
+            .setZoneId(zoneId)
+            .setVisibility(Visibility.Hidden)
+            .setOwnerSeatId(owner.value)
+            .setControllerSeatId(owner.value)
+            .build()
 
     /**
      * Build [GameObjectInfo] for a card in a player zone (hand/library/graveyard) from snapshot.
@@ -214,16 +276,16 @@ object ZoneMapper {
         visibility: Visibility,
         zoneName: String,
         gameObjects: MutableList<GameObjectInfo>,
-        addViewer: Int? = null,
+        viewers: Set<Int> = emptySet(),
     ) {
         val card =
             buildPlayerCard(snap, fid, instanceId, zoneId, seatId, environment, visibility, zoneName)
                 ?: return
-        gameObjects.add(addViewer?.let { card.toBuilder().addViewers(it).build() } ?: card)
+        gameObjects.add(if (viewers.isEmpty()) card else card.toBuilder().addAllViewers(viewers).build())
         val disturbIndex = gameObjects.size
         addDisturbBackObject(snap, fid, instanceId, zoneId, seatId, environment, instanceIdLookup, visibility, gameObjects)
-        if (addViewer != null && gameObjects.size > disturbIndex) {
-            gameObjects[disturbIndex] = gameObjects[disturbIndex].toBuilder().addViewers(addViewer).build()
+        if (viewers.isNotEmpty() && gameObjects.size > disturbIndex) {
+            gameObjects[disturbIndex] = gameObjects[disturbIndex].toBuilder().addAllViewers(viewers).build()
         }
     }
 

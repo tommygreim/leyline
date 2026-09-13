@@ -1,0 +1,27 @@
+name: library-visibility
+description: Library inspection smoke coverage for changing and withdrawing the visible top card.
+scenarios:
+  - id: glarb-current-top
+    puzzle: library-top-inspection
+    native:
+      skip: Native hand spell submission is not reliable.
+    run: draw the inspected top card, then return Glarb to hand
+    expect: the library top advances and inspection ends when Glarb leaves the battlefield
+    # These steps assert gameplay transitions. Native Library inspection and projection tests verify visibility.
+    steps:
+      - wait:
+          action: { type: cast, card: Think Twice }
+      - cast: Think Twice
+      - resolve_stack: {}
+      - expect:
+          zone_contains: { side: ours, zone: hand, card: Command Tower }
+      - wait:
+          action: { type: cast, card: Unsummon }
+      - cast: Unsummon
+      - target: { side: ours, zone: battlefield, card: "Glarb, Calamity's Augur" }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: hand, card: "Glarb, Calamity's Augur" }
+            - zone_not_contains: { side: ours, zone: battlefield, card: "Glarb, Calamity's Augur" }
+            - stack_empty: true

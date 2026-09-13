@@ -276,6 +276,7 @@ object StateMapper {
                 viewingSeatId,
                 revealForSeat,
                 revealHand = revealedHandSeat == 1,
+                previousSnapshot = prev,
             )
         }
 
@@ -295,6 +296,7 @@ object StateMapper {
                 viewingSeatId,
                 revealForSeat,
                 revealHand = revealedHandSeat == 2,
+                previousSnapshot = prev,
             )
         }
 
