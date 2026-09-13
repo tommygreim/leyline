@@ -458,7 +458,18 @@ object ActionMapper {
                 }
                 continue
             }
-            val sa = choosePrimaryHandCastAbility(forgeCard, castable) ?: continue
+            val sa = choosePrimaryHandCastAbility(forgeCard, castable)
+            if (sa == null) {
+                emitUncastableHandCost(
+                    card = forgeCard,
+                    player = player,
+                    instanceId = bridge.getOrAllocInstanceId(fid).value,
+                    grpId = cardSnap.grpId,
+                    cardData = snap.boundCards[fid]?.data,
+                    builder = builder,
+                )
+                continue
+            }
             val abilityIndex = castable.indexOfFirst { it === sa }
             val canPay = canExecute(sa, player)
             val instanceId = bridge.getOrAllocInstanceId(fid).value
@@ -676,6 +687,35 @@ object ActionMapper {
             .filter { it.isSpell && it.alternativeCost == null }
             .minByOrNull { it.payCosts?.totalMana?.cmc ?: Int.MAX_VALUE }
             ?: castable.firstOrNull()
+    }
+
+    /**
+     * Cost-only inactive Cast offer for a hand card that has no timing-legal cast.
+     *
+     * The client takes a card's displayed cost from its cheapest offer and falls back
+     * to the printed cost when it has none, so without this a state-derived reduction
+     * disappears whenever the card cannot be cast at that moment. Timing is resolved
+     * again without its filter purely to pick the ability whose cost to show.
+     */
+    private fun emitUncastableHandCost(
+        card: Card,
+        player: Player,
+        instanceId: Int,
+        grpId: Int,
+        cardData: CardData?,
+        builder: ActionsAvailableReq.Builder,
+    ) {
+        val untimed = getAllCastableAbilities(card, player, checkTiming = false)
+        val sa = choosePrimaryHandCastAbility(card, untimed) ?: return
+        builder.addInactiveActions(
+            Action
+                .newBuilder()
+                .setActionType(ActionType.Cast)
+                .setInstanceId(instanceId)
+                .setGrpId(grpId)
+                .setFacetId(instanceId)
+                .addAllManaCost(displayedHandCastCost(card, sa, player, cardData)),
+        )
     }
 
     /**

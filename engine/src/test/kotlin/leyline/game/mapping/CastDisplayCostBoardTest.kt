@@ -2,6 +2,7 @@ package leyline.game.mapping
 
 import forge.card.MagicColor
 import forge.game.mana.Mana
+import forge.game.phase.PhaseType
 import forge.game.spellability.AlternativeCost
 import forge.game.zone.ZoneType
 import io.kotest.assertions.assertSoftly
@@ -225,6 +226,27 @@ class CastDisplayCostBoardTest :
             castOffers(b, game, "Voice of Victory").let { (active, inactive) ->
                 active shouldHaveSize 1
                 inactive.shouldBeEmpty()
+            }
+        }
+
+        test("a hand card with no timing-legal cast still reports its reduced cost") {
+            val (b, game, _) =
+                startWithBoard { g, human, ai ->
+                    addCard("Banishing Light", human, ZoneType.Hand)
+                    addCard("Starfield Mystic", human)
+                    repeat(3) { addCard("Plains", human) }
+                    // Sorcery speed on the opponent's turn — Forge offers no castable
+                    // ability, but the card still shows a cost in hand.
+                    g.phaseHandler.devModeSet(PhaseType.MAIN1, ai)
+                }
+
+            val (active, inactive) = castOffers(b, game, "Banishing Light")
+            // {2}{W} less Starfield Mystic's reduction. The client reads a card's
+            // displayed cost from its cheapest offer and falls back to the printed
+            // cost when it has none, so an offer has to survive the timing filter.
+            assertSoftly {
+                active.shouldBeEmpty()
+                inactive.single { it.alternativeGrpId == 0 } should haveManaCost(generic = 1, white = 1)
             }
         }
 
