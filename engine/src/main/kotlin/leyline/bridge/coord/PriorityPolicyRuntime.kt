@@ -50,7 +50,6 @@ private enum class PriorityWindowReason(
     NO_EXECUTABLE_ACTION(false),
     OWN_STACK(false),
     OPPONENT_STACK(true),
-    OPPONENT_RESPONSE(true),
     ENABLED_PHASE(true),
     PHASE_NOT_ENABLED(false),
 }
@@ -133,6 +132,18 @@ class PriorityPolicyRuntime(
                 }
             if (scope == null) emptySet() else StopTypeMapping.parseStops(settings.stopsList, scope)
         }
+
+    /**
+     * Stops that apply at this phase boundary. Arena scopes its stop table by whose
+     * turn it is — `StopsInLocalPlayersTurn` and `StopsInOpponentsTurn` in the client's
+     * `GreClient.Rules.GameSettings` — not by which player holds priority. Callers hold
+     * [stateLock].
+     */
+    private fun turnScopedStops(isOwnTurn: Boolean): Set<PhaseType> =
+        StopTypeMapping.parseStops(
+            settings.stopsList,
+            if (isOwnTurn) SettingScope.Team_ac6e else SettingScope.Opponents,
+        )
 
     fun isPhaseStopped(
         playerId: Int,
@@ -242,8 +253,7 @@ class PriorityPolicyRuntime(
                     !observation.stackEmpty &&
                         observation.stack.firstOrNull()?.controllerId == observation.playerId -> PriorityWindowReason.OWN_STACK
                     !observation.stackEmpty -> PriorityWindowReason.OPPONENT_STACK
-                    !observation.isOwnTurn -> PriorityWindowReason.OPPONENT_RESPONSE
-                    observation.phase in enabledPhaseStops(observation.playerId) -> PriorityWindowReason.ENABLED_PHASE
+                    observation.phase in turnScopedStops(observation.isOwnTurn) -> PriorityWindowReason.ENABLED_PHASE
                     else -> PriorityWindowReason.PHASE_NOT_ENABLED
                 }
             val visible = reason.visible

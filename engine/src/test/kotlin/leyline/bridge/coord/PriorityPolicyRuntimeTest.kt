@@ -39,21 +39,28 @@ class PriorityPolicyRuntimeTest :
                 for (own in listOf(true, false)) {
                     for (phase in listOf(PhaseType.MAIN1, PhaseType.MAIN2, PhaseType.COMBAT_DECLARE_BLOCKERS)) {
                         policy.visible(observation(own = own, phase = phase)).shouldBeFalse()
-                        policy.visible(observation(own = own, phase = phase, meaningful = true)).shouldBeTrue()
                     }
                 }
+                // Main phases stop only in your own turn; declare blockers stops in both.
+                for (phase in listOf(PhaseType.MAIN1, PhaseType.MAIN2, PhaseType.COMBAT_DECLARE_BLOCKERS)) {
+                    policy.visible(observation(phase = phase, meaningful = true)).shouldBeTrue()
+                }
+                policy.visible(observation(own = false, phase = PhaseType.COMBAT_DECLARE_BLOCKERS, meaningful = true)).shouldBeTrue()
                 policy.classifyPriorityWindow(observation()) shouldBe PriorityWindowDecision.Skip(AutoPassReason.SmartPhaseSkip)
             }
         }
 
-        test("opponent upkeep remains eligible while own upkeep is a phase preference") {
+        test("upkeep stops apply to the scope for whose turn it is") {
             assertSoftly {
                 val policy = runtime()
-                policy.visible(observation(own = false, phase = PhaseType.UPKEEP, meaningful = true)).shouldBeTrue()
+                // Arena's GameSettings leaves upkeep clear in both turn scopes.
                 policy.visible(observation(phase = PhaseType.UPKEEP, meaningful = true)).shouldBeFalse()
+                policy.visible(observation(own = false, phase = PhaseType.UPKEEP, meaningful = true)).shouldBeFalse()
                 policy.submit(settingsMessage { addStops(stop(StopType.UpkeepStep, SettingScope.Team_ac6e, SettingStatus.Set)) })
                 policy.visible(observation(phase = PhaseType.UPKEEP, meaningful = true)).shouldBeTrue()
+                policy.visible(observation(own = false, phase = PhaseType.UPKEEP, meaningful = true)).shouldBeFalse()
                 policy.visible(observation(phase = PhaseType.UPKEEP)).shouldBeFalse()
+                policy.submit(settingsMessage { addStops(stop(StopType.UpkeepStep, SettingScope.Opponents, SettingStatus.Set)) })
                 policy.classifyPriorityWindow(observation(own = false, phase = PhaseType.UPKEEP, meaningful = true)) shouldBe
                     PriorityWindowDecision.Present(PriorityWindowMode.Visible, autoResolve = false)
             }
@@ -170,7 +177,10 @@ class PriorityPolicyRuntimeTest :
                 policy.visible(observation(turn = 2, meaningful = true)).shouldBeTrue()
                 policy.submit(settingsMessage { autoPassOption = AutoPassOption.UnlessOpponentAction }, turnNumber = 2)
                 policy.visible(observation(turn = 2, meaningful = true)).shouldBeFalse()
-                policy.visible(observation(turn = 3, own = false, meaningful = true)).shouldBeTrue()
+                policy
+                    .visible(
+                        observation(turn = 3, own = false, phase = PhaseType.COMBAT_DECLARE_BLOCKERS, meaningful = true),
+                    ).shouldBeTrue()
                 policy.takeChangedSettings()!!.autoPassOption shouldBe AutoPassOption.ResolveMyStackEffects
                 policy.takeChangedSettings() shouldBe null
             }
