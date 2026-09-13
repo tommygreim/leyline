@@ -924,6 +924,13 @@ data class PromptRequest(
     val searchGroupOptionIndices: List<List<Int>> = emptyList(),
     /** Frozen source identity for coordinator-owned Scry and Surveil grouping. */
     val groupingSource: GroupingSourceValue? = null,
+    /**
+     * True when the player may back out of the window entirely (Forge's `optional`
+     * cost contract): the client's Decline/cancel returns an empty selection, which
+     * Forge rejects as an illegal payment and unwinds the activation. Mandatory
+     * windows leave this false so a stray cancel cannot skip a required choice.
+     */
+    val cancellable: Boolean = false,
 ) {
     /** Diagnostic identity derived from the immutable route. */
     val semantic: PromptSemantic get() = route.semantic

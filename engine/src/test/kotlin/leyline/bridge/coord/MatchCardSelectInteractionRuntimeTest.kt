@@ -91,6 +91,7 @@ class MatchCardSelectInteractionRuntimeTest :
             max: Int = 1,
             defaultIndex: Int = 0,
             candidates: List<Card> = options(board),
+            cancellable: Boolean = false,
         ): PromptRequest =
             PromptRequest(
                 promptType = "choose_cards",
@@ -129,6 +130,7 @@ class MatchCardSelectInteractionRuntimeTest :
                                 },
                     ),
                 sourceEntityId = sourceId,
+                cancellable = cancellable,
             )
 
         fun awaitPublished(coordinator: MatchCutCoordinator): PublishedCardSelectInteraction {
@@ -403,6 +405,69 @@ class MatchCardSelectInteractionRuntimeTest :
                         .current()
                         .shouldBeNull()
                 }
+            }
+        }
+
+        test("a cancellable discard window retires on client cancel and releases the engine") {
+            val board = startPuzzleAtMain1(puzzle)
+            val coordinator = board.bridge.cutCoordinator
+            coordinator.drain(SeatId(1))
+            val handles = options(board)
+            val result = AtomicReference<CardSelectInteractionResult>()
+            val finished = CountDownLatch(1)
+            Thread {
+                try {
+                    result.set(
+                        coordinator.cardSelect.awaitSelection(
+                            request(board, PromptSemantic.SelectNDiscard, cancellable = true),
+                            handles,
+                            3_000,
+                        ),
+                    )
+                } finally {
+                    finished.countDown()
+                }
+            }.start()
+            val published = awaitPublished(coordinator)
+            coordinator.drain(SeatId(1))
+
+            assertSoftly {
+                finished.count shouldBe 1L
+                coordinator.acceptSettled(leyline.testkit.cancelActionReq(), published.gameStateId) shouldBe true
+                finished.await(3, TimeUnit.SECONDS) shouldBe true
+                // Forge reads the empty payment as declined and unwinds the activation.
+                result.get().handles.shouldBeEmpty()
+                coordinator.cardSelect.current().shouldBeNull()
+            }
+        }
+
+        test("a mandatory discard window ignores client cancel and stays pending") {
+            val board = startPuzzleAtMain1(puzzle)
+            val coordinator = board.bridge.cutCoordinator
+            coordinator.drain(SeatId(1))
+            val handles = options(board)
+            val finished = CountDownLatch(1)
+            Thread {
+                try {
+                    coordinator.cardSelect.awaitSelection(
+                        request(board, PromptSemantic.SelectNDiscard),
+                        handles,
+                        3_000,
+                    )
+                } catch (ignored: Exception) {
+                    // the window times out rather than resolving; the assertion is that cancel was refused
+                } finally {
+                    finished.countDown()
+                }
+            }.start()
+            val published = awaitPublished(coordinator)
+            coordinator.drain(SeatId(1))
+
+            assertSoftly {
+                coordinator.admitSettled(leyline.testkit.cancelActionReq(), published.gameStateId) shouldBe
+                    SettledPromptAdmission.NotOwned
+                coordinator.cardSelect.current() shouldBe published
+                finished.count shouldBe 1L
             }
         }
 

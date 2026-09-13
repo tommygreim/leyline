@@ -83,6 +83,7 @@ internal object CardSelectWindowCapture {
                     max = request.max,
                     defaultOptionIndex = request.defaultIndex,
                     choiceResultSentiment = route.descriptor.choiceResultSentiment,
+                    cancellable = request.cancellable,
                 ),
             handlesByOption = candidateHandles.mapIndexed { index, card -> index to card }.toMap(),
         )

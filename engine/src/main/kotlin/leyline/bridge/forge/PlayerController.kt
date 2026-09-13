@@ -1168,6 +1168,9 @@ class PlayerController(
                 // Grounded tap rows retain their PayCosts envelope even when
                 // Forge offers exactly one eligible permanent.
                 forcePrompt = isOptional || tapPayment != null || cpl is CostBlight,
+                // An optional cost may also be declined through the client's cancel button,
+                // not only by submitting the empty selection that `min = 0` allows.
+                cancellable = isOptional,
             )
         if (cpl is CostEnlist && selected.isNotEmpty()) {
             bridge.journal.record(

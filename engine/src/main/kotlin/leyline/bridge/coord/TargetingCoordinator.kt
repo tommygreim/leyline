@@ -1051,6 +1051,7 @@ class TargetingCoordinator(
         searchSource: SearchSourceValue? = null,
         searchGroupOptionIndices: List<List<Int>> = emptyList(),
         resolutionRouteInput: ResolutionRouteInput? = null,
+        cancellable: Boolean = false,
     ): CardCollection {
         if (cards.isEmpty()) return CardCollection()
         val effectiveMax = max.coerceAtMost(cards.size)
@@ -1080,6 +1081,7 @@ class TargetingCoordinator(
                 payCostsPromptSource = payCostsPromptSource,
                 searchSource = searchSource,
                 searchGroupOptionIndices = searchGroupOptionIndices,
+                cancellable = cancellable,
             )
         val residual =
             UnclassifiedEntityChoicePolicy.decide(

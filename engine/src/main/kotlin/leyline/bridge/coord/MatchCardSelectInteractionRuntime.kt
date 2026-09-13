@@ -39,6 +39,7 @@ internal class MatchCardSelectInteractionRuntime(
             publicationFailure = { cause, failed -> owner.failPrompt(cause, failed.cut) },
             owns = ::owns,
             admitLocked = ::admitLocked,
+            cancelCapable = true,
         )
 
     override fun awaitSelection(
@@ -62,6 +63,7 @@ internal class MatchCardSelectInteractionRuntime(
         message: ClientToGREMessage,
     ): Boolean =
         message.type == ClientMessageType.SelectNresp ||
+            (message.type == ClientMessageType.CancelActionReq_097b && pending.value.cancellable) ||
             (
                 message.type == ClientMessageType.EffectCostResp_097b &&
                     message.effectCostResp.effectCostType == EffectCostType.Select_a59c &&
@@ -72,6 +74,10 @@ internal class MatchCardSelectInteractionRuntime(
         pending: Window,
         message: ClientToGREMessage,
     ): SettledPromptOwner.SlotAdmission<CardSelectInteractionResult>? {
+        if (message.type == ClientMessageType.CancelActionReq_097b) {
+            // Forge reads an empty selection as a declined payment and unwinds the activation.
+            return SettledPromptOwner.SlotAdmission(CardSelectInteractionResult(emptyList(), emptyList()))
+        }
         val selectedInstanceIds =
             if (message.type == ClientMessageType.SelectNresp) {
                 message.selectNResp.idsList
