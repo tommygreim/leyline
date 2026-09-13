@@ -106,6 +106,7 @@ enum class CardSelectKind {
     LibraryPutback,
     ManifestDread,
     Discard,
+    DiscardEffect,
     SacrificeEffect,
     Suspect,
     MutateTopBottom,
@@ -178,6 +179,7 @@ enum class StaticChoiceKind {
     Color,
     Subtype,
     Parity,
+    Keyword,
 }
 
 data class StaticChoicePromptRoute(
@@ -291,6 +293,7 @@ object PromptRouteResolver {
             PromptSemantic.DividedAllocationCounters -> ResolvedPromptRoute.Distribution(semantic, DistributionRouteKind.Counters)
             PromptSemantic.SelectNLegendRule -> cardSelect(semantic, CardSelectKind.LegendRule)
             PromptSemantic.SelectNDiscard -> cardSelect(semantic, CardSelectKind.Discard, choiceResultSentiment = 1)
+            PromptSemantic.SelectNDiscardEffect -> cardSelect(semantic, CardSelectKind.DiscardEffect, choiceResultSentiment = 1)
             PromptSemantic.RevealChoose -> ResolvedPromptRoute.RevealChoice(semantic)
             PromptSemantic.SelectNResolution ->
                 when {
@@ -313,6 +316,8 @@ object PromptRouteResolver {
                 staticChoice(semantic, StaticChoiceKind.Subtype)
             PromptSemantic.StaticParityChoice ->
                 staticChoice(semantic, StaticChoiceKind.Parity)
+            PromptSemantic.StaticKeywordChoice ->
+                staticChoice(semantic, StaticChoiceKind.Keyword)
             PromptSemantic.SelectNCostSacrifice -> payCosts(semantic, PayCostsRouteKind.Sacrifice, "sacrifice")
             PromptSemantic.SelectNCostExileFromGrave ->
                 payCosts(semantic, PayCostsRouteKind.SelectCostExileFromGrave, "exile-from-grave")

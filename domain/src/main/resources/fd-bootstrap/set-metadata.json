@@ -137,9 +137,16 @@
       ],
       "digitalOnly": 2,
       "releaseTs": 1758643200,
-      "active": 1,
-      "currentRelease": 1,
+      "active": 0,
       "parent": "SPM"
+    },
+    {
+      "code": "SPM",
+      "active": 1
+    },
+    {
+      "code": "MSH",
+      "active": 1
     },
     {
       "code": "MKM",
@@ -1215,12 +1222,13 @@
         "HOC",
         "SOS",
         "TMT",
+        "SPM",
+        "MSH",
         "ECL",
         "Y26_ECL",
         "TLE",
         "TLA",
         "OMB",
-        "OM1",
         "EOS",
         "EOE",
         "Y25_EOE",

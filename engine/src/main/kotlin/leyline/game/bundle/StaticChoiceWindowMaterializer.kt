@@ -55,7 +55,7 @@ internal class StaticChoiceWindowMaterializer {
             .newBuilder()
             .setContext(SelectionContext.Resolution_a163)
             .setListType(
-                if (window.kind == StaticChoiceKind.Subtype) {
+                if (window.kind == StaticChoiceKind.Subtype || window.kind == StaticChoiceKind.Keyword) {
                     SelectionListType.StaticSubset
                 } else {
                     SelectionListType.Static
@@ -70,7 +70,9 @@ internal class StaticChoiceWindowMaterializer {
             .setPrompt(Prompt.newBuilder())
             .apply {
                 window.sourceForgeCardId?.let { sourceId = context.requiredInstanceId(it, "StaticChoice source") }
-                if (window.kind == StaticChoiceKind.Subtype) addAllIds(window.options.map { it.protocolValue })
+                if (window.kind == StaticChoiceKind.Subtype || window.kind == StaticChoiceKind.Keyword) {
+                    addAllIds(window.options.map { it.protocolValue })
+                }
             }.build()
 
     private fun staticList(kind: StaticChoiceKind): StaticList =
@@ -78,6 +80,7 @@ internal class StaticChoiceWindowMaterializer {
             StaticChoiceKind.Color -> StaticList.Colors
             StaticChoiceKind.Subtype -> StaticList.SubTypes
             StaticChoiceKind.Parity -> StaticList.Parities
+            StaticChoiceKind.Keyword -> StaticList.Keywords
         }
 
     private fun outerPromptId(kind: StaticChoiceKind): Int =
@@ -85,6 +88,7 @@ internal class StaticChoiceWindowMaterializer {
             StaticChoiceKind.Color -> PromptIds.CHOOSE_COLOR
             StaticChoiceKind.Subtype,
             StaticChoiceKind.Parity,
+            StaticChoiceKind.Keyword,
             -> PromptIds.CHOOSE_TYPE
         }
 }

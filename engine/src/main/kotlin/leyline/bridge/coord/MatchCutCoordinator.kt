@@ -18,6 +18,7 @@ import leyline.game.bundle.LogicalSequencePlanner
 import leyline.game.event.FrameEventLog
 import leyline.game.event.GameEvent
 import leyline.game.event.Zone
+import leyline.game.mapping.PromptIds
 import leyline.game.state.GameBridge
 import leyline.game.state.ProjectionViewer
 import leyline.game.state.ProjectionViewerRole
@@ -164,7 +165,7 @@ internal class MatchCutCoordinator(
                     .setPrompt(
                         Prompt
                             .newBuilder()
-                            .setPromptId(3)
+                            .setPromptId(PromptIds.ILLEGAL_REQUEST)
                             .addParameters(
                                 PromptParameter
                                     .newBuilder()

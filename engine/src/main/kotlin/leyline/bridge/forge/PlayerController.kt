@@ -11,7 +11,6 @@ import forge.game.GameActionUtil
 import forge.game.GameEntity
 import forge.game.GameObject
 import forge.game.ability.AbilityKey
-import forge.game.ability.AbilityUtils
 import forge.game.ability.ApiType
 import forge.game.card.Card
 import forge.game.card.CardCollection
@@ -509,47 +508,23 @@ class PlayerController(
                 hostCard = wrapper.hostCard,
                 defaultOnTimeout = true,
                 logContext = "confirmTrigger",
+                customPromptId = optionalTriggerPromptId(wrapper),
             )
-        if (!accepted) return false
-
-        // Announce X for triggered abilities with `Cost$ X`. Forge's standard
-        // X-announce path (`PlaySpellAbility.announceValuesLikeX`) early-exits
-        // for wrapped triggered abilities, so X stays unset and the trigger
-        // resolves with X=0 unless we set it here. The protocol surface for a
-        // "may pay {X}" trigger pairs the optional accept with a follow-up
-        // NumericInputReq (ChooseX) — emitted by routing through the gate.
-        announceXIfPresent(wrapper)
-        return true
+        return accepted
     }
 
-    private fun announceXIfPresent(wrapper: WrappedAbility) {
-        val cost = wrapper.payCosts ?: return
-        if (wrapper.xManaCostPaid != null) return
-
-        // Forge's own X-announce gate (PlaySpellAbility:773) checks
-        // `cost.hasXInAnyCostPart()`, but for wrapped triggered SAs that
-        // accessor returns false even when `Cost$ X` is set (the wrapper
-        // strips the cost into a separate accessor path). So we additionally
-        // accept `SVar:X = Count$xPaid` — Forge's own canonical marker for
-        // "this ability's X is the amount paid as X mana" — which is set on
-        // every `Cost$ X` trigger we've observed (Wildborn Preserver and the
-        // mechanic-mirror cards in `forge/forge-gui/res/cardsfolder`). Other
-        // SVar:X values (Count$Domain, PT$X, etc.) reference X for some other
-        // computation and must not fire a NumericInputReq.
-        val sVar = wrapper.getSVar("X")
-        val needsX = cost.hasXInAnyCostPart() || sVar == "Count\$xPaid"
-        if (!needsX) return
-
-        val maxX = cost.getMaxForNonManaX(wrapper, player, false) ?: Int.MAX_VALUE
-        val x =
-            numericInputGate.await(
-                sourceCard = wrapper.hostCard,
-                min = 0,
-                max = maxX,
-                defaultOnTimeout = 0,
-                logContext = "confirmTrigger-X",
-            )
-        wrapper.setXManaCostPaid(x)
+    private fun optionalTriggerPromptId(wrapper: WrappedAbility): Int {
+        val scriptedCost =
+            wrapper
+                .takeIf { it.hasParam("Cost") }
+                ?.getParam("Cost")
+                ?.trim()
+                .orEmpty()
+        return when {
+            scriptedCost.startsWith("Discard<") -> PromptIds.DISCARD_OPTIONAL
+            scriptedCost == "X" -> PromptIds.OPTIONAL_PAY_X
+            else -> PromptIds.OPTIONAL_ACTION
+        }
     }
 
     /**
@@ -1565,13 +1540,9 @@ class PlayerController(
         effectSA: SpellAbility,
         mayChoseNewTargets: Boolean,
     ) {
-        // Direct resolve — this is called by the engine for triggered abilities,
-        // replacement effects, and other no-stack effects.
-        // Must use AbilityUtils.resolve (not raw effectSA.resolve()) so that
-        // chained sub-abilities execute — e.g. CharmEffect chains the chosen
-        // mode as a sub, and the sub must resolve after the parent no-op.
-        effectSA.activatingPlayer = player
-        AbilityUtils.resolve(effectSA)
+        // Forge's no-stack play helper performs target setup and pays costs
+        // before resolving the complete sub-ability chain.
+        PlaySpellAbility.playSpellAbilityNoStack(this, player, effectSA, !mayChoseNewTargets)
     }
 
     override fun chooseSaToActivateFromOpeningHand(usableFromOpeningHand: List<SpellAbility>): List<SpellAbility> =
@@ -1610,6 +1581,13 @@ class PlayerController(
         return bridge.requestModalChoice(request, possible, sa.hostCard, sa)
     }
 
+    override fun chooseKeywordForPump(
+        options: List<String>,
+        sa: SpellAbility,
+        prompt: String,
+        tgtCard: Card,
+    ): String = staticChoiceCoordinator.chooseKeywordForPump(options, sa, prompt)
+
     // -- Mulligan / starting player ----------------------------------------
     // The engine's MulliganService calls these on the game thread.
     // When a MulliganBridge is wired, they block until the client
@@ -1624,7 +1602,17 @@ class PlayerController(
                 log.debug("mulliganKeepHand: no bridge, auto-keep")
                 return true
             }
-        return mb.awaitKeepDecision(player.id, cardsToReturn)
+        val keep = mb.awaitKeepDecision(player.id, cardsToReturn)
+        if (!keep || cardsToReturn <= 0) return keep
+
+        // Forge's London implementation asks for bottom cards after every redraw.
+        // The tabletop rule defers that choice until the player keeps, so collect
+        // and apply the tuck here after the accepted keep decision.
+        val hand = CardCollection(player.getCardsIn(ZoneType.Hand))
+        for (card in mb.awaitTuckDecision(player.id, cardsToReturn, hand)) {
+            game.action.moveToLibrary(card, -1, null)
+        }
+        return true
     }
 
     override fun tuckCardsViaMulligan(
@@ -1632,17 +1620,17 @@ class PlayerController(
         cardsToReturn: Int,
     ): CardCollectionView {
         if (cardsToReturn <= 0) return CardCollection()
-        val mb =
-            mulliganBridge ?: run {
-                log.debug("tuckCardsViaMulligan: no bridge, auto-tuck {}", cardsToReturn)
-                val toReturn = CardCollection()
-                for (i in 0 until cardsToReturn.coerceAtMost(hand.size)) {
-                    toReturn.add(hand[i])
-                }
-                return toReturn
+        if (mulliganBridge == null) {
+            log.debug("tuckCardsViaMulligan: no bridge, auto-tuck {}", cardsToReturn)
+            val toReturn = CardCollection()
+            for (i in 0 until cardsToReturn.coerceAtMost(hand.size)) {
+                toReturn.add(hand[i])
             }
-        val cards = mb.awaitTuckDecision(player.id, cardsToReturn, hand)
-        return CardCollection(cards)
+            return toReturn
+        }
+        // London bottoming is handled after Keep in mulliganKeepHand(). Returning
+        // no cards here preserves a full seven-card hand for the next decision.
+        return CardCollection()
     }
 
     override fun chooseStartingPlayer(isFirstGame: Boolean): Player {

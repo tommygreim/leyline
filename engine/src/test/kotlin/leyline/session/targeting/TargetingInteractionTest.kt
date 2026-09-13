@@ -15,6 +15,7 @@ import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import leyline.config.EngineSettings
+import leyline.game.mapping.PromptIds
 import leyline.testkit.MatchFlowHarness
 import leyline.testkit.SessionTest
 import leyline.testkit.after
@@ -506,13 +507,18 @@ class TargetingInteractionTest :
                 HumanLife=20
                 AILife=20
 
-                humanbattlefield=Spellbook Vendor;Grizzly Bears
+                humanbattlefield=Spellbook Vendor;Grizzly Bears;Plains
                 humanlibrary=Plains
                 ailibrary=Mountain
                 """.trimIndent(),
         ) {
             holdNextOptionalAction()
             passUntil(maxPasses = 4) { allMessages.any { it.hasOptionalActionMessage() } }.shouldBeTrue()
+            val optional = allMessages.last { it.hasOptionalActionMessage() }
+            assertSoftly {
+                optional.prompt.promptId shouldBe PromptIds.OPTIONAL_ACTION
+                optional.optionalActionMessage.prompt shouldBe optional.prompt
+            }
             val promptMessages = after { respondToOptionalAction(accept = true) }.messages
             val vendorIid = human.battlefield.iid("Spellbook Vendor")
             val selecting =

@@ -5,6 +5,7 @@ import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainAll
+import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import leyline.domain.service.EventRegistry
@@ -42,7 +43,8 @@ class FdProtoBuilderTest :
                     .lengthDelimitedList
                     .flatMap { UnknownFieldSet.parseFrom(it).getField(3).lengthDelimitedList }
                     .map { it.toStringUtf8() }
-            setCodes shouldContainAll listOf("HOB", "HOC")
+            setCodes shouldContainAll listOf("HOB", "HOC", "SPM", "MSH")
+            setCodes shouldNotContain "OM1"
         }
 
         test("every active event deck selection format has supplied format metadata") {
@@ -101,13 +103,14 @@ class FdProtoBuilderTest :
                             .single()
                             .toStringUtf8()
                     }
-            setCodes shouldContainAll listOf("HOB", "HOC")
+            setCodes shouldContainAll listOf("HOB", "HOC", "SPM", "MSH", "OM1")
             val filterCodes =
                 UnknownFieldSet
                     .parseFrom(inner.getField(2).lengthDelimitedList.single())
                     .getField(2)
                     .lengthDelimitedList
                     .map { it.toStringUtf8() }
-            filterCodes shouldContainAll listOf("HOB", "HOC")
+            filterCodes shouldContainAll listOf("HOB", "HOC", "SPM", "MSH")
+            filterCodes shouldNotContain "OM1"
         }
     })

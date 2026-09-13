@@ -118,6 +118,14 @@ class MulliganHandler(
                     }
                     return
                 }
+                if (mulliganCount > 0) {
+                    bridge.awaitTuckReady(seatId)
+                    val prompt = bridge.mulliganBridge(seatId).pendingPrompt()
+                    if (prompt?.phase != leyline.bridge.types.MulliganPhase.WaitingTuck) return
+                    bridge.cutCoordinator.lifecycle.publishHumanMulliganPrompt(seatId, prompt)
+                    deliverTemplate(s, bridge, "mulligan_tuck")
+                    return
+                }
                 bridge.awaitPriority()
                 s.onMulliganKeep()
             }
@@ -128,7 +136,7 @@ class MulliganHandler(
                 if (!bridge.submitMull(seatId)) return
                 mulliganCount++
                 seat1Hand = bridge.getHandGrpIds(SeatId(1))
-                sendMulliganRedraw(MulliganRedrawFacts(reportedMulliganCount = 0, numCards = seat1Hand.size))
+                sendMulliganRedraw(MulliganRedrawFacts(reportedMulliganCount = mulliganCount, numCards = seat1Hand.size))
             }
         }
     }

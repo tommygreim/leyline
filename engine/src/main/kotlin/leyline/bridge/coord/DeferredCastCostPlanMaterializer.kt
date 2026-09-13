@@ -152,7 +152,10 @@ internal object DeferredCastCostPlanMaterializer {
 
     private fun promptIdForAdditionalCostBranch(ability: SpellAbility): Int? {
         val costs = ability.payCosts ?: return null
-        if (costs.isOnlyManaCost) return PromptIds.CHOOSE_OR_COST_PAY_MANA
+        // Arena prompt 4160 is the card-specific text "Pay {3}{B}.", not a
+        // generic mana-payment label. Leave arbitrary mana-only branches
+        // neutral until their exact structured cost can be materialized.
+        if (costs.isOnlyManaCost) return null
         val parts = costs.costParts.map { it.javaClass.simpleName }
         return when {
             costs.costParts.any { it is CostBlight } -> PromptIds.CHOOSE_OR_COST_PAY_BLIGHT

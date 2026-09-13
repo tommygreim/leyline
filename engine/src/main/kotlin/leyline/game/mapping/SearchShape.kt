@@ -3,9 +3,9 @@ package leyline.game.mapping
 import forge.game.spellability.SpellAbility
 
 /**
- * Discriminator for `SearchReq` picker layout selection — different
- * `promptId` values drive different client picker UIs, and the
- * discriminator is purely SA-shape, not card-text.
+ * Discriminator for library-to-hand searches that benefit from the
+ * typecycling picker layout. The prompt text remains generic until the bridge
+ * can translate the exact Forge `ChangeType` into an Arena localization.
  */
 object SearchShape {
     /**
@@ -13,8 +13,9 @@ object SearchShape {
      * library search — `AB$ ChangeZone | Origin$ Library | Destination$
      * Hand | ChangeType$ <type>` with the type narrower than `Card`.
      *
-     * Picker layout: highlight every valid candidate face-up, click-to-pick
-     * (no separate Submit). Driven by `PromptIds.SEARCH_TYPECYCLING`.
+     * Picker layout: highlight every valid candidate face-up and click to pick.
+     * [PromptIds.SEARCH_TYPECYCLING] deliberately carries generic search text;
+     * Arena's Island-specific localization is not valid for every such shape.
      *
      * Generic library tutors (Diabolic Tutor, Sylvan Ranger) — wider
      * `ChangeType` or no type filter — fall through to `PromptIds.SEARCH`.

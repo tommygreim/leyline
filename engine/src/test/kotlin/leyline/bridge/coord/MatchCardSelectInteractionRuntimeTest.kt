@@ -176,9 +176,19 @@ class MatchCardSelectInteractionRuntimeTest :
                     SelectionListType.Static,
                     OptionContext.Payment,
                     innerPromptId = PromptIds.DISCARD_COST,
-                    outerPromptId = PromptIds.SELECT_N,
-                    allowCancel = AllowCancel.None_a526,
+                    outerPromptId = PromptIds.DISCARD_COST,
+                    allowCancel = AllowCancel.No_a526,
                     includeRequestSource = false,
+                ),
+                Case(
+                    PromptSemantic.SelectNDiscardEffect,
+                    CardSelectKind.DiscardEffect,
+                    SelectionContext.Discard_a163,
+                    SelectionListType.Static,
+                    OptionContext.Resolution_a9d7,
+                    innerPromptId = PromptIds.DISCARD_COST,
+                    outerPromptId = PromptIds.DISCARD_COST,
+                    allowCancel = AllowCancel.No_a526,
                 ),
                 Case(
                     PromptSemantic.SelectNSacrificeEffect,
@@ -239,7 +249,7 @@ class MatchCardSelectInteractionRuntimeTest :
                     OptionContext.Resolution_a9d7,
                     innerPromptId = 0,
                     innerParameterId = PromptIds.SELECT_N_INNER_PARAMETER,
-                    outerPromptId = PromptIds.SELECT_N_STOCK_UP,
+                    outerPromptId = PromptIds.SELECT_N,
                     allowCancel = AllowCancel.No_a526,
                 ),
                 Case(
@@ -250,7 +260,7 @@ class MatchCardSelectInteractionRuntimeTest :
                     OptionContext.Resolution_a9d7,
                     innerPromptId = 0,
                     innerParameterId = PromptIds.SELECT_N_INNER_PARAMETER,
-                    outerPromptId = PromptIds.SELECT_N_STOCK_UP,
+                    outerPromptId = PromptIds.SELECT_N,
                     allowCancel = AllowCancel.No_a526,
                     includeRequestSource = false,
                 ),
@@ -335,6 +345,7 @@ class MatchCardSelectInteractionRuntimeTest :
                             CardSelectKind.Discard,
                             CardSelectKind.ResolutionMapped,
                             -> 0
+                            CardSelectKind.DiscardEffect,
                             CardSelectKind.SacrificeEffect,
                             CardSelectKind.Suspect,
                             CardSelectKind.MutateTopBottom,
@@ -359,8 +370,7 @@ class MatchCardSelectInteractionRuntimeTest :
                     }
                     if (case.kind == CardSelectKind.Resolution || case.kind == CardSelectKind.ResolutionMapped) {
                         req.unfilteredIdsList shouldContainExactly req.idsList
-                        message.prompt.parametersList.map { it.numberValue } shouldContainExactly
-                            listOf(req.sourceId, req.maxSel)
+                        message.prompt.parametersList shouldBe emptyList()
                     }
                     if (case.kind == CardSelectKind.Learn) {
                         message.prompt.parametersList.map { it.numberValue } shouldContainExactly

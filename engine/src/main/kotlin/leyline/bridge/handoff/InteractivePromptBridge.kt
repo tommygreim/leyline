@@ -739,6 +739,9 @@ enum class PromptSemantic {
     ModalChoice,
     SelectNLegendRule,
     SelectNDiscard,
+
+    /** Resolution-time discard choice, including optional rummage effects. */
+    SelectNDiscardEffect,
     Search,
     GroupedSearch,
 
@@ -845,6 +848,9 @@ enum class PromptSemantic {
 
     /** Static enum choice: choose odd or even via `StaticList_Parities`. */
     StaticParityChoice,
+
+    /** Static enum choice: choose a keyword via `StaticList_Keywords`. */
+    StaticKeywordChoice,
 }
 
 /**

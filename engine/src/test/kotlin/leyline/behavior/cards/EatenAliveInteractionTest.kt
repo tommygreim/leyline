@@ -86,7 +86,8 @@ class EatenAliveInteractionTest :
                 option.castingTimeOptionType shouldBe CastingTimeOptionType.ChooseOrCost
                 option.isRequired shouldBe true
                 option.grpId shouldBe action.grpId
-                option.selectNReq.prompt.promptId shouldBe PromptIds.CHOOSE_OR_COST
+                option.selectNReq.prompt.promptId shouldBe PromptIds.SELECT_N
+                option.selectNReq.prompt.parametersList shouldBe emptyList()
                 option.selectNReq.idsList shouldBe listOf(1, 2)
             }
 

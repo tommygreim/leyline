@@ -34,9 +34,16 @@ class PromptIdsTest :
                 PromptIds.GROUP_SURVEIL shouldBe 129
                 PromptIds.LEARN_LESSON_OR_DISCARD shouldBe 147
                 PromptIds.LEARN_LESSON_ONLY shouldBe 148
+                PromptIds.SELECT_N shouldBe 97
+                PromptIds.SEARCH shouldBe 1030
                 PromptIds.DISCARD_COST shouldBe 1024
-                PromptIds.SELECT_N shouldBe 1243
-                PromptIds.SEARCH shouldBe 1065
+                PromptIds.DISCARD_TWO shouldBe 1034
+                PromptIds.DISCARD_THREE shouldBe 1814
+                PromptIds.DISCARD_OPTIONAL shouldBe 4482
+                PromptIds.DISCARD_UP_TO_TWO shouldBe 4064
+                PromptIds.DISCARD_UP_TO_THREE shouldBe 1293
+                PromptIds.OPTIONAL_ACTION shouldBe 23
+                PromptIds.OPTIONAL_PAY_X shouldBe 1159
                 PromptIds.SELECT_N_LEGEND_RULE_SOURCE shouldBe 15168
                 PromptIds.COLLECT_EVIDENCE_COST shouldBe 12727
                 PromptIds.CHOOSE_OR_COST_PAY_BLIGHT shouldBe 15008

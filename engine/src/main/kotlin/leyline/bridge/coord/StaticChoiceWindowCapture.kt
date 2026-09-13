@@ -17,6 +17,7 @@ internal object StaticChoiceWindowCapture {
                 StaticChoiceKind.Color -> StaticList.Colors
                 StaticChoiceKind.Subtype -> StaticList.SubTypes
                 StaticChoiceKind.Parity -> StaticList.Parities
+                StaticChoiceKind.Keyword -> StaticList.Keywords
             }
         check(request.staticList == expectedList) { "StaticChoice domain does not match its route" }
         check(request.staticOptionIds.size == request.options.size) { "StaticChoice values must match options" }

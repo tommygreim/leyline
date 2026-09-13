@@ -457,7 +457,7 @@ class TargetingCoordinator(
         min: Int,
         max: Int,
     ): CardCollection {
-        val reveal = bridge.journal.activeRevealEntry()
+        val reveal = bridge.journal.activeRevealEntry().takeIf { isRevealedHandDiscard(sa) }
         if (reveal != null) {
             // Reveal-choose path: validCards is filtered while the journal entry owns the full hand.
             return chooseCardsViaBridgeForReveal(validCards, min, max, sa, reveal)
@@ -467,7 +467,7 @@ class TargetingCoordinator(
             min,
             max,
             "Choose cards to discard",
-            semantic = PromptSemantic.SelectNDiscard,
+            semantic = PromptSemantic.SelectNDiscardEffect,
             candidateRefs = buildCandidateRefs(validCards),
             sourceEntityId = sa?.hostCard?.id,
         )
@@ -481,7 +481,12 @@ class TargetingCoordinator(
         max: Int,
         visibleToChooser: CardCollectionView,
     ): CardCollection {
-        val reveal = bridge.journal.activeRevealEntry() ?: revealFromVisibleHand(discarder, visibleToChooser)
+        val reveal =
+            if (isRevealedHandDiscard(sa)) {
+                bridge.journal.activeRevealEntry() ?: revealFromVisibleHand(discarder, visibleToChooser)
+            } else {
+                null
+            }
         if (reveal != null) {
             return chooseCardsViaBridgeForReveal(validCards, min, max, sa, reveal)
         }
@@ -490,7 +495,7 @@ class TargetingCoordinator(
             min,
             max,
             "Choose cards to discard",
-            semantic = PromptSemantic.SelectNDiscard,
+            semantic = PromptSemantic.SelectNDiscardEffect,
             candidateRefs = buildCandidateRefs(validCards),
             sourceEntityId = sa?.hostCard?.id,
         )
@@ -507,6 +512,12 @@ class TargetingCoordinator(
         TargetingCoordinator.startReveal(bridge, visibleIds, ownerSeat)
         return bridge.journal.activeRevealEntry()
     }
+
+    private fun isRevealedHandDiscard(sa: SpellAbility?): Boolean =
+        sa
+            ?.takeIf { it.hasParam("Mode") }
+            ?.getParam("Mode")
+            ?.let { it.startsWith("Reveal") || it.startsWith("Look") } == true
 
     fun chooseCardsToDiscardToMaximumHandSize(
         nDiscard: Int,

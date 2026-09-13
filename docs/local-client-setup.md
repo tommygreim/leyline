@@ -117,6 +117,24 @@ Both players select their saved decks and enter that queue. This local event
 skips server format validation and collection ownership checks; it supplies a
 single constructed game with the client's Timeless deck-builder format.
 
+The current set bootstrap advertises `SPM` and `MSH` in that constructed pool.
+`OM1`, the retired Through the Omenpaths code, remains only as inactive metadata
+for client compatibility and is not a deck-builder set. This distinction matters
+for cards whose current primary printing exists only under `SPM` or `MSH`.
+
+Constructed matches use the London mulligan: every mulligan redraw contains
+seven cards, and after Keep the player puts one card on the bottom for each
+previous mulligan. Card text that offers an optional discard publishes the
+discard choice before any dependent target choice; declining the discard closes
+the optional branch and returns play to the next normal decision.
+
+Client prompt text comes from numeric localization IDs rather than strings sent
+by Forge. Routes with a verified semantic use the matching client prompt (for
+example discard-one, discard-two, discard-three, optional discard, and pay X).
+Unclassified selections, searches, and optional actions use neutral “choose
+items,” “search for a card,” and “choose options” prompts so a fallback does not
+claim a restriction or cost that the rules engine did not supply.
+
 When the host enables two-player mode, `Event_EnterPairing` (603) waits for two
 separate authenticated profiles selecting the same event. The first queued
 profile is seat 1 and the second is seat 2. Their selected decks are copied at

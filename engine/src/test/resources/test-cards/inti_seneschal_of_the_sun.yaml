@@ -1,0 +1,14 @@
+name: "Inti, Seneschal of the Sun"
+grpId: 87308
+titleId: 737634
+abilities:
+  - id: 169626
+    textId: 737635
+    category: 2
+  - id: 169627
+    textId: 737636
+    category: 2
+hiddenAbilities:
+  - id: 169798
+    textId: 737635
+expansionCode: "LCI"

@@ -6,6 +6,7 @@ import io.kotest.matchers.shouldBe
 import leyline.UnitTag
 import leyline.bridge.handoff.BlockingInteraction
 import leyline.bridge.types.ForgeCardId
+import leyline.game.mapping.PromptIds
 import leyline.game.state.ProjectionState
 
 class BlockingInteractionMaterializerTest :
@@ -38,6 +39,27 @@ class BlockingInteractionMaterializerTest :
                 assigner.totalDamage shouldBe 4
                 assigner.assignmentsList.single().minDamage shouldBe 5
                 assigner.assignmentsList.single().assignedDamage shouldBe 4
+            }
+        }
+
+        test("optional interactions carry the same semantic prompt inside and outside the payload") {
+            val prepared =
+                BlockingInteractionMaterializer(seatId = 1).generalOptional(
+                    prior = ProjectionState.initial(),
+                    counter = LogicalSequencePlanner(),
+                    interaction =
+                        BlockingInteraction.Optional(
+                            sourceId = ForgeCardId(42),
+                            forceSnapshotBeforePrompt = false,
+                            customPromptId = PromptIds.DISCARD_OPTIONAL,
+                            commanderReturn = null,
+                        ),
+                )
+
+            val message = prepared.bundle.messages.single { it.hasOptionalActionMessage() }
+            assertSoftly {
+                message.prompt.promptId shouldBe PromptIds.DISCARD_OPTIONAL
+                message.optionalActionMessage.prompt shouldBe message.prompt
             }
         }
     })

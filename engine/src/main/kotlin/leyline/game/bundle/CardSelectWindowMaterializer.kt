@@ -47,13 +47,14 @@ internal class CardSelectWindowMaterializer {
         window: CardSelectWindowValue,
         context: SettledPromptMaterializationContext,
     ): SelectNReq {
-        val discard = window.kind == CardSelectKind.Discard
+        val discard = window.kind == CardSelectKind.Discard || window.kind == CardSelectKind.DiscardEffect
+        val discardEffect = window.kind == CardSelectKind.DiscardEffect
         return SelectNReq
             .newBuilder()
             .setContext(if (discard) SelectionContext.Discard_a163 else SelectionContext.Resolution_a163)
             .setListType(if (discard) SelectionListType.Static else SelectionListType.Dynamic)
             .setValidationType(SelectionValidationType.NonRepeatable)
-            .setOptionContext(if (discard) OptionContext.Payment else OptionContext.Resolution_a9d7)
+            .setOptionContext(if (discard && !discardEffect) OptionContext.Payment else OptionContext.Resolution_a9d7)
             .setMinWeight(Int.MIN_VALUE)
             .setMaxWeight(Int.MAX_VALUE)
             .setIdType(IdType.InstanceId_ab2c)
@@ -79,7 +80,8 @@ internal class CardSelectWindowMaterializer {
                         setSelectNInnerPrompt(PromptIds.SELECT_N_INNER_PARAMETER)
                     }
                     CardSelectKind.Learn -> setSelectNInnerPrompt(PromptIds.SELECT_N_LEARN_INNER_PARAMETER)
-                    CardSelectKind.Discard -> prompt = Prompt.newBuilder().setPromptId(PromptIds.DISCARD_COST).build()
+                    CardSelectKind.Discard -> prompt = Prompt.newBuilder().setPromptId(discardPromptId(window)).build()
+                    CardSelectKind.DiscardEffect -> prompt = Prompt.newBuilder().setPromptId(discardPromptId(window)).build()
                     CardSelectKind.Suspect -> setSelectNInnerPrompt(PromptIds.SELECT_N_INNER_PARAMETER)
                     CardSelectKind.SacrificeEffect,
                     CardSelectKind.MutateTopBottom,
@@ -96,9 +98,9 @@ internal class CardSelectWindowMaterializer {
             CardSelectKind.LegendRule -> SelectNEnvelope.legendRule(request)
             CardSelectKind.LibraryPutback -> SelectNEnvelope.libraryPutback(request)
             CardSelectKind.ManifestDread -> SelectNEnvelope.manifestDread(request)
-            CardSelectKind.Resolution,
-            CardSelectKind.ResolutionMapped,
-            -> SelectNEnvelope.resolution(request)
+            CardSelectKind.Resolution ->
+                SelectNEnvelope.resolution(request, stockUp = window.min == 2 && window.max == 2)
+            CardSelectKind.ResolutionMapped -> SelectNEnvelope.resolution(request)
             CardSelectKind.Learn ->
                 SelectNEnvelope.learnLesson(
                     request,
@@ -108,7 +110,8 @@ internal class CardSelectWindowMaterializer {
                         PromptIds.LEARN_LESSON_ONLY
                     },
                 )
-            CardSelectKind.Discard,
+            CardSelectKind.Discard -> SelectNEnvelope.discard(request, discardPromptId(window), optional = window.min == 0)
+            CardSelectKind.DiscardEffect -> SelectNEnvelope.discard(request, discardPromptId(window), optional = window.min == 0)
             CardSelectKind.SacrificeEffect,
             -> SelectNEnvelope.default(request)
             CardSelectKind.Suspect -> SelectNEnvelope.suspectChoice(request)
@@ -129,6 +132,17 @@ internal class CardSelectWindowMaterializer {
     }
 
     private companion object {
+        fun discardPromptId(window: CardSelectWindowValue): Int =
+            when {
+                window.min == 0 && window.max == 2 -> PromptIds.DISCARD_UP_TO_TWO
+                window.min == 0 && window.max == 3 -> PromptIds.DISCARD_UP_TO_THREE
+                window.min == 0 && window.max == 1 -> PromptIds.DISCARD_OPTIONAL
+                window.min == 1 && window.max == 1 -> PromptIds.DISCARD_COST
+                window.min == 2 && window.max == 2 -> PromptIds.DISCARD_TWO
+                window.min == 3 && window.max == 3 -> PromptIds.DISCARD_THREE
+                else -> PromptIds.SELECT_N
+            }
+
         val privateCandidateKinds = setOf(CardSelectKind.ManifestDread, CardSelectKind.Resolution, CardSelectKind.Learn)
     }
 }

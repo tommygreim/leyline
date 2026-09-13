@@ -1,0 +1,13 @@
+name: "Practiced Offense"
+grpId: 102484
+titleId: 1110905
+abilities:
+  - id: 204314
+    textId: 1110906
+    category: 4
+  - id: 3824
+    textId: 17118
+    category: 8
+    baseId: 35
+    mana: "1 W"
+expansionCode: "SOS"

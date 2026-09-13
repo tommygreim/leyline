@@ -9,6 +9,7 @@ import leyline.bridge.handoff.PromptRouteResolver
 import leyline.bridge.handoff.PromptSemantic
 import leyline.bridge.handoff.ResolvedPromptRoute
 import leyline.bridge.types.StaticChoiceIds
+import leyline.game.codes.KeywordGrpIds
 import org.slf4j.LoggerFactory
 import wotc.mtgo.gre.external.messaging.Messages.StaticList
 
@@ -175,6 +176,38 @@ class StaticChoiceCoordinator(
                 ),
             ).firstOrNull()
         return idx?.let { choices.getOrNull(it)?.first } ?: if (isOptional) null else choices.first().first
+    }
+
+    /** Choose one Forge pump keyword through Arena's keyword static-list domain. */
+    fun chooseKeywordForPump(
+        options: List<String>,
+        sa: SpellAbility,
+        prompt: String,
+    ): String {
+        if (options.size <= 1) return options.firstOrNull().orEmpty()
+        val choices = options.mapNotNull { keyword -> KeywordGrpIds.forKeyword(keyword)?.let { keyword to it } }
+        if (choices.size != options.size) {
+            log.warn("chooseKeywordForPump: unmapped keyword options {}; using first option", options)
+            return options.first()
+        }
+
+        val selected =
+            bridge
+                .requestStaticChoice(
+                    PromptRequest(
+                        promptType = "choose_one",
+                        message = prompt,
+                        options = choices.map { it.first },
+                        min = 1,
+                        max = 1,
+                        defaultIndex = 0,
+                        route = PromptRouteResolver.resolve(PromptSemantic.StaticKeywordChoice),
+                        sourceEntityId = sourceEntityId(sa),
+                        staticList = StaticList.Keywords,
+                        staticOptionIds = choices.map { it.second },
+                    ),
+                ).firstOrNull()
+        return selected?.let { choices.getOrNull(it)?.first } ?: choices.first().first
     }
 
     @Suppress("ElseCaseInsteadOfExhaustiveWhen")

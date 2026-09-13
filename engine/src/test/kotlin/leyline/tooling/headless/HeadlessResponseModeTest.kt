@@ -1,5 +1,6 @@
 package leyline.tooling.headless
 
+import io.kotest.assertions.assertSoftly
 import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.booleans.shouldBeTrue
@@ -7,6 +8,7 @@ import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import leyline.IntegrationTag
+import leyline.game.mapping.PromptIds
 import leyline.testkit.MatchFlowHarness
 import wotc.mtgo.gre.external.messaging.Messages.GREMessageType
 
@@ -79,9 +81,14 @@ class HeadlessResponseModeTest :
 
             withClue("prompt must survive drainSink so policy owns the response") {
                 h.countOf(GREMessageType.OptionalActionMessage_695e) shouldBe 1
-                h.bridge.cutCoordinator
-                    .currentBlockingInteraction()
-                    .shouldNotBeNull()
+                val optional = h.allMessages.single { it.hasOptionalActionMessage() }
+                assertSoftly {
+                    optional.prompt.promptId shouldBe PromptIds.OPTIONAL_PAY_X
+                    optional.optionalActionMessage.prompt shouldBe optional.prompt
+                    h.bridge.cutCoordinator
+                        .currentBlockingInteraction()
+                        .shouldNotBeNull()
+                }
             }
 
             withClue("the numeric prompt is gated behind the unanswered offer") {

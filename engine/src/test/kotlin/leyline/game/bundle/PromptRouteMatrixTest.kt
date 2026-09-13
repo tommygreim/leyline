@@ -46,6 +46,8 @@ class PromptRouteMatrixTest :
                         cardSelect(PromptSemantic.SelectNLegendRule, CardSelectKind.LegendRule),
                     PromptSemantic.SelectNDiscard to
                         cardSelect(PromptSemantic.SelectNDiscard, CardSelectKind.Discard, sentiment = 1),
+                    PromptSemantic.SelectNDiscardEffect to
+                        cardSelect(PromptSemantic.SelectNDiscardEffect, CardSelectKind.DiscardEffect, sentiment = 1),
                     PromptSemantic.Search to ResolvedPromptRoute.Search(PromptSemantic.Search),
                     PromptSemantic.GroupedSearch to ResolvedPromptRoute.Search(PromptSemantic.GroupedSearch),
                     PromptSemantic.SelectReplacement to
@@ -122,6 +124,8 @@ class PromptRouteMatrixTest :
                     PromptSemantic.StaticSubtypeChoice to staticChoice(PromptSemantic.StaticSubtypeChoice, StaticChoiceKind.Subtype),
                     PromptSemantic.StaticParityChoice to
                         staticChoice(PromptSemantic.StaticParityChoice, StaticChoiceKind.Parity),
+                    PromptSemantic.StaticKeywordChoice to
+                        staticChoice(PromptSemantic.StaticKeywordChoice, StaticChoiceKind.Keyword),
                 )
 
             PromptSemantic.entries

@@ -10,6 +10,7 @@ import io.kotest.matchers.shouldNotBe
 import io.netty.channel.embedded.EmbeddedChannel
 import leyline.IntegrationTag
 import leyline.bridge.bootstrap.GameBootstrap
+import leyline.bridge.coord.groupResp
 import leyline.bridge.types.SeatId
 import leyline.config.EngineSettings
 import leyline.config.RuntimeMatchConfig
@@ -644,6 +645,19 @@ class MatchDoorMulliganFlowTest :
                         8,
                     ),
                 )
+                val tuckPrompt = greOutbound(local)
+                val groupReq = tuckPrompt.last { it.hasGroupReq() }
+                val handIds = groupReq.groupReq.instanceIdsList
+                local.writeInbound(
+                    greServiceMessage(
+                        groupResp(handIds.dropLast(2), handIds.takeLast(2))
+                            .toBuilder()
+                            .setRespId(groupReq.msgId)
+                            .setGameStateId(groupReq.gameStateId)
+                            .build(),
+                        9,
+                    ),
+                )
                 val postKeep = greOutbound(local).map { it.type }
                 val keptHand = session.gameBridge.getHandGrpIds(leyline.bridge.types.SeatId(1))
 
@@ -651,14 +665,16 @@ class MatchDoorMulliganFlowTest :
                     firstRedrawTypes shouldContain GREMessageType.GameStateMessage_695e
                     firstRedrawTypes shouldContain GREMessageType.PromptReq
                     firstRedrawTypes shouldContain GREMessageType.MulliganReq_aa0d
-                    firstRedrawMulligan.mulliganReq.mulliganCount shouldBe 0
-                    firstRedrawMulligan.prompt.parametersList.map { it.numberValue } shouldContain 6
-                    firstRedrawHand.size shouldBe 6
+                    firstRedrawMulligan.mulliganReq.mulliganCount shouldBe 1
+                    firstRedrawMulligan.prompt.parametersList.map { it.numberValue } shouldContain 7
+                    firstRedrawHand.size shouldBe 7
                     firstRedrawHand shouldNotBe firstHand
-                    secondRedrawMulligan.mulliganReq.mulliganCount shouldBe 0
-                    secondRedrawMulligan.prompt.parametersList.map { it.numberValue } shouldContain 5
-                    secondRedrawHand.size shouldBe 5
-                    keptHand shouldBe secondRedrawHand
+                    secondRedrawMulligan.mulliganReq.mulliganCount shouldBe 2
+                    secondRedrawMulligan.prompt.parametersList.map { it.numberValue } shouldContain 7
+                    secondRedrawHand.size shouldBe 7
+                    tuckPrompt.map { it.type } shouldContain GREMessageType.GroupReq_695e
+                    groupReq.groupReq.groupSpecsList[1].lowerBound shouldBe 2
+                    keptHand.size shouldBe 5
                     postKeep shouldContain GREMessageType.GameStateMessage_695e
                     postKeep shouldContain GREMessageType.ActionsAvailableReq_695e
                 }

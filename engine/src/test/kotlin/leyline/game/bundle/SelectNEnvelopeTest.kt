@@ -41,15 +41,24 @@ class SelectNEnvelopeTest :
             }
         }
 
-        test("resolution envelope uses look-and-pick prompt and augmentation") {
+        test("generic resolution envelope uses a neutral look-and-pick prompt") {
             val envelope = SelectNEnvelope.resolution(req)
+
+            assertSoftly {
+                envelope.prompt.promptId shouldBe PromptIds.SELECT_N
+                envelope.prompt.parametersCount shouldBe 0
+                envelope.allowCancel shouldBe AllowCancel.No_a526
+                envelope.gameStateAugmentation shouldBe SelectNEnvelope.GameStateAugmentation.LookAndPick
+            }
+        }
+
+        test("Stock Up resolution envelope keeps its specific look-and-pick prompt") {
+            val envelope = SelectNEnvelope.resolution(req, stockUp = true)
 
             assertSoftly {
                 envelope.prompt.promptId shouldBe PromptIds.SELECT_N_STOCK_UP
                 envelope.prompt.getParameters(0).numberValue shouldBe 101
                 envelope.prompt.getParameters(1).numberValue shouldBe 2
-                envelope.allowCancel shouldBe AllowCancel.No_a526
-                envelope.gameStateAugmentation shouldBe SelectNEnvelope.GameStateAugmentation.LookAndPick
             }
         }
 

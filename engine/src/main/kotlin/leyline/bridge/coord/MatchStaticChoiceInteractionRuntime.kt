@@ -146,5 +146,6 @@ internal class MatchStaticChoiceInteractionRuntime(
             StaticChoiceKind.Color -> StaticList.Colors.number
             StaticChoiceKind.Subtype -> StaticList.SubTypes.number
             StaticChoiceKind.Parity -> StaticList.Parities.number
+            StaticChoiceKind.Keyword -> StaticList.Keywords.number
         }
 }

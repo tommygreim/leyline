@@ -95,6 +95,15 @@ class MatchStaticChoiceInteractionRuntimeTest :
                     SelectionListType.Static,
                     PromptIds.CHOOSE_TYPE,
                 ),
+                Case(
+                    PromptSemantic.StaticKeywordChoice,
+                    StaticChoiceKind.Keyword,
+                    listOf("Double Strike", "Lifelink"),
+                    listOf(4, 12),
+                    StaticList.Keywords,
+                    SelectionListType.StaticSubset,
+                    PromptIds.CHOOSE_TYPE,
+                ),
             )
 
         fun sourceId(board: Board): Int =
@@ -192,7 +201,12 @@ class MatchStaticChoiceInteractionRuntimeTest :
                     req.minWeight shouldBe Int.MIN_VALUE
                     req.maxWeight shouldBe Int.MAX_VALUE
                     req.prompt.parametersList.shouldBeEmpty()
-                    req.idsList shouldBe if (case.kind == StaticChoiceKind.Subtype) case.values else emptyList()
+                    req.idsList shouldBe
+                        if (case.kind == StaticChoiceKind.Subtype || case.kind == StaticChoiceKind.Keyword) {
+                            case.values
+                        } else {
+                            emptyList()
+                        }
                     req.sourceId shouldBe sourceInstanceId
                     message.prompt.promptId shouldBe case.outerPromptId
                     sourceParameter.parameterName shouldBe "CardId"

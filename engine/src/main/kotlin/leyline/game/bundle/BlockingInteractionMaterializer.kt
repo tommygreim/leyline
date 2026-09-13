@@ -44,12 +44,17 @@ internal class BlockingInteractionMaterializer(
             val sourceId =
                 interaction.sourceId?.let { editor.identities.getOrAlloc(it).value }
                     ?: error("Optional interaction requires a source")
-            val optional = OptionalActionMessage.newBuilder().setSourceId(sourceId).build()
             val prompt =
                 Prompt
                     .newBuilder()
                     .setPromptId(interaction.customPromptId ?: PromptIds.OPTIONAL_ACTION)
                     .addParameters(cardIdPromptParameter(sourceId))
+                    .build()
+            val optional =
+                OptionalActionMessage
+                    .newBuilder()
+                    .setSourceId(sourceId)
+                    .setPrompt(prompt)
                     .build()
             val link = counter.nextGameStateLink()
             val pending = pendingMessage(link)
@@ -107,12 +112,17 @@ internal class BlockingInteractionMaterializer(
                             .setControllerSeatId(seatId),
                     ).addPersistentAnnotations(replacement)
                     .build()
-            val optional = OptionalActionMessage.newBuilder().setSourceId(replacementId.value).build()
             val prompt =
                 Prompt
                     .newBuilder()
                     .setPromptId(checkNotNull(interaction.customPromptId))
                     .addParameters(cardIdPromptParameter(newId.value))
+                    .build()
+            val optional =
+                OptionalActionMessage
+                    .newBuilder()
+                    .setSourceId(replacementId.value)
+                    .setPrompt(prompt)
                     .build()
             BundleBuilder.BundleResult(
                 listOf(
@@ -197,12 +207,17 @@ internal class BlockingInteractionMaterializer(
                 closesPlaybackFrame = true,
             )
         }
-        val optional = OptionalActionMessage.newBuilder().setSourceId(sourceId).build()
         val prompt =
             Prompt
                 .newBuilder()
                 .setPromptId(interaction.customPromptId ?: PromptIds.OPTIONAL_ACTION)
                 .addParameters(cardIdPromptParameter(sourceId))
+                .build()
+        val optional =
+            OptionalActionMessage
+                .newBuilder()
+                .setSourceId(sourceId)
+                .setPrompt(prompt)
                 .build()
         return Prepared(
             BundleBuilder.BundleResult(
@@ -294,19 +309,20 @@ internal class BlockingInteractionMaterializer(
                 ActionInfo.newBuilder().setSeatId(seatId).setAction(ActionMapper.stripActionForGsm(action)),
             )
         }
-        val optional =
-            OptionalActionMessage
-                .newBuilder()
-                .setSourceId(context.promptInstanceId)
-                .addOptionalActionTypes(CardMechanicType.ZoneTransfer_a57f)
-                .addRecipientIds(context.promptInstanceId)
-                .build()
         val prompt =
             Prompt
                 .newBuilder()
                 .setPromptId(interaction.customPromptId ?: PromptIds.OPTIONAL_ACTION)
                 .addParameters(cardIdPromptParameter(0))
                 .addParameters(cardIdPromptParameter(context.promptInstanceId))
+                .build()
+        val optional =
+            OptionalActionMessage
+                .newBuilder()
+                .setSourceId(context.promptInstanceId)
+                .addOptionalActionTypes(CardMechanicType.ZoneTransfer_a57f)
+                .addRecipientIds(context.promptInstanceId)
+                .setPrompt(prompt)
                 .build()
         editor.limboInstanceIds += context.promptInstanceId
         return BundleBuilder.BundleResult(

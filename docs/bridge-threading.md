@@ -170,10 +170,12 @@ connection cannot consume the other connection's wake-up.
 
 Constructed two-human startup waits until both authenticated seat sessions
 have received their initial lifecycle state. Forge's sequential mulligan
-callbacks then publish each player's keep or tuck request from the engine
-thread. Network handlers submit the exact pending answer and return; they
-do not wait for the other player's mulligan. Bot matches retain their
-automatic Familiar startup.
+callbacks publish each player's seven-card keep request from the engine thread.
+A Mull decision redraws seven and publishes another keep request. Once the
+player keeps, a separate tuck request selects one bottom card per previous
+mulligan. Network handlers submit the exact pending answer and return; they do
+not wait for the other player's mulligan. Bot matches retain their automatic
+Familiar startup.
 
 ### Reconnect publication
 

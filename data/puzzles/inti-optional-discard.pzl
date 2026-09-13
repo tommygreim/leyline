@@ -1,0 +1,16 @@
+[metadata]
+Name:Inti Optional Discard
+Goal:Exercise Inti's attack trigger through its optional discard and reflexive target.
+Turns:3
+Difficulty:Easy
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+
+humanhand=Mountain
+humanbattlefield=Inti, Seneschal of the Sun;Grizzly Bears
+humanlibrary=Plains;Island;Forest
+ailibrary=Mountain;Mountain;Mountain

@@ -1,6 +1,26 @@
 name: mechanics-protocol
 description: Focused protocol-mechanic acceptance scenarios promoted from manual puzzles.
 scenarios:
+  - id: inti-optional-discard
+    puzzle: inti-optional-discard
+    run: attack with Grizzly Bears, discard Mountain to Inti, then target the attacker
+    expect: Inti discards before targeting and the attacker receives its counter
+    steps:
+      - pass_until:
+          prompt: DeclareAttackersReq
+          max_passes: 12
+      - attack: { cards: [Grizzly Bears] }
+      - pass_until:
+          prompt: { type: SelectNReq, prompt_id: 4482 }
+          max_passes: 12
+      - select_cost: { zone: hand, cards: [Mountain] }
+      - target: { side: ours, zone: battlefield, card: Grizzly Bears }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: graveyard, card: Mountain }
+            - battlefield_stats_at_least: { side: ours, card: Grizzly Bears, power: 3, toughness: 3 }
+            - stack_empty: true
   - id: opening-hand-battlefield-put
     deck: [30 Leyline Axe, 30 Forest]
     opponent_deck: [60 Plains]

@@ -24,6 +24,17 @@ data class SelectNEnvelope(
                 prompt = Prompt.newBuilder().setPromptId(PromptIds.SELECT_N).build(),
             )
 
+        fun discard(
+            req: SelectNReq,
+            promptId: Int,
+            optional: Boolean,
+        ): SelectNEnvelope =
+            SelectNEnvelope(
+                req = req,
+                prompt = Prompt.newBuilder().setPromptId(promptId).build(),
+                allowCancel = if (optional) AllowCancel.Continue else AllowCancel.No_a526,
+            )
+
         fun legendRule(req: SelectNReq): SelectNEnvelope =
             SelectNEnvelope(
                 req = req,
@@ -36,10 +47,13 @@ data class SelectNEnvelope(
                 allowCancel = AllowCancel.No_a526,
             )
 
-        fun resolution(req: SelectNReq): SelectNEnvelope =
+        fun resolution(
+            req: SelectNReq,
+            stockUp: Boolean = false,
+        ): SelectNEnvelope =
             SelectNEnvelope(
                 req = req,
-                prompt = stockUpPrompt(req),
+                prompt = if (stockUp) stockUpPrompt(req) else Prompt.newBuilder().setPromptId(PromptIds.SELECT_N).build(),
                 allowCancel = AllowCancel.No_a526,
                 gameStateAugmentation = GameStateAugmentation.LookAndPick,
             )

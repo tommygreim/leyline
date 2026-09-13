@@ -35,10 +35,9 @@ class BlightLifecycleTest :
             assertSoftly {
                 option.castingTimeOptionType shouldBe CastingTimeOptionType.ChooseOrCost
                 option.isRequired shouldBe true
-                option.selectNReq.prompt.promptId shouldBe PromptIds.CHOOSE_OR_COST
+                option.selectNReq.prompt.promptId shouldBe PromptIds.SELECT_N
                 option.selectNReq.prompt.parametersList
-                    .map { it.promptId } shouldBe
-                    listOf(PromptIds.CHOOSE_OR_COST_PAY_BLIGHT, PromptIds.CHOOSE_OR_COST_PAY_MANA)
+                    .shouldBeEmpty()
                 option.selectNReq.idsList shouldBe listOf(1, 2)
             }
 

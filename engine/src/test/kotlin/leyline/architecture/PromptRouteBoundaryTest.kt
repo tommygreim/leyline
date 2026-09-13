@@ -263,6 +263,7 @@ private val promptRouteFamilies =
                 listOf(
                     PromptSemantic.SelectNLegendRule,
                     PromptSemantic.SelectNDiscard,
+                    PromptSemantic.SelectNDiscardEffect,
                     PromptSemantic.SelectNSacrificeEffect,
                     PromptSemantic.SelectNLibraryPutback,
                     PromptSemantic.SuspectChoice,

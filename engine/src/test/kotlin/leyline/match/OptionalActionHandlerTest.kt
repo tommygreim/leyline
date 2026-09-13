@@ -3,6 +3,7 @@ package leyline.match
 import forge.game.zone.ZoneType
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.shouldBe
+import leyline.game.mapping.PromptIds
 import leyline.testkit.SessionTest
 
 class OptionalActionHandlerTest :
@@ -28,6 +29,9 @@ class OptionalActionHandlerTest :
             passUntil(maxPasses = 4) { allMessages.any { it.hasOptionalActionMessage() } } shouldBe true
 
             respondToOptionalAction(accept = true)
+            val discard = allMessages.lastOrNull { it.hasSelectNReq() } ?: error("Expected discard SelectNReq")
+            discard.prompt.promptId shouldBe PromptIds.DISCARD_OPTIONAL
+            respondToSelectN(discard.selectNReq.idsList)
             val search = allMessages.lastOrNull { it.hasSearchReq() }?.searchReq ?: error("Expected chained SearchReq")
 
             search.itemsSoughtCount shouldBe 1

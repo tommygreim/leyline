@@ -2,6 +2,7 @@ package leyline.bridge.coord
 
 import leyline.bridge.handoff.MulliganBridge
 import leyline.bridge.handoff.PendingActionKind
+import leyline.bridge.types.MulliganPhase
 import leyline.bridge.types.SeatId
 import leyline.game.bundle.GsmBuilder
 import leyline.game.bundle.GsmFrame
@@ -85,7 +86,7 @@ internal class MatchLifecycleRuntime(
                         owner.registeredViewers(),
                         seatId,
                         prompt,
-                        redraw = prompt.mulliganCount > previousCount,
+                        redraw = prompt.phase == MulliganPhase.WaitingKeep && prompt.mulliganCount > previousCount,
                         gameStateId = gameStateId,
                         planner = planner,
                     )
@@ -98,7 +99,9 @@ internal class MatchLifecycleRuntime(
                     prepared.transition,
                     closesPlaybackFrame = false,
                 ),
-                onInstalled = { humanMulliganCounts[seatId] = prompt.mulliganCount },
+                onInstalled = {
+                    if (prompt.phase == MulliganPhase.WaitingKeep) humanMulliganCounts[seatId] = prompt.mulliganCount
+                },
                 onFailure = owner::fail,
             )
             gameStateId

@@ -1,0 +1,37 @@
+name: "Cool but Rude"
+grpId: 100546
+titleId: 1104603
+abilities:
+  - id: 203138
+    textId: 1104604
+    category: 2
+  - id: 143758
+    textId: 498760
+    category: 1
+    subCategory: 20
+    mana: "1 R"
+  - id: 203140
+    textId: 1104606
+    category: 3
+    subCategory: 21
+  - id: 203139
+    textId: 1104605
+    category: 2
+  - id: 203141
+    textId: 1104607
+    category: 1
+    subCategory: 20
+    mana: "1 R"
+  - id: 203143
+    textId: 1104609
+    category: 3
+    subCategory: 21
+  - id: 203142
+    textId: 1104608
+    category: 2
+hiddenAbilities:
+  - id: 203139
+    textId: 1104605
+  - id: 203142
+    textId: 1104608
+expansionCode: "TMT"

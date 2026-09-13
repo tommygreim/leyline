@@ -69,36 +69,44 @@ class HumanMatchFlowTest :
             HumanMatchFixture("60 Forest", "60 Mountain").use { match ->
                 val redrawn = mutableSetOf<Int>()
                 val kept = mutableSetOf<Int>()
-                repeat(4) {
-                    val (seat, prompt) = match.awaitGre { it.hasMulliganReq() }
-                    if (seat !in redrawn) {
-                        match.reply(
-                            seat,
-                            prompt,
-                            clientMessage(ClientMessageType.MulliganResp_097b) {
-                                mulliganResp = MulliganResp.newBuilder().setDecision(MulliganOption.Mulligan).build()
-                            },
-                        )
-                        val (_, tuck) = match.awaitGre(seat) { it.hasGroupReq() }
-                        val ids = tuck.groupReq.instanceIdsList
-                        ids.size shouldBe 7
-                        match.reply(seat, tuck, groupResp(ids.dropLast(1), ids.takeLast(1)))
-                        redrawn += seat
-                    } else {
-                        match.reply(
-                            seat,
-                            prompt,
-                            clientMessage(ClientMessageType.MulliganResp_097b) {
-                                mulliganResp = MulliganResp.newBuilder().setDecision(MulliganOption.AcceptHand).build()
-                            },
-                        )
-                        kept += seat
+                val tucked = mutableSetOf<Int>()
+                repeat(6) {
+                    val (seat, prompt) = match.awaitGre { it.hasMulliganReq() || it.hasGroupReq() }
+                    when {
+                        prompt.hasMulliganReq() && seat !in redrawn -> {
+                            match.reply(
+                                seat,
+                                prompt,
+                                clientMessage(ClientMessageType.MulliganResp_097b) {
+                                    mulliganResp = MulliganResp.newBuilder().setDecision(MulliganOption.Mulligan).build()
+                                },
+                            )
+                            redrawn += seat
+                        }
+                        prompt.hasMulliganReq() -> {
+                            match.bridge.getHandGrpIds(SeatId(seat)).size shouldBe 7
+                            match.reply(
+                                seat,
+                                prompt,
+                                clientMessage(ClientMessageType.MulliganResp_097b) {
+                                    mulliganResp = MulliganResp.newBuilder().setDecision(MulliganOption.AcceptHand).build()
+                                },
+                            )
+                            kept += seat
+                        }
+                        else -> {
+                            val ids = prompt.groupReq.instanceIdsList
+                            ids.size shouldBe 7
+                            match.reply(seat, prompt, groupResp(ids.dropLast(1), ids.takeLast(1)))
+                            tucked += seat
+                        }
                     }
                 }
                 match.awaitGre { it.hasActionsAvailableReq() }
                 assertSoftly {
                     redrawn shouldBe setOf(1, 2)
                     kept shouldBe setOf(1, 2)
+                    tucked shouldBe setOf(1, 2)
                     match.bridge.getHandGrpIds(SeatId(1)).size shouldBe 6
                     match.bridge.getHandGrpIds(SeatId(2)).size shouldBe 6
                 }

@@ -2,6 +2,9 @@ package leyline.game.mapping
 
 /** Protocol prompt IDs matching expected protocol values. */
 object PromptIds {
+    /** Protocol error envelope; this ID has no player-visible localization. */
+    const val ILLEGAL_REQUEST = 3
+
     /** Cast a revealed card without paying its mana cost. */
     const val FREE_CAST_FROM_REVEAL = 1134
     const val PASS_PRIORITY = 2
@@ -37,32 +40,41 @@ object PromptIds {
 
     const val GROUP_SCRY = 92
     const val GROUP_SURVEIL = 129
-    const val SEARCH = 1065
-    const val SEARCH_FROM_GROUPS = 3713
+
+    /** Generic library search — "Search for a card." */
+    const val SEARCH = 1030
+    const val SEARCH_FROM_GROUPS = SEARCH
     const val SELECT_REPLACEMENT = 74
 
     /** Static SelectN color choice — "Choose a color." */
     const val CHOOSE_COLOR = 118
 
     /**
-     * Typecycling-shape library search — "Search your library for an X card,
-     * reveal it, put it into your hand, then shuffle."
-     *
-     * Typecycling and basiccycling cards (cycling/swampcycling/islandcycling/
-     * forestcycling/mountaincycling/plainscycling/basiccycling/wizardcycling/
-     * slivercycling) all map to this promptId. The picker UI keys on it to
-     * render the highlight-all-valid layout (every Type-matching library card
-     * gets the blue glow + click-to-select-and-submit affordance).
-     *
-     * Generic searches (Diabolic Tutor, etc.) use [SEARCH] instead.
+     * Typecycling-shaped searches currently use the truthful generic search
+     * text. Arena prompt 11626 says "Search for an Island card," so it cannot
+     * serve as a fallback for Forestcycling, basic landcycling, or arbitrary
+     * creature-type cycling.
      */
-    const val SEARCH_TYPECYCLING = 11626
+    const val SEARCH_TYPECYCLING = SEARCH
 
     /** Mandatory additional cost (discard). Client expects PayCostsReq promptId=1024. */
     const val DISCARD_COST = 1024
 
-    /** "You may" trigger decision (OptionalActionMessage). */
-    const val OPTIONAL_ACTION = 1159
+    /** Optional single-card discard — "Discard a card?" */
+    const val DISCARD_OPTIONAL = 4482
+
+    /** Optional two-card discard — "Discard up to two cards." */
+    const val DISCARD_UP_TO_TWO = 4064
+
+    const val DISCARD_TWO = 1034
+    const val DISCARD_THREE = 1814
+    const val DISCARD_UP_TO_THREE = 1293
+
+    /** Semantically neutral fallback for a "you may" decision. */
+    const val OPTIONAL_ACTION = 23
+
+    /** Optional X-mana payment — "Pay {X}?" */
+    const val OPTIONAL_PAY_X = 1159
 
     /** Commander zone replacement decision: "Move your commander to the command zone?" */
     const val COMMANDER_RETURN_TO_COMMAND = 144
@@ -80,7 +92,8 @@ object PromptIds {
      *  Loc text: "Put N +1/+1 counters on this creature?" — Yes = counters, No = Spirit token. */
     const val ENDURE_PUT_COUNTERS = 13976
 
-    const val SELECT_N = 1243
+    /** Semantically neutral card/entity selection — "Choose items." */
+    const val SELECT_N = 97
 
     /** Mutate target group — "Target a non-Human creature you own." */
     const val MUTATE_TARGET = 141
@@ -118,7 +131,6 @@ object PromptIds {
 
     const val CHOOSE_OR_COST = 1103
     const val CHOOSE_OR_COST_PAY_SACRIFICE = 1029
-    const val CHOOSE_OR_COST_PAY_MANA = 4160
     const val CHOOSE_OR_COST_PAY_BLIGHT = 15008
 
     /** Pay-cost-via-select for "exile N from graveyard" — Escape's additional cost. */
