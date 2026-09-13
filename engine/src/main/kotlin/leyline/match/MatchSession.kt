@@ -392,6 +392,13 @@ class MatchSession(
             awaitHandlerResult(targetingHandler.onCancelAction(greMsg), completedActionId)
         }
 
+    /** Handle UndoReq: release the last tapped mana source, keeping the payment open. */
+    override fun onUndo(greMsg: ClientToGREMessage): Unit =
+        synchronized(sessionLock) {
+            val completedActionId = gameBridge.actionBridge(seatId).getPending()?.actionId
+            awaitHandlerResult(targetingHandler.onUndo(greMsg), completedActionId)
+        }
+
     /** Handle concede: send game-over sequence, then route through centralized teardown. */
     override fun onConcede() =
         synchronized(sessionLock) {

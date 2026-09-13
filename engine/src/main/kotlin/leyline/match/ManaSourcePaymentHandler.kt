@@ -60,6 +60,22 @@ internal class ManaSourcePaymentHandler(
         return if (deliver(receipt)) HandlerResult.Resume else HandlerResult.Waiting
     }
 
+    /** Release the most recently tapped mana source, leaving the window open. */
+    fun tryHandleUndo(greMsg: ClientToGREMessage): HandlerResult {
+        val runtime =
+            ctx.bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .manaSourcePayments
+        val pending = runtime.current() ?: return HandlerResult.NotHandled
+        val receipt = runtime.undo(pending.interactionId, greMsg.gameStateId)
+        if (receipt == null) {
+            log.warn("Mana-source payment undo did not match the current interaction")
+            DevCheck.failOnAutoPass { "Mana-source payment undo did not match the current interaction" }
+            return HandlerResult.Waiting
+        }
+        return if (deliver(receipt)) HandlerResult.Resume else HandlerResult.Waiting
+    }
+
     fun tryHandleEffectCost(greMsg: ClientToGREMessage): HandlerResult {
         val runtime =
             ctx.bridge.cutCoordinator

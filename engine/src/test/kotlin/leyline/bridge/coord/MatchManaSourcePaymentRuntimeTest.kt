@@ -3,6 +3,7 @@ package leyline.bridge.coord
 import forge.game.card.Card
 import forge.game.zone.ZoneType
 import io.kotest.assertions.assertSoftly
+import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldBeNull
@@ -462,6 +463,52 @@ class MatchManaSourcePaymentRuntimeTest :
             assertSoftly {
                 finished.await(3, TimeUnit.SECONDS) shouldBe true
                 result.get() shouldContainExactly listOf(0)
+            }
+        }
+
+        test("undo releases the last tapped source and leaves the window open") {
+            val board = startPuzzleAtMain1(puzzle)
+            val coordinator = board.bridge.cutCoordinator
+            coordinator.drain(SeatId(1))
+            val result = AtomicReference<List<Int>>()
+            val finished = CountDownLatch(1)
+            Thread {
+                result.set(coordinator.manaSourcePayments.awaitPayment(request(board), candidates(board), 3_000))
+                finished.countDown()
+            }.start()
+            val initial = awaitPublished(coordinator)
+            coordinator.drain(SeatId(1))
+            val firstId = board.instanceId(candidates(board).first().id)
+            val selected =
+                coordinator.manaSourcePayments
+                    .select(initial.interactionId, initial.gameStateId, listOf(firstId))
+                    .shouldNotBeNull()
+            coordinator.drain(SeatId(1))
+            coordinator.manaSourcePayments.acknowledgeDelivery(
+                initial.interactionId,
+                selected.deliveryToken.shouldNotBeNull(),
+            ) shouldBe true
+            val afterSelect = awaitPublished(coordinator)
+
+            val undone =
+                coordinator.manaSourcePayments
+                    .undo(afterSelect.interactionId, afterSelect.gameStateId)
+                    .shouldNotBeNull()
+            coordinator.drain(SeatId(1))
+            coordinator.manaSourcePayments.acknowledgeDelivery(
+                afterSelect.interactionId,
+                undone.deliveryToken.shouldNotBeNull(),
+            ) shouldBe true
+            val afterUndo = awaitPublished(coordinator)
+
+            assertSoftly {
+                // The window stays open — undo retires a selection, not the payment.
+                undone.completed shouldBe false
+                coordinator.manaSourcePayments
+                    .cancel(afterUndo.interactionId, afterUndo.gameStateId)
+                    .shouldNotBeNull()
+                finished.await(3, TimeUnit.SECONDS) shouldBe true
+                result.get().shouldBeEmpty()
             }
         }
 

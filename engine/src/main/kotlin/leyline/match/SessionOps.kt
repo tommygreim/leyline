@@ -156,6 +156,8 @@ interface ActionReceiver {
 
     fun onCancelAction(greMsg: ClientToGREMessage) {}
 
+    fun onUndo(greMsg: ClientToGREMessage) {}
+
     fun onCastingTimeOptions(greMsg: ClientToGREMessage) {}
 
     fun onAssignDamage(greMsg: ClientToGREMessage) {}

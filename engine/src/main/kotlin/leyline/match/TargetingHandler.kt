@@ -159,6 +159,21 @@ class TargetingHandler(
         manaSourcePaymentHandler.tryHandlePerformAction(greMsg)
 
     /**
+     * Handle UndoReq: the player released the last mana source they tapped. Only the
+     * iterative payment window advertises `allowUndo`, so nothing else can own this.
+     */
+    internal fun onUndo(greMsg: ClientToGREMessage): HandlerResult {
+        val payment = manaSourcePaymentHandler.tryHandleUndo(greMsg)
+        if (payment != HandlerResult.NotHandled) return payment
+        // Targeting, distribution, gather-counters, top-ordering and one-shot PayCosts
+        // also advertise allowUndo but carry no undo command yet. Say so rather than
+        // leaving the client waiting on a response that never comes.
+        log.warn("TargetingHandler: UndoReq but no coordinator-owned window accepts undo")
+        DevCheck.failOnAutoPass { "UndoReq but no coordinator-owned window accepts undo" }
+        return HandlerResult.NotHandled
+    }
+
+    /**
      * Handle CancelActionReq: player backed out of targeting (cancel spell cast).
      *
      * Submits an empty target list to the pending prompt. The engine interprets

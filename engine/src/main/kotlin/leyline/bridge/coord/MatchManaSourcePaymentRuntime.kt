@@ -51,6 +51,12 @@ internal class MatchManaSourcePaymentRuntime(
             override val reply: CompletableFuture<ManaSourcePaymentCommandReceipt> = CompletableFuture(),
         ) : Command
 
+        data class Undo(
+            val interactionId: String,
+            val gameStateId: Int,
+            override val reply: CompletableFuture<ManaSourcePaymentCommandReceipt> = CompletableFuture(),
+        ) : Command
+
         data class Terminal(
             val cause: Throwable,
             override val reply: CompletableFuture<ManaSourcePaymentCommandReceipt> = CompletableFuture(),
@@ -60,6 +66,8 @@ internal class MatchManaSourcePaymentRuntime(
     private data class Window(
         val interactionId: String,
         val handlesByOption: Map<Int, Card>,
+        /** Opening value, replayed onto when a selection is released. */
+        val initialValue: ManaSourcePaymentWindowValue,
         val exchange: InteractiveCommandExchange<Command, ManaSourcePaymentCommandReceipt>,
         var value: ManaSourcePaymentWindowValue,
         var published: PublishedManaSourcePaymentInteraction,
@@ -103,6 +111,7 @@ internal class MatchManaSourcePaymentRuntime(
                 Window(
                     interactionId = interactionId,
                     handlesByOption = initial.handlesByOption,
+                    initialValue = initial.value,
                     exchange =
                         InteractiveCommandExchange(
                             deadlineNanos = timeoutMs?.let { System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(it) },
@@ -164,6 +173,12 @@ internal class MatchManaSourcePaymentRuntime(
         interactionId: String,
         gameStateId: Int,
     ): ManaSourcePaymentCommandReceipt? = submit(Command.Cancel(interactionId, gameStateId))
+
+    /** Release the most recently selected mana source, keeping the window open. */
+    fun undo(
+        interactionId: String,
+        gameStateId: Int,
+    ): ManaSourcePaymentCommandReceipt? = submit(Command.Undo(interactionId, gameStateId))
 
     fun acknowledgeDelivery(
         interactionId: String,
@@ -231,7 +246,9 @@ internal class MatchManaSourcePaymentRuntime(
         while (true) {
             val command = nextCommand(pending)
             when (command) {
-                is Command.Select -> handleSelection(pending, command)
+                is Command.Select ->
+                    republish(pending, command, capture.select(pending.value, pending.handlesByOption, command.optionIndices))
+                is Command.Undo -> republish(pending, command, undone(pending))
                 is Command.Complete -> {
                     val value = capture.select(pending.value, pending.handlesByOption, command.optionIndices)
                     return complete(pending, command, value, value.selections.map { it.originalOptionIndex })
@@ -248,11 +265,25 @@ internal class MatchManaSourcePaymentRuntime(
         }
     }
 
-    private fun handleSelection(
+    /**
+     * Value with the most recent selection released. Replayed from the opening value
+     * rather than inverted, so the remaining cost and freed handles stay exact.
+     */
+    private fun undone(pending: Window): ManaSourcePaymentWindowValue {
+        val remaining =
+            pending.value.selections
+                .dropLast(1)
+                .map { it.originalOptionIndex }
+        if (remaining.isEmpty()) return pending.initialValue
+        return capture.select(pending.initialValue, pending.handlesByOption, remaining)
+    }
+
+    /** Replace the open window's value and redeliver it to the client. */
+    private fun republish(
         pending: Window,
-        command: Command.Select,
+        command: Command,
+        next: ManaSourcePaymentWindowValue,
     ) {
-        val next = capture.select(pending.value, pending.handlesByOption, command.optionIndices)
         lateinit var delivery: CommandDelivery
         publish(
             interactionId = pending.interactionId,
@@ -388,6 +419,7 @@ internal class MatchManaSourcePaymentRuntime(
             is Command.Select -> matching(command.interactionId, command.gameStateId)
             is Command.Complete -> matching(command.interactionId, command.gameStateId)
             is Command.Cancel -> matching(command.interactionId, command.gameStateId)
+            is Command.Undo -> matching(command.interactionId, command.gameStateId)
             is Command.Terminal -> null
         }
 
