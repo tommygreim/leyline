@@ -142,11 +142,17 @@
     },
     {
       "code": "SPM",
-      "active": 1
+      "digitalOnly": 2,
+      "releaseTs": 1781568000,
+      "active": 1,
+      "currentRelease": 1
     },
     {
       "code": "MSH",
-      "active": 1
+      "digitalOnly": 2,
+      "releaseTs": 1782172800,
+      "active": 1,
+      "currentRelease": 1
     },
     {
       "code": "MKM",

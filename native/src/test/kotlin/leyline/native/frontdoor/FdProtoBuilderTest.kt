@@ -91,19 +91,32 @@ class FdProtoBuilderTest :
 
             setCount shouldBeGreaterThan 50 // 109 sets in metadata
             groupCount shouldBe 1 // AllFilters
-            val setCodes =
+            val setEntries =
                 inner
                     .getField(1)
                     .lengthDelimitedList
-                    .map {
-                        UnknownFieldSet
-                            .parseFrom(it)
-                            .getField(1)
-                            .lengthDelimitedList
-                            .single()
-                            .toStringUtf8()
-                    }
+                    .map(UnknownFieldSet::parseFrom)
+            val setCodes =
+                setEntries.map {
+                    it
+                        .getField(1)
+                        .lengthDelimitedList
+                        .single()
+                        .toStringUtf8()
+                }
             setCodes shouldContainAll listOf("HOB", "HOC", "SPM", "MSH", "OM1")
+            val missingReleaseDates =
+                setEntries.mapNotNull { entry ->
+                    entry
+                        .getField(1)
+                        .lengthDelimitedList
+                        .single()
+                        .toStringUtf8()
+                        .takeIf { entry.getField(4).lengthDelimitedList.isEmpty() }
+                }
+            withClue("Arena dereferences every SetMetadata.ReleaseDate while loading formats") {
+                missingReleaseDates.shouldBeEmpty()
+            }
             val filterCodes =
                 UnknownFieldSet
                     .parseFrom(inner.getField(2).lengthDelimitedList.single())
