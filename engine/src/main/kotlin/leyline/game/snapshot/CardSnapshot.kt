@@ -36,6 +36,8 @@ data class CardSnapshot(
     val hasManaAbilities: Boolean = false,
     /** ManaColor enum numbers this battlefield source can produce. */
     val manaProductionColors: List<Int> = emptyList(),
+    /** Current level when this is a Class on the battlefield. */
+    val classLevel: Int? = null,
     /** Chosen creature/card type string from Forge, when a battlefield permanent stores one. */
     val chosenType: String? = null,
     /** Chosen color ids in Arena's static color domain. */

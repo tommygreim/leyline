@@ -13,6 +13,7 @@ import leyline.game.event.GameEvent
 import leyline.game.snapshot.GsmSnapshot
 import leyline.game.snapshot.PreparedRole
 import leyline.game.state.AbilityWordActiveKind
+import leyline.game.state.ClassLevelKind
 import leyline.game.state.ColorProductionKind
 import leyline.game.state.CommanderDesignationKind
 import leyline.game.state.DayNightDesignationKind
@@ -85,6 +86,7 @@ internal object PersistentFeedBuilder {
         val faceDownCloak = buildFaceDownCloakAnnotations(snap, frameIds)
         val faceDownManifestDread = buildFaceDownManifestDreadAnnotations(snap, frameIds)
         val colorProduction = buildColorProductionAnnotations(snap, frameIds)
+        val classLevel = buildClassLevelAnnotations(snap, frameIds)
         val linkInfo = buildLinkInfoAnnotations(snap, frameIds, references)
 
         return PersistentFeedBuildResult(
@@ -102,6 +104,7 @@ internal object PersistentFeedBuilder {
                             FaceDownCloakKind to faceDownCloak,
                             FaceDownManifestDreadKind to faceDownManifestDread,
                             ColorProductionKind to colorProduction,
+                            ClassLevelKind to classLevel,
                             LinkInfoChoiceKind to linkInfo,
                         ) + designations,
                 ),
@@ -338,6 +341,15 @@ internal object PersistentFeedBuilder {
             val colors = bound.snapshot.manaProductionColors
             if (colors.isEmpty()) return@mapNotNull null
             AnnotationBuilder.colorProduction(frameIds.cardIid(bound.forgeCardId), colors)
+        }
+
+    private fun buildClassLevelAnnotations(
+        snap: GsmSnapshot,
+        frameIds: FrameIdResolver,
+    ): List<AnnotationInfo> =
+        snap.boundCards.values.mapNotNull { bound ->
+            val level = bound.snapshot.classLevel ?: return@mapNotNull null
+            AnnotationBuilder.classLevel(frameIds.cardIid(bound.forgeCardId), level)
         }
 
     private fun buildLinkInfoAnnotations(

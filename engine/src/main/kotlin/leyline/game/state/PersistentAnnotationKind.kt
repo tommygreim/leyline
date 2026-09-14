@@ -588,6 +588,29 @@ data object EtbReplacementEffectKind : PersistentAnnotationKind {
 }
 
 /**
+ * Class level marker. Upserted from each Class on the battlefield, and removed
+ * when it leaves. The client rebuilds card state from every message and does
+ * not carry the level forward, so it has to stay persistent.
+ */
+data object ClassLevelKind : PersistentAnnotationKind {
+    override val name = "ClassLevel"
+    override val pruneStale = true
+    override val collisionStrategy = CollisionStrategy.REPLACE_IF_CHANGED
+
+    override fun matches(ann: AnnotationInfo): Boolean = AnnotationType.ClassLevel in ann.typeList
+
+    override fun identityKey(ann: AnnotationInfo): Any? = ann.affectedIdsList.firstOrNull()
+
+    override fun shouldExpire(
+        ann: AnnotationInfo,
+        frame: FrameContext,
+    ): Boolean {
+        val sourceIid = ann.affectedIdsList.firstOrNull() ?: return false
+        return sourceIid !in frame.battlefieldIids
+    }
+}
+
+/**
  * Source color-production marker. Upserted from the current battlefield mana
  * sources, and removed when the source leaves or stops producing mana.
  */
@@ -763,6 +786,7 @@ object PersistentAnnotationKinds {
             TargetSpecKind,
             MutateLayeredEffectKind,
             ColorProductionKind,
+            ClassLevelKind,
             LinkInfoChoiceKind,
             ManaDetailsKind,
             AbilityExhaustedKind,

@@ -172,6 +172,10 @@ class AnnotationShapeConformanceTest :
             detailKeys(AnnotationBuilder.colorProduction(1.iid, listOf(1))) shouldBe setOf("colors")
         }
 
+        test("ClassLevel shape: {Level}") {
+            detailKeys(AnnotationBuilder.classLevel(1.iid, 2)) shouldBe setOf("Level")
+        }
+
         test("TriggeringObject shape: {source_zone}") {
             detailKeys(AnnotationBuilder.triggeringObject(1.iid, 2.iid, 27)) shouldBe setOf("source_zone")
         }
@@ -288,6 +292,7 @@ class AnnotationShapeConformanceTest :
                 "DamagedThisTurn" to emptySet(),
                 "InstanceRevealedToOpponent" to emptySet(),
                 "ColorProduction" to setOf("colors"),
+                "ClassLevel" to setOf("Level"),
                 "TriggeringObject" to setOf("source_zone"),
                 "TargetSpec" to setOf("abilityGrpId", "index", "promptId", "promptParameters"),
                 "PowerToughnessModCreated" to setOf("power", "toughness"),
@@ -340,6 +345,7 @@ class AnnotationShapeConformanceTest :
                 "DamagedThisTurn" to detailKeys(AnnotationBuilder.damagedThisTurn(listOf(1.iid))),
                 "InstanceRevealedToOpponent" to detailKeys(AnnotationBuilder.instanceRevealedToOpponent(1.iid)),
                 "ColorProduction" to detailKeys(AnnotationBuilder.colorProduction(1.iid, listOf(1))),
+                "ClassLevel" to detailKeys(AnnotationBuilder.classLevel(1.iid, 2)),
                 "TriggeringObject" to detailKeys(AnnotationBuilder.triggeringObject(1.iid, 2.iid, 27)),
                 "TargetSpec" to detailKeys(AnnotationBuilder.targetSpec(1.iid, 1.iid, 1.grp, 1, 1, 1)),
                 "PowerToughnessModCreated" to detailKeys(AnnotationBuilder.powerToughnessModCreated(1.iid, 1, 1)),

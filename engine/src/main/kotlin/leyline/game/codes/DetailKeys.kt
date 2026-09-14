@@ -28,6 +28,7 @@ object DetailKeys {
     const val LIFE = "life"
     const val REASON = "reason"
     const val SHOULDNT_PLAY_REASON = "Reason"
+    const val LEVEL = "Level"
 
     /** Uppercase REASON variant — used on the persistent `FaceDown`
      *  annotation (`{ "key": "REASON", valueInt32: [6/8/5] }` for

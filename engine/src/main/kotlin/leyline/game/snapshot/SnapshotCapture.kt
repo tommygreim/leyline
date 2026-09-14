@@ -483,6 +483,7 @@ object SnapshotCapture {
         val isRoom = card.isRoom
         val hasManaAbilities = card.manaAbilities.isNotEmpty()
         val manaProductionColors = ManaSnapshotCapture.captureProductionColors(card, onBf)
+        val classLevel = card.classLevel.takeIf { onBf && card.isClassCard }
         val chosenType = card.chosenType.takeIf { onBf && it.isNotBlank() }
         val chosenColorIds =
             if (onBf && card.hasChosenColor()) {
@@ -514,6 +515,7 @@ object SnapshotCapture {
             isRoom = isRoom,
             hasManaAbilities = hasManaAbilities,
             manaProductionColors = manaProductionColors,
+            classLevel = classLevel,
             chosenType = chosenType,
             chosenColorIds = chosenColorIds,
             hasNonManaActivatedAbilities = hasNonManaActivatedAbilities,

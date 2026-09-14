@@ -1394,6 +1394,18 @@ object AnnotationBuilder {
             .addDetails(int32ListDetail(DetailKeys.COLORS, colors))
             .build()
 
+    fun classLevel(
+        instanceId: InstanceId,
+        level: Int,
+    ): AnnotationInfo =
+        AnnotationInfo
+            .newBuilder()
+            .addType(AnnotationType.ClassLevel)
+            .setAffectorId(instanceId.value)
+            .addAffectedIds(instanceId.value)
+            .addDetails(int32Detail(DetailKeys.LEVEL, level))
+            .build()
+
     /** Persistent annotation linking a triggered ability on the stack back to the
      *  exact object that caused it. Client draws the source-arrow UI from that
      *  object to the ability on the stack. Removed when the ability resolves

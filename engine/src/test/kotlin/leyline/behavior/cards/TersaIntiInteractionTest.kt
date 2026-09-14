@@ -3,6 +3,7 @@ package leyline.behavior.cards
 import forge.game.zone.ZoneType
 import io.kotest.assertions.assertSoftly
 import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.ints.shouldBeLessThanOrEqual
@@ -11,7 +12,9 @@ import leyline.bridge.bootstrap.GameBootstrap
 import leyline.game.mapping.PromptIds
 import leyline.testkit.SessionTest
 import leyline.testkit.TestCardRegistry
+import leyline.testkit.detailInt
 import wotc.mtgo.gre.external.messaging.Messages.AllowCancel
+import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
 import wotc.mtgo.gre.external.messaging.Messages.OptionContext
 import wotc.mtgo.gre.external.messaging.Messages.SelectionContext
 
@@ -188,6 +191,11 @@ class TersaIntiInteractionTest :
                 cool.classLevel shouldBe 2
                 human.life shouldBe 20
                 ai.life shouldBe 20
+                allMessages
+                    .filter { it.hasGameStateMessage() }
+                    .flatMap { it.gameStateMessage.persistentAnnotationsList }
+                    .filter { AnnotationType.ClassLevel in it.typeList && it.affectorId == coolIid }
+                    .map { it.affectedIdsList to it.detailInt("Level") } shouldContain (listOf(coolIid) to 2)
             }
 
             holdNextOptionalAction()
