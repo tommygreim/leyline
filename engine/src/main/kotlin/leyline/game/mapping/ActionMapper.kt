@@ -306,14 +306,13 @@ object ActionMapper {
             if (card.hasNonManaActivatedAbilities) {
                 val forgeCard = bridge.findCard(fid) ?: continue
                 val player = bridge.getPlayer(SeatId(seatId)) ?: continue
-                val cardData = snap.boundCards[fid]?.data
                 ActivatedActionEmitter.emitPlayableNonManaActivatedAbilities(
                     builder = builder,
                     card = forgeCard,
                     player = player,
                     instanceId = { instanceId },
-                    grpId = { grpId },
-                    cardData = { _ -> cardData },
+                    grpId = { c -> if (c === forgeCard) grpId else bridge.resolveGrpId(c, bridge.instanceId(c)) },
+                    cardData = { id -> bridge.cardRepository.findByGrpId(id) },
                     envelope = ActivatedActionEmitter.Envelope.PERMANENT_SOURCE,
                     abilityRegistryLookup = { c, d -> bridge.abilityRegistryFor(c, d) },
                     autoTapSolution = { cost -> autoTapForCost(player, cost) },
@@ -608,8 +607,8 @@ object ActionMapper {
                 card = forgeCard,
                 player = player,
                 instanceId = { bridge.getOrAllocInstanceId(fid).value },
-                grpId = { cardSnap.grpId },
-                cardData = { _ -> snap.boundCards[fid]?.data },
+                grpId = { c -> if (c === forgeCard) cardSnap.grpId else bridge.resolveGrpId(c, bridge.instanceId(c)) },
+                cardData = { id -> bridge.cardRepository.findByGrpId(id) },
                 envelope = ActivatedActionEmitter.Envelope.ABILITY_ONLY,
                 abilityRegistryLookup = { c, d -> bridge.abilityRegistryFor(c, d) },
                 autoTapSolution = { cost -> autoTapForCost(player, cost) },

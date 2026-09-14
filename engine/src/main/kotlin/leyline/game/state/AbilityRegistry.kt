@@ -2,7 +2,6 @@ package leyline.game.state
 
 import forge.game.ability.ApiType
 import forge.game.card.Card
-import forge.game.card.CardTraitChanges
 import forge.game.keyword.Keyword
 import forge.game.keyword.KeywordInterface
 import forge.game.spellability.SpellAbility
@@ -63,8 +62,6 @@ class AbilityRegistry private constructor(
     /** Resolve an ability added by a continuous `AddAbility` effect. */
     fun grantedAbilityGrpId(ability: SpellAbility): Int? {
         if (ability.grantorStatic == null || hiddenAbilityIds.size != 1) return null
-        val generated = generatedAbilities(ability.hostCard ?: return null)
-        if (generated.singleOrNull()?.definitionId != ability.definitionId) return null
         return hiddenAbilityIds.single().first
     }
 
@@ -146,12 +143,6 @@ class AbilityRegistry private constructor(
 
             return AbilityRegistry(saMap, staticMap, triggerMap, keywordFamilies, cardData.hiddenAbilityIds, cardData.grpId, layout)
         }
-
-        private fun generatedAbilities(card: Card): List<SpellAbility> =
-            card.changedCardTraits
-                .cellSet()
-                .flatMap { (it.value as? CardTraitChanges)?.getAbilities().orEmpty() }
-                .filter { it.isActivatedAbility && !it.isManaAbility() }
 
         /**
          * Station threshold rows are per-card static ability ids (e.g. 60002,

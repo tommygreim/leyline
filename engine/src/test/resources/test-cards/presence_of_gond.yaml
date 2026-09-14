@@ -1,0 +1,17 @@
+name: "Presence of Gond"
+grpId: 72482
+titleId: 31702
+abilities:
+  - id: 1027
+    textId: 605
+    category: 3
+    baseId: 4
+  - id: 97312
+    textId: 102539
+    category: 3
+hiddenAbilities:
+  - id: 97312
+    textId: 102539
+expansionCode: "JMP"
+tokens:
+  "17780": 74635

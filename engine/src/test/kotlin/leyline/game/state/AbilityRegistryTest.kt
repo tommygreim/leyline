@@ -120,7 +120,7 @@ class AbilityRegistryTest :
             }
         }
 
-        test("multiple continuously granted abilities fail closed after a single grant") {
+        test("multiple continuously granted abilities retain their source slot") {
             val (_, game, _) =
                 startWithBoard { _, human, _ ->
                     human.setSpeed(4)
@@ -153,7 +153,10 @@ class AbilityRegistryTest :
                 false,
             )
 
-            registry.forSpellAbility(first).shouldBeNull()
+            assertSoftly {
+                registry.forSpellAbility(first) shouldBe 179264
+                registry.forSpellAbility(second) shouldBe 179264
+            }
         }
 
         test("keyword-backed activated ability dispatches by activated index") {

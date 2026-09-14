@@ -59,7 +59,7 @@ internal object ActivatedActionEmitter {
         card: Card,
         player: Player,
         instanceId: () -> Int,
-        grpId: () -> Int,
+        grpId: (Card) -> Int,
         cardData: (Int) -> CardData?,
         envelope: Envelope,
         abilityRegistryLookup: (Card, CardData?) -> AbilityRegistry?,
@@ -80,11 +80,16 @@ internal object ActivatedActionEmitter {
                     null
                 }
             val actionInstanceId = instanceId()
-            val actionGrpId = grpId()
+            val actionGrpId = grpId(card)
             val actionCardData = cardData(actionGrpId)
-            val registry = abilityRegistryLookup(card, actionCardData)
+            val identityCard = ability.grantorStatic?.hostCard ?: card
+            val identityCardData = cardData(grpId(identityCard))
+            val registry = abilityRegistryLookup(identityCard, identityCardData)
             val abilityGrpId = registry?.forSpellAbility(ability) ?: 0
-            val grantedIndex = registry?.grantedAbilityUniqueIndex(ability)
+            val grantedIndex =
+                ability
+                    .takeIf { it.grantorStatic != null }
+                    ?.let { abilities.take(abilityIndex).count { prior -> prior.grantorStatic != null } }
             emitActivatedAbilityAction(
                 builder = builder,
                 instanceId = actionInstanceId,

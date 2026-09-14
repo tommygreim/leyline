@@ -2236,21 +2236,24 @@ class GameBridge(
     ): List<EffectProjectionFacts.GrantedAbilityEntry> {
         val cardGrpId = cardRepository.findGrpIdByName(card.name)
         val cardData = cardGrpId?.let(cardRepository::findByGrpId) ?: return emptyList()
-        val registry = abilityRegistryFor(card, cardData) ?: return emptyList()
+        var grantedIndex = 0
         return buildList {
             for (cell in card.changedCardTraits.cellSet()) {
                 for (ability in (cell.value as? CardTraitChanges)?.getAbilities().orEmpty()) {
                     if (!ability.isActivatedAbility || ability.isManaAbility()) continue
+                    val source = ability.grantorStatic?.hostCard ?: continue
+                    val sourceGrpId = cardRepository.findGrpIdByName(source.name) ?: continue
+                    val sourceData = cardRepository.findByGrpId(sourceGrpId) ?: continue
+                    val registry = abilityRegistryFor(source, sourceData) ?: continue
                     val abilityGrpId = registry.forSpellAbility(ability) ?: continue
-                    val hiddenIndex = registry.grantedAbilityUniqueIndex(ability) ?: continue
                     add(
                         EffectProjectionFacts.GrantedAbilityEntry(
                             forgeCardId = forgeCardId,
                             timestamp = cell.rowKey,
                             staticId = cell.columnKey,
                             abilityGrpId = abilityGrpId,
-                            uniqueAbilityId = 50 + cardData.abilityIds.size + hiddenIndex,
-                            sourceForgeCardId = ability.grantorStatic?.hostCard?.let { ForgeCardId(it.id) } ?: forgeCardId,
+                            uniqueAbilityId = 50 + cardData.abilityIds.size + grantedIndex++,
+                            sourceForgeCardId = ForgeCardId(source.id),
                         ),
                     )
                 }

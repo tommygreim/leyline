@@ -249,7 +249,7 @@ object ObjectMapper {
             builder.addAbilityOriginalCardGrpIds(earthbend.sourceCardGrpId)
         }
         grantedAbilitySnapshot[instanceId].orEmpty().forEach { granted ->
-            if (builder.uniqueAbilitiesList.none { it.grpId == granted.abilityGrpId }) {
+            if (builder.uniqueAbilitiesList.none { it.id == granted.uniqueAbilityId }) {
                 builder.addUniqueAbilities(
                     UniqueAbilityInfo
                         .newBuilder()

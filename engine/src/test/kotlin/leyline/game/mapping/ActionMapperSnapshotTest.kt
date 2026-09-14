@@ -124,6 +124,40 @@ class ActionMapperSnapshotTest :
             }
         }
 
+        test("repeated granted activated abilities retain distinct action identities") {
+            var guardForgeId = 0
+            val (b, game, _) =
+                startWithBoard { game, human, _ ->
+                    val guard = addCard("Grizzly Bears", human, ZoneType.Battlefield).also { guardForgeId = it.id }
+                    addCard("Presence of Gond", human, ZoneType.Battlefield).attachToEntity(guard, null, true)
+                    addCard("Presence of Gond", human, ZoneType.Battlefield).attachToEntity(guard, null, true)
+                    game.action.checkStaticAbilities(false)
+                }
+
+            val projection = ActionMapper.buildProjectionFromSnapshot(1, SnapshotCapture.run(game, b, "test", 0), b)
+            val guardInstanceId = b.getOrAllocInstanceId(ForgeCardId(guardForgeId)).value
+            val projectedAbilities =
+                handshakeFull(game, b, 1)
+                    .gameObjectsList
+                    .single { it.instanceId == guardInstanceId }
+                    .uniqueAbilitiesList
+                    .filter { it.grpId == 97312 }
+            val offers =
+                projection.offers.filter {
+                    it.action.actionType == ActionType.Activate_add3 && it.action.instanceId == guardInstanceId
+                }
+
+            assertSoftly {
+                offers.size shouldBe 2
+                projectedAbilities.map { it.id }.toSet().size shouldBe 2
+                offers.map { it.action.abilityGrpId }.toSet() shouldBe setOf(97312)
+                offers.map { it.action.uniqueAbilityId }.toSet().size shouldBe 2
+                offers.map { it.action.uniqueAbilityId }.toSet() shouldBe projectedAbilities.map { it.id }.toSet()
+                offers.map { it.command.shouldBeInstanceOf<PlayerAction.ActivateAbility>().ability }.toSet().size shouldBe 2
+                hasAmbiguousActionCatalog(projection.offers) shouldBe false
+            }
+        }
+
         test("dual basic land types retain each color identity") {
             var bayouForgeId = 0
             val (b, game, _) =
