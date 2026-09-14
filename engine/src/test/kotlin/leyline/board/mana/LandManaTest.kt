@@ -190,6 +190,32 @@ class LandManaTest :
                 .detailIntList("colors") shouldBe listOf(ManaColor.Green_afc9.number)
         }
 
+        test("Riverpyre Verge — ColorProduction follows its activation restriction") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Riverpyre Verge", human, ZoneType.Battlefield)
+                    addCard("Island", human, ZoneType.Hand)
+                }
+            val verge =
+                board.human
+                    .getZone(ZoneType.Battlefield)
+                    .cards
+                    .single { it.name == "Riverpyre Verge" }
+            val vergeIid = board.instanceId(verge.id)
+
+            handshakeFull(board.game, board.bridge, board.counter.currentGsId())
+                .persistentAnnotationsList
+                .single { AnnotationType.ColorProduction in it.typeList && vergeIid in it.affectedIdsList }
+                .detailIntList("colors") shouldBe listOf(ManaColor.Red_afc9.number)
+
+            board
+                .playLandFromHand()
+                .persistentAnnotationsList
+                .single { AnnotationType.ColorProduction in it.typeList && vergeIid in it.affectedIdsList }
+                .detailIntList("colors")
+                .shouldContainExactlyInAnyOrder(ManaColor.Red_afc9.number, ManaColor.Blue_afc9.number)
+        }
+
         // --- Action fields ---
 
         test("Play action — shouldStop, no abilityGrpId, no manaCost") {

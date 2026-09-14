@@ -1,0 +1,11 @@
+name: "Riverpyre Verge"
+grpId: 95062
+titleId: 879497
+abilities:
+  - id: 1004
+    textId: 227612
+    category: 1
+  - id: 176676
+    textId: 879499
+    category: 1
+expansionCode: "DFT"

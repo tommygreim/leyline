@@ -71,7 +71,10 @@ internal object ManaSnapshotCapture {
         onBattlefield: Boolean,
     ): List<Int> {
         if (!onBattlefield) return emptyList()
+        // Only the ability's own conditions (e.g. "Activate only if you control an Island"),
+        // not canPlay: that also fails while the card is tapped for a payment.
         return card.manaAbilities
+            .filter { sa -> sa.restrictions.checkOtherRestrictions(card, sa, card.controller) }
             .flatMap { sa ->
                 val mana = sa.manaPart ?: return@flatMap emptyList()
                 val produced = if (mana.isComboMana) mana.getComboColors(sa) else mana.origProduced
