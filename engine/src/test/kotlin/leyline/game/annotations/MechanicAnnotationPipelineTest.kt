@@ -195,10 +195,10 @@ class MechanicAnnotationPipelineTest :
             val annotations = MechanicAnnotations.mechanicAnnotations(events, idResolver = ::testResolver).transient
 
             assertSoftly {
-                annotations.size shouldBe 1
-                annotations[0].typeList shouldContain AnnotationType.Scry_af5a
-                annotations[0].detailIntList("topIds") shouldBe listOf(21)
-                annotations[0].detailIntList("bottomIds") shouldBe listOf(22)
+                // A surveil emits no Scry annotation: the client reads only
+                // topIds/bottomIds and would narrate "Scry: N top, M bottom".
+                // The move is carried by its ZoneTransfers (category=Surveil).
+                annotations.count { AnnotationType.Scry_af5a in it.typeList } shouldBe 0
             }
         }
 

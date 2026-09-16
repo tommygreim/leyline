@@ -1,6 +1,7 @@
 package leyline.session.zones
 
 import io.kotest.assertions.assertSoftly
+import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.should
@@ -185,18 +186,19 @@ class LibraryOrderInteractionTest :
 
             respondToOrder(orderedIds)
 
-            val annotation =
+            val scryAnnotations =
                 allMessages
                     .flatMap { if (it.hasGameStateMessage()) it.gameStateMessage.annotationsList else emptyList() }
-                    .last { AnnotationType.Scry_af5a in it.typeList }
+                    .filter { AnnotationType.Scry_af5a in it.typeList }
             assertSoftly {
                 human
                     .getZone(ForgeZoneType.Library)
                     .cards
                     .take(2)
                     .map { it.name } shouldBe orderedNames
-                annotation.detailIntList("topIds") shouldBe orderedIds
-                annotation.detailIntList("bottomIds") shouldBe emptyList()
+                // A surveil emits no Scry annotation: the client reads only
+                // topIds/bottomIds and narrates any such annotation as a scry.
+                scryAnnotations.shouldBeEmpty()
             }
         }
 

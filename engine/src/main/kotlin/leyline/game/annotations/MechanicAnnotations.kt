@@ -171,9 +171,12 @@ object MechanicAnnotations {
                     log.debug("mechanic: scry seat={} top={} bottom={}", ev.seatId.value, ev.topIds, ev.bottomIds)
                 }
                 is GameEvent.Surveil -> {
-                    // Surveil is mechanically similar to scry — use scry annotation
-                    // with surveil semantics (library = top, graveyard = bottom).
-                    annotations.add(AnnotationBuilder.scry(ev.seatId, ev.libraryIds, ev.graveyardIds))
+                    // No annotation. Surveil rides its ZoneTransfers, which carry
+                    // category=Surveil. The Scry annotation is not a fit: the client
+                    // narrates it strictly as a scry ("Scry: 1 top, 1 bottom" on the
+                    // avatar) because ScryEventAnnotationParser reads only topIds and
+                    // bottomIds — its libraryIds/graveyardIds constants are declared
+                    // and never read, so there is no surveil form of this annotation.
                     log.debug("mechanic: surveil seat={} lib={} gy={}", ev.seatId.value, ev.libraryIds, ev.graveyardIds)
                 }
                 is GameEvent.TokenCreated -> {
