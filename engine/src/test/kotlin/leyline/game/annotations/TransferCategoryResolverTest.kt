@@ -9,6 +9,7 @@ import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.SeatId
 import leyline.game.event.DestructionCause
 import leyline.game.event.GameEvent
+import leyline.game.event.Zone
 
 class TransferCategoryResolverTest :
     FunSpec({
@@ -83,6 +84,13 @@ class TransferCategoryResolverTest :
                     ).shouldBeNull()
                 TransferCategoryResolver.categoryFromEvents(cardId, emptyList()).shouldBeNull()
             }
+        }
+
+        test("a card put from hand onto the library is a Put") {
+            // Arena labels the mulligan bottoming "Put" (capture gs 6, hand 31 -> library 32).
+            // "ZoneTransfer" is not a member of the client's ZoneTransferReason enum, so the
+            // reason degrades to Invalid and the move animates as nothing in particular.
+            TransferCategoryResolver.categoryFromZonePair(Zone.Hand, Zone.Library) shouldBe TransferCategory.Put
         }
 
         test("extracts source context only for the affected card") {

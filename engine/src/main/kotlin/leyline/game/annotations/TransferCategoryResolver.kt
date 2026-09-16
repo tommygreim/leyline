@@ -67,6 +67,7 @@ object TransferCategoryResolver {
             from == Zone.Library && to == Zone.Hand -> TransferCategory.Draw
             from == Zone.Library && to == Zone.Battlefield -> TransferCategory.Search
             from == Zone.Library && to == Zone.Graveyard -> TransferCategory.Mill
+            from == Zone.Hand && to == Zone.Library -> TransferCategory.Put
             from == Zone.Sideboard && to == Zone.Hand -> TransferCategory.Put
             from in setOf(Zone.Graveyard, Zone.Exile) && to in setOf(Zone.Hand, Zone.Battlefield) ->
                 TransferCategory.Return
