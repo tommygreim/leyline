@@ -319,13 +319,7 @@ object ZoneMapper {
             // need to project even when their source spell is still in the stack zone.
             if (entry.isSpell) continue
 
-            val abilitySurrogate =
-                if (entry.forgeAbilityId != 0) {
-                    FrameIdResolver.triggerStackAbilityForgeId(entry.forgeAbilityId)
-                } else {
-                    FrameIdResolver.stackAbilityForgeId(entry.forgeCardId)
-                }
-            val abilityInstanceId = instanceIdLookup(abilitySurrogate).value
+            val abilityInstanceId = stackEntryIid(entry, instanceIdLookup)
             val grpId = entry.grpId.takeIf { it != 0 } ?: 0
             // Degraded fallback: when [SnapshotCapture] couldn't resolve the source
             // card's Arena printing (synthetic test card, unrecognized token), reuse
@@ -362,7 +356,59 @@ object ZoneMapper {
                 ),
             )
         }
+        orderStackTopFirst(snap, zoneBuilder, instanceIdLookup)
         zones.add(zoneBuilder.build())
+    }
+
+    /** The instanceId a stack entry projects as — its card for a spell, its minted surrogate otherwise. */
+    private fun stackEntryIid(
+        entry: leyline.game.snapshot.StackEntry,
+        instanceIdLookup: (ForgeCardId) -> InstanceId,
+    ): Int =
+        when {
+            entry.isSpell -> instanceIdLookup(entry.forgeCardId).value
+            entry.forgeAbilityId != 0 ->
+                instanceIdLookup(FrameIdResolver.triggerStackAbilityForgeId(entry.forgeAbilityId)).value
+            else -> instanceIdLookup(FrameIdResolver.stackAbilityForgeId(entry.forgeCardId)).value
+        }
+
+    /**
+     * Project the stack zone top-first.
+     *
+     * The client reads `objectInstanceIds[0]` as the top of the stack
+     * (`MtgGameState.GetTopCardOnStack`), and the fan layout, `IsTopOfStack` VFX,
+     * auto-tap and the cost prompts all follow that same index — so a bottom-first
+     * list does not merely draw a response behind the spell it answers, it points
+     * every "top of stack" lookup at the wrong object.
+     *
+     * Forge's MagicStack pushes with `addFirst`, so [snap.stack] is already
+     * top-first. The zone list is not: spells arrive in the zone's own arrival
+     * order and abilities are appended after them, which no single reversal can
+     * fix once both are present.
+     *
+     * Only ids already in the zone are reordered; anything the stack snapshot does
+     * not name keeps its relative order at the back.
+     */
+    private fun orderStackTopFirst(
+        snap: GsmSnapshot,
+        zoneBuilder: ZoneInfo.Builder,
+        instanceIdLookup: (ForgeCardId) -> InstanceId,
+    ) {
+        val current = zoneBuilder.objectInstanceIdsList.toList()
+        if (current.size < 2) return
+        val remaining = current.toMutableList()
+        val ordered = mutableListOf<Int>()
+        for (entry in snap.stack.entries) {
+            val iid = stackEntryIid(entry, instanceIdLookup)
+            if (remaining.remove(iid)) ordered.add(iid)
+        }
+        // Ids the stack snapshot does not name are objects being projected ahead of
+        // Forge's own push — a spell mid-cast, whose frame is built before the stack
+        // entry exists. Those are the newest, so they lead, newest of them first.
+        ordered.addAll(0, remaining.reversed())
+        if (ordered == current) return
+        zoneBuilder.clearObjectInstanceIds()
+        zoneBuilder.addAllObjectInstanceIds(ordered)
     }
 
     /**

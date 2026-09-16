@@ -96,6 +96,18 @@ class StackTargetingInteractionTest :
                     .any { it.name == "Lightning Bolt" }
                     .shouldBeFalse()
                 game().stackZone.size() shouldBe 2
+
+                // The client reads objectInstanceIds[0] as the top of the stack
+                // (MtgGameState.GetTopCardOnStack), so the response must lead the
+                // list — otherwise it draws behind what it answers and every
+                // top-of-stack lookup resolves to the wrong object.
+                val stackZone =
+                    allMessages
+                        .gameStateMessages()
+                        .flatMap { gsm -> gsm.zonesList.filter { it.zoneId == ZoneIds.STACK } }
+                        .last { it.objectInstanceIdsCount == 2 }
+                stackZone.objectInstanceIdsList.map { cardByIid(it)?.name } shouldBe
+                    listOf("Lightning Bolt", "Shock")
             }
         }
 

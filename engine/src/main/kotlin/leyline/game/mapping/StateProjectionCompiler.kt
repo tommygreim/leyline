@@ -452,9 +452,11 @@ object StateProjectionCompiler {
             val currentZone = zones.values.firstOrNull { card.forgeCardId in it.contents }
             if (currentZone != null && currentZone.id != leyline.game.mapping.ZoneIds.LIMBO) continue
             if (stack.entries.none { it.forgeCardId == card.forgeCardId && it.isSpell }) {
+                // Newest object leads: the client reads objectInstanceIds[0] as the top of
+                // the stack, and ZoneMapper projects the zone in this order.
                 stack =
                     StackSnapshot(
-                        stack.entries +
+                        listOf(
                             StackEntry(
                                 forgeCardId = card.forgeCardId,
                                 controller = card.controller,
@@ -464,6 +466,7 @@ object StateProjectionCompiler {
                                 isSpell = true,
                                 targets = emptyList(),
                             ),
+                        ) + stack.entries,
                     )
             }
             boundCards = boundCards + (card.forgeCardId to bound)
@@ -491,7 +494,7 @@ object StateProjectionCompiler {
             }
             stack =
                 StackSnapshot(
-                    stack.entries +
+                    listOf(
                         StackEntry(
                             forgeCardId = ability.sourceForgeCardId,
                             controller = ability.controllerSeatId,
@@ -503,6 +506,7 @@ object StateProjectionCompiler {
                             targets = ability.targetForgeCardIds,
                             forgeAbilityId = ability.forgeAbilityId,
                         ),
+                    ) + stack.entries,
                 )
         }
         for (reservation in reservations) {
@@ -511,7 +515,7 @@ object StateProjectionCompiler {
                 ?.stack
                 ?.entries
                 ?.singleOrNull { it.forgeAbilityId == reservation.forgeAbilityId }
-                ?.let { stack = StackSnapshot(stack.entries + it) }
+                ?.let { stack = StackSnapshot(listOf(it) + stack.entries) }
         }
         return input.copy(snapshot = copySnapshot(input.snapshot, zones = zones, boundCards = boundCards, stack = stack))
     }
