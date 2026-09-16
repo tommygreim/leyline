@@ -266,6 +266,7 @@ class InProcessMatchRuntimeTest :
 
             handle.receive(auth("player"))
             handle.receive(connect("failure"))
+            handle.result.toCompletableFuture().isCompletedExceptionally shouldBe true
             handle.close()
             handle.close()
 

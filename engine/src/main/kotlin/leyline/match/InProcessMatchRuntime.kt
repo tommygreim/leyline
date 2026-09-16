@@ -128,6 +128,7 @@ class InProcessMatchRuntime(
                 }.onFailure { error ->
                     runtimeLog.error("GRE engine error while handling client message", error)
                     closed = true
+                    result.completeExceptionally(error)
                     connection.failed(error)
                     companionSeat.close()
                     removeConfig()
