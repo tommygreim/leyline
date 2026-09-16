@@ -1,0 +1,29 @@
+# Design Narrative
+# Mechanic: An accepted cumulative-upkeep payment still fails when its mana cost cannot be paid.
+# Forcing: Mystic Remora has no available mana source at its first upkeep.
+# AI behavior: The opponent has no battlefield or hand, so it makes no decisions.
+# Failure modes:
+#   WIN = the failed payment sacrifices Mystic Remora and play continues.
+#   LOSE = Mystic Remora remains without paying its upkeep cost.
+#   TIMEOUT = the upkeep interaction or sacrifice does not complete.
+# Card roles:
+#   Mystic Remora — supplies cumulative upkeep {1} with no legal payment source.
+#   Mountain — keeps an ordinary legal action available before passing the turn.
+# Protocol path: upkeep trigger, optional cost decision, failed mana payment, and sacrifice.
+
+[metadata]
+Name:Cumulative Upkeep Mystic Remora Unpayable
+Goal:Survive
+Turns:4
+Difficulty:Tutorial
+Description:Attempt an unpayable cumulative upkeep and sacrifice Mystic Remora.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanbattlefield=Mystic Remora
+humanhand=Mountain
+humanlibrary=Plains;Plains;Plains
+ailibrary=Plains;Plains;Plains

@@ -309,45 +309,42 @@ class CostPaymentCoordinator(
     }
 
     /**
-     * Ward {N} mana tax. Yes/No via [OptionalActionGate]; on accept, drain
-     * mana via [ComputerUtilMana.payManaCost] (auto-tap solver). Decline on
-     * timeout — the spell counters, the safe outcome for the warded
-     * permanent's controller.
+     * Optional single-part mana cost. Yes/No via [OptionalActionGate]; on
+     * accept, drain mana through the shared auto-pay path. Decline on timeout.
      *
      * Payer is `[player]` (the controller whose [PlayerController] Forge
-     * dispatches `payCostToPreventEffect` on), NOT `sa.activatingPlayer` —
-     * Forge sets the latter to the warded permanent's controller (the
-     * trigger's "you"), which is the wrong seat for paying the tax.
+     * dispatches `payCostToPreventEffect` on), NOT `sa.activatingPlayer`.
      */
-    fun payWardManaTax(
+    fun payOptionalManaCost(
         cost: Cost,
         sa: SpellAbility,
+        context: String,
     ): Boolean {
         val hostCard = sa.hostCard
         log.info(
-            "payCostToPreventEffect: Ward mana tax {} for {} (payer seat={})",
+            "payCostToPreventEffect: optional mana cost {} for {} (payer seat={}, context={})",
             cost,
             hostCard?.name,
             player.lobbyPlayer?.name,
+            context,
         )
         val accepted =
             optionalActionGate.await(
                 hostCard = hostCard,
                 defaultOnTimeout = false,
-                logContext = "payCostToPreventEffect:ward",
+                logContext = "payCostToPreventEffect:$context",
             )
         if (!accepted) return false
 
         val manaPart = cost.costParts.firstOrNull { it is CostPartMana } as? CostPartMana
         if (manaPart == null) {
-            log.warn("payWardManaTax accepted but no CostPartMana in cost {} — declining", cost)
+            log.warn("Optional mana cost accepted but no CostPartMana in cost {} — declining", cost)
             return false
         }
         val toPay = ManaCostBeingPaid(manaPart.mana)
-        // effect=true: tax mana, not a primary spell cost.
-        val paid = ComputerUtilMana.payManaCost(toPay, sa, player, true)
+        val paid = applyManaToCost(toPay, sa, effect = true)
         if (!paid) {
-            log.warn("payWardManaTax: auto-tap could not pay {} for {}", cost, hostCard?.name)
+            log.warn("Optional mana cost: auto-tap could not pay {} for {}", cost, hostCard?.name)
         }
         return paid
     }

@@ -1,0 +1,44 @@
+name: cumulative-upkeep
+description: Optional, increasing, and unpayable cumulative-upkeep flows.
+scenarios:
+  - id: mystic-remora-decline
+    puzzle: cumulative-upkeep-mystic-remora
+    run: reach Mystic Remora's first upkeep and decline payment
+    expect: Mystic Remora is sacrificed and the Islands remain available
+    steps:
+      - pass_until:
+          prompt: OptionalActionMessage
+          max_passes: 40
+      - optional_action: { accept: false }
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: graveyard, card: Mystic Remora }
+            - zone_contains: { side: ours, zone: battlefield, card: Island }
+  - id: mystic-remora-increasing-payment
+    puzzle: cumulative-upkeep-mystic-remora
+    run: pay Mystic Remora's first and second cumulative upkeep costs
+    expect: both increasing payments complete and Mystic Remora remains on the battlefield
+    steps:
+      - pass_until:
+          prompt: OptionalActionMessage
+          max_passes: 40
+      - optional_action: { accept: true }
+      - expect:
+          zone_contains: { side: ours, zone: battlefield, card: Mystic Remora }
+      - pass_until:
+          prompt: OptionalActionMessage
+          max_passes: 40
+      - optional_action: { accept: true }
+      - expect:
+          zone_contains: { side: ours, zone: battlefield, card: Mystic Remora }
+  - id: mystic-remora-unpayable
+    puzzle: cumulative-upkeep-mystic-remora-unpayable
+    run: accept Mystic Remora's upkeep payment without an available mana source
+    expect: the failed payment sacrifices Mystic Remora and play continues
+    steps:
+      - pass_until:
+          prompt: OptionalActionMessage
+          max_passes: 40
+      - optional_action: { accept: true }
+      - expect:
+          zone_contains: { side: ours, zone: graveyard, card: Mystic Remora }

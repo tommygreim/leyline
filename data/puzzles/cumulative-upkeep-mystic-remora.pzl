@@ -1,0 +1,30 @@
+# Design Narrative
+# Mechanic: Mystic Remora's controller chooses whether to pay cumulative upkeep.
+# Forcing: Three Islands make both the first and second upkeep payments affordable.
+# AI behavior: The opponent has no battlefield or hand, so it makes no decisions.
+# Failure modes:
+#   WIN = the chosen upkeep branch resolves and play continues.
+#   LOSE = the payment choice or resulting sacrifice is incorrect.
+#   TIMEOUT = the upkeep payment choice does not reach the player.
+# Card roles:
+#   Mystic Remora — supplies cumulative upkeep {1} and accumulating age counters.
+#   Islands — pay the first and second upkeep costs while making decline observable.
+#   Mountain — keeps an ordinary legal action available before passing the turn.
+# Protocol path: upkeep trigger, optional cost decision, mana payment, and conditional sacrifice.
+
+[metadata]
+Name:Cumulative Upkeep Mystic Remora
+Goal:Survive
+Turns:6
+Difficulty:Tutorial
+Description:Choose whether to pay Mystic Remora's increasing cumulative upkeep.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanbattlefield=Mystic Remora;Island;Island;Island
+humanhand=Mountain
+humanlibrary=Plains;Plains;Plains;Plains
+ailibrary=Plains;Plains;Plains;Plains

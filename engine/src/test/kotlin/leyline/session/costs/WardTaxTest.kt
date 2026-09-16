@@ -39,7 +39,7 @@ class WardTaxTest :
             castSpellByName("Lightning Bolt").shouldBeTrue()
             val targetIid = ai.battlefield.iid("Sovereign Okinec Ahau")
             // selectTargets drains the sink, which auto-accepts the Ward OAM
-            // (default AllowYes). On accept, payWardManaTax returns true after
+            // (default AllowYes). On accept, the optional mana path returns true after
             // ComputerUtilMana taps lands for the {2} tax. The Counter SA's
             // effect is suppressed via Forge's `handleUnlessCost`.
             selectTargets(listOf(targetIid))
@@ -67,7 +67,7 @@ class WardTaxTest :
             val targetIid = ai.battlefield.iid("Sovereign Okinec Ahau")
 
             // Pre-seed decline: drainSink auto-responds CancelNo on the Ward
-            // OAM. payWardManaTax returns false; the Counter SA proceeds and
+            // OAM. The optional mana path returns false; the Counter SA proceeds and
             // counters Bolt before any mana is drained for the {2}.
             declineNextOptionalAction()
             selectTargets(listOf(targetIid))

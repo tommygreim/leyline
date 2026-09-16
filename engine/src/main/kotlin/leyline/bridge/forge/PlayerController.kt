@@ -943,7 +943,7 @@ class PlayerController(
         allPayers: FCollectionView<Player>,
     ): Boolean {
         // Single-part costs route to coordinator helpers; everything else
-        // (echo, cumulative upkeep, multi-part) falls through to PCHuman.
+        // (echo and multi-part costs) falls through to PCHuman.
         cost.costParts.singleOrNull().let { single ->
             if (single is CostPayLife) {
                 val isEtbLandReplacement =
@@ -954,7 +954,10 @@ class PlayerController(
                 return costPaymentCoordinator.payOptionalLife(single, sa, isEtbLandReplacement)
             }
             if (single is CostPartMana && sa.isKeyword(Keyword.WARD)) {
-                return costPaymentCoordinator.payWardManaTax(cost, sa)
+                return costPaymentCoordinator.payOptionalManaCost(cost, sa, "ward")
+            }
+            if (single is CostPartMana && sa.isKeyword(Keyword.CUMULATIVE_UPKEEP)) {
+                return costPaymentCoordinator.payOptionalManaCost(cost, sa, "cumulative-upkeep")
             }
         }
         return super.payCostToPreventEffect(cost, sa, alreadyPaid, allPayers)
