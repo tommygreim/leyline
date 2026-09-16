@@ -84,7 +84,7 @@ class AiTurnInteractionTest :
                 aiTurnActionsAvailableReqs(postHandshakeMessages).shouldBeEmpty()
             }
 
-            // GSM N+0: SendHiFi with 2+ PhaseOrStepModified + gameInfo
+            // GSM N+0: SendHiFi with one PhaseOrStepModified per step traversed + gameInfo
             val gsm0 = gsms[ptStart]
             val phaseAnns0 =
                 gsm0.annotationsList
@@ -103,7 +103,11 @@ class AiTurnInteractionTest :
                 gsm0.type shouldBe GameStateType.Diff
                 gsm0.update shouldBe GameStateUpdate.SendHiFi
                 gsm0.hasGameInfo().shouldBeTrue()
-                phaseAnns0.size shouldBeGreaterThanOrEqual 2
+                // Arena sends one annotation per step actually traversed and never
+                // repeats a phase/step pair in a frame; match that contract.
+                phaseAnns0.size shouldBeGreaterThanOrEqual 1
+                val pairs0 = phaseAnns0.map { it.detailInt("phase") to it.detailInt("step") }
+                pairs0 shouldBe pairs0.distinct()
 
                 gsm1.type shouldBe GameStateType.Diff
                 gsm1.update shouldBe GameStateUpdate.SendHiFi

@@ -277,7 +277,7 @@ class GameBridgeTest :
             // Bundle has exactly 5 GRE messages
             messages.size shouldBe 5
 
-            // GRE 1: SendHiFi with 2x PhaseOrStepModified + gameInfo
+            // GRE 1: SendHiFi with one PhaseOrStepModified per step traversed + gameInfo
             val gre1 = messages[0]
             gre1.gameStateMessage.update shouldBe Messages.GameStateUpdate.SendHiFi
             gre1.gameStateMessage.hasGameInfo().shouldBeTrue()
@@ -285,7 +285,7 @@ class GameBridgeTest :
                 gre1.gameStateMessage.annotationsList
                     .flatMap { it.typeList }
                     .count { it == Messages.AnnotationType.PhaseOrStepModified }
-            phaseAnnotations1 shouldBeGreaterThanOrEqualTo 2
+            phaseAnnotations1 shouldBeGreaterThanOrEqualTo 1
 
             // GRE 2: SendHiFi echo
             val gre2 = messages[1]

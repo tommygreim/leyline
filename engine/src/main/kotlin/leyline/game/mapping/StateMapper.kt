@@ -1079,7 +1079,13 @@ object StateMapper {
                                             .isNotEmpty()
                                 )
                         ) ||
-                        (zone.zoneId == ZoneIds.REVEALED_P1 || zone.zoneId == ZoneIds.REVEALED_P2) ||
+                        (
+                            (zone.zoneId == ZoneIds.REVEALED_P1 || zone.zoneId == ZoneIds.REVEALED_P2) &&
+                                // Only while the zone carries proxies, or on the frame that retires
+                                // them. Unconditionally is what made 47% of our frames carry both
+                                // Revealed zones; Arena carried one in 1 frame out of 263.
+                                (zone.objectInstanceIdsCount > 0 || hasActiveReveal || hasStackRetirement)
+                        ) ||
                         (opponentRevealedHandZoneId != null && zone.zoneId == opponentRevealedHandZoneId)
                 }.map { zone ->
                     redactOpponentSideboardZone(zone, opponentSideboardZoneId)

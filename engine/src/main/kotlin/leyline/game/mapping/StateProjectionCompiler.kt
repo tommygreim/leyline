@@ -361,14 +361,12 @@ object StateProjectionCompiler {
 
                 ProjectionSupplement.PhaseTransition -> {
                     val frame = GsmFrame.from(input.snapshot)
-                    repeat(2) {
-                        annotations +=
-                            AnnotationBuilder.phaseOrStepModified(
-                                input.snapshot.phase.activePlayer,
-                                frame.phase.number,
-                                frame.step.number,
-                            )
-                    }
+                    annotations +=
+                        AnnotationBuilder.phaseOrStepModified(
+                            input.snapshot.phase.activePlayer,
+                            frame.phase.number,
+                            frame.step.number,
+                        )
                 }
 
                 is ProjectionSupplement.PlayerSelectingTargets -> {
