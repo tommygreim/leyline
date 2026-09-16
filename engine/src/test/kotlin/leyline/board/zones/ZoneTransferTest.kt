@@ -17,7 +17,6 @@ import leyline.testkit.BoardTest
 import leyline.testkit.annotation
 import leyline.testkit.detailInt
 import leyline.testkit.detailIntList
-import leyline.testkit.detailString
 import leyline.testkit.findZoneTransfer
 import leyline.testkit.gsm
 import leyline.testkit.hasEnteredZoneThisTurn
@@ -386,7 +385,7 @@ class ZoneTransferTest :
                 }
 
             val ann = gsm.annotation(AnnotationType.CounterAdded)
-            ann.detailString("counter_type") shouldBe "+1/+1"
+            ann.detailInt("counter_type") shouldBe 1 // P1P1 — client reads this detail as int32
             ann.detailInt("transaction_amount") shouldBe 2
         }
 

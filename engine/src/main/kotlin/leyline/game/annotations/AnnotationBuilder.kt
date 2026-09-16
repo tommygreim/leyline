@@ -811,12 +811,11 @@ object AnnotationBuilder {
     private fun isPowerToughnessCounter(counterType: Int): Boolean =
         counterType == CounterType.P1P1.number || counterType == CounterType.M1M1.number
 
+    /** Counter type as the client's numeric `CounterType`. The client reads this
+     *  detail as int32 (`CounterAddedRemovedAnnotationParser`); a string value
+     *  throws there and costs the whole GRE message. Unmapped Forge names send 0. */
     private fun counterTypeDetail(counterType: String): KeyValuePairInfo =
-        if (counterType == "-1/-1") {
-            int32Detail(DetailKeys.COUNTER_TYPE, CounterTypes.counterTypeId(counterType))
-        } else {
-            typedStringDetail(DetailKeys.COUNTER_TYPE, counterType)
-        }
+        int32Detail(DetailKeys.COUNTER_TYPE, CounterTypes.counterTypeId(counterType))
 
     /** Counter state on a player. */
     fun playerCounter(

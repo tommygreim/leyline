@@ -15,7 +15,6 @@ import leyline.game.event.GameEvent
 import leyline.game.event.Zone
 import leyline.testkit.detailInt
 import leyline.testkit.detailIntList
-import leyline.testkit.detailString
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
 
 /**
@@ -44,7 +43,7 @@ class MechanicAnnotationPipelineTest :
                 result.transient.size shouldBe 1
                 result.transient[0].typeList shouldContain AnnotationType.CounterAdded
                 result.transient[0].affectedIdsList shouldContain 1042
-                result.transient[0].detailString("counter_type") shouldBe "+1/+1"
+                result.transient[0].detailInt("counter_type") shouldBe 1 // P1P1
                 result.transient[0].detailInt("transaction_amount") shouldBe 2
             }
 
@@ -102,7 +101,9 @@ class MechanicAnnotationPipelineTest :
             assertSoftly {
                 result.transient.size shouldBe 1
                 result.transient[0].typeList shouldContain AnnotationType.CounterAdded
-                result.transient[0].detailString("counter_type") shouldBe "ODOR"
+                // Unmapped Forge counter name → 0 (CounterType.None); never a string, which
+                // throws in the client's CounterAddedRemovedAnnotationParser.
+                result.transient[0].detailInt("counter_type") shouldBe 0
                 result.persistent.shouldBeEmpty()
             }
         }

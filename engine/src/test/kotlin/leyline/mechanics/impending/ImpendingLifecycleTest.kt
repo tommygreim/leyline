@@ -13,7 +13,6 @@ import leyline.testkit.MatchFlowHarness
 import leyline.testkit.SessionTest
 import leyline.testkit.allAnnotations
 import leyline.testkit.detailInt
-import leyline.testkit.detailString
 import leyline.testkit.persistentAnnotationsOfType
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
 import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
@@ -63,7 +62,7 @@ class ImpendingLifecycleTest :
                 cto.detailInt("type") shouldBe CastingTimeOptionType.CastThroughAbility.number
                 overlord.getCounters(CounterEnumType.TIME) shouldBe 3
                 overlord.isCreature.shouldBeFalse()
-                counterRemoved.detailString("counter_type") shouldBe "Time"
+                counterRemoved.detailInt("counter_type") shouldBe 5 // Time
                 counterRemoved.detailInt("transaction_amount") shouldBe 1
             }
         }
@@ -83,7 +82,7 @@ class ImpendingLifecycleTest :
 
             val overlord = human.battlefield.card("Overlord of the Mistmoors")
             assertSoftly {
-                removed.any { it.detailString("counter_type") == "Time" && it.detailInt("transaction_amount") == 1 }.shouldBeTrue()
+                removed.any { it.detailInt("counter_type") == 5 && it.detailInt("transaction_amount") == 1 }.shouldBeTrue()
                 overlord.getCounters(CounterEnumType.TIME) shouldBe 3
                 overlord.isCreature.shouldBeFalse()
             }
@@ -119,7 +118,7 @@ class ImpendingLifecycleTest :
             val removed =
                 allMessages
                     .allAnnotations()
-                    .filter { AnnotationType.CounterRemoved in it.typeList && it.detailString("counter_type") == "Time" }
+                    .filter { AnnotationType.CounterRemoved in it.typeList && it.detailInt("counter_type") == 5 }
             val overlord = human.battlefield.card("Overlord of the Mistmoors")
 
             assertSoftly {
