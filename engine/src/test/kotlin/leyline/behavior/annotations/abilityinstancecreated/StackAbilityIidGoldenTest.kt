@@ -1,10 +1,12 @@
 package leyline.behavior.annotations.abilityinstancecreated
 
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.ints.shouldBeGreaterThanOrEqual
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import leyline.IntegrationTag
+import leyline.game.mapping.ZoneIds
 import leyline.testkit.MatchFlowHarness
 import leyline.testkit.gsm
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
@@ -88,6 +90,21 @@ class StackAbilityIidGoldenTest :
                     "expected at least two chapter-tick GSMs (Ch I + Ch II), got ${chapterTicks.size}",
                 ) {
                     chapterTicks.size shouldBeGreaterThanOrEqual 2
+                }
+
+                // The client resolves an instanceId only when a zone lists it
+                // (MtgGameState.TryGetCard consults ObjectIds, filled from zone
+                // contents). A trigger frame that ships the Ability object without
+                // the stack zone leaves it unusable: AbilityInstanceCreated is
+                // silently skipped and nothing renders on the stack.
+                for (tick in chapterTicks) {
+                    val abilityIid = tick.aicAffectedIid()
+                    val stackZone = tick.zonesList.firstOrNull { it.zoneId == ZoneIds.STACK }
+                    io.kotest.assertions.withClue(
+                        "gs ${tick.gameStateId} must carry the stack zone listing ability $abilityIid",
+                    ) {
+                        (stackZone?.objectInstanceIdsList ?: emptyList()) shouldContain abilityIid
+                    }
                 }
 
                 val ch1 = chapterTicks[0]

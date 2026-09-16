@@ -924,6 +924,13 @@ object StateMapper {
         includePrivateObjects: Boolean,
     ): GameStateMessage = shared.forViewer(viewingSeatId, includePrivateObjects, actions).gsm
 
+    /** Identity of each stack ability in frame order — the part of the stack the
+     *  zone snapshot's card contents cannot express. */
+    private fun stackAbilityKeys(snapshot: GsmSnapshot): List<Pair<Int, Int>> =
+        snapshot.stack.entries
+            .filter { !it.isSpell }
+            .map { it.forgeAbilityId to it.forgeCardId.value }
+
     @Suppress("LongMethod", "CyclomaticComplexMethod", "ComplexCondition", "LongParameterList")
     private fun buildDiffInternal(
         prev: GsmSnapshot?,
@@ -1052,11 +1059,18 @@ object StateMapper {
                 else -> null
             }
         val hasStackRetirement = fullResult.output.diffDeletedInstanceIds.isNotEmpty()
+        // Stack abilities live in GsmSnapshot.stack, not in ZoneSnapshot.contents, so a
+        // trigger arriving or leaving never shows up in changedZoneIds. The client only
+        // resolves an instanceId listed in a zone (MtgGameState.TryGetCard consults
+        // ObjectIds, filled from zone contents), so omitting the stack zone here leaves
+        // the ability object unusable: its AbilityInstanceCreated is silently skipped and
+        // any annotation or request naming it throws client-side.
+        val stackAbilitiesChanged = stackAbilityKeys(prev) != stackAbilityKeys(projectedCur)
         val changedZones =
             current.zonesList
                 .filter { zone ->
                     zone.zoneId in changedZoneIds ||
-                        (zone.zoneId == ZoneIds.STACK && hasStackRetirement) ||
+                        (zone.zoneId == ZoneIds.STACK && (hasStackRetirement || stackAbilitiesChanged)) ||
                         (
                             zone.zoneId == ZoneIds.LIMBO &&
                                 (

@@ -3,8 +3,10 @@ package leyline.session.targeting
 import forge.game.card.CounterEnumType
 import forge.game.zone.ZoneType
 import io.kotest.assertions.assertSoftly
+import io.kotest.assertions.withClue
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import leyline.testkit.SessionTest
@@ -40,6 +42,22 @@ class BoundedTargetingInteractionTest :
                 targetPrompt.selectTargetsReq.targetsList
                     .single()
                     .maxTargets shouldBe 2
+            }
+
+            // The client resolves the prompt's source through MtgGameState.TryGetCard,
+            // which consults ObjectIds — filled from zone contents, never from a bare
+            // game object. A source that no zone lists makes the targeting workflow
+            // throw (TargetSubmission.CanAutoSubmitTargets) and the prompt is dropped
+            // along with its whole update, which is the live Eddymurk Crab hang.
+            val sourceIid = targetPrompt.selectTargetsReq.sourceId
+            val listedInAnyZone =
+                allMessages
+                    .filter { it.hasGameStateMessage() }
+                    .flatMap { it.gameStateMessage.zonesList }
+                    .flatMap { it.objectInstanceIdsList }
+                    .toSet()
+            withClue("targeting source $sourceIid must be listed in a zone the client received") {
+                listedInAnyZone shouldContain sourceIid
             }
         }
 
