@@ -113,7 +113,10 @@ class GamePlayback(
     }
 
     override fun visit(ev: GameEventTurnBegan) {
-        if (!isRemoteActing()) return
+        // Capture for BOTH local and remote turns. The client plays its turn
+        // transition from NewTurnStarted, which only rides a turnStarted cut, so
+        // skipping our own turn left the client able to announce the opponent's
+        // turn and never ours.
         val game =
             bridge.getGame() ?: run {
                 log.debug("GamePlayback: TurnBegan during teardown (game null), dropping event")
