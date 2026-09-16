@@ -1,6 +1,17 @@
 name: cost-selection-warmup
 description: Alternate costs, sacrifice/discard payments, and payment-selection smoke.
 scenarios:
+  - id: chained-paid-mana-filter
+    puzzle: chained-paid-mana-filter
+    run: chain Mountain through Rakdos Signet and Gruul Signet to cast Manalith
+    expect: all three mana sources tap and Manalith resolves
+    steps:
+      - expect:
+          action: { type: cast, card: Manalith }
+      - cast: Manalith
+      - resolve_stack: {}
+      - expect:
+          zone_contains: { side: ours, zone: battlefield, card: Manalith }
   - id: sacrifice-source-cost
     puzzle: sacrifice-cost-confirm
     run: activate Evolving Wilds, pay its self-sacrifice cost, and choose Forest

@@ -1,0 +1,33 @@
+# Design Narrative
+# Mechanic: Chain two paid mana abilities after one ordinary source, then spend the remaining mana on a spell.
+# Forcing: Mountain cannot cast Manalith alone, and neither Signet can activate without mana from an earlier source.
+# AI behavior: The opponent has no battlefield or hand, so it makes no decisions.
+# Failure modes:
+#   WIN = Mountain funds both Signets in sequence and Manalith resolves.
+#   LOSE = the spell is not cast before the one-turn deadline.
+#   TIMEOUT = activation, payment, or resolution stops advancing.
+# Card roles:
+#   Mountain — supplies the first activation cost.
+#   Rakdos Signet — produces the seed for the second paid source and one mana for the spell.
+#   Gruul Signet — produces the remaining two mana for the spell.
+#   Manalith — observable three-mana consumer of the chained payment.
+# Protocol path: cast action, nested mana payments, source taps, spell payment, and permanent resolution.
+
+[metadata]
+Name:Chained Paid Mana Filter
+Goal:Play the Specified Permanent
+Targets:Manalith
+Turns:1
+Difficulty:Easy
+Description:Chain two Signets from one Mountain to cast Manalith.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+
+humanhand=Manalith
+humanbattlefield=Mountain;Rakdos Signet;Gruul Signet
+humanlibrary=Forest
+ailibrary=Mountain
