@@ -662,19 +662,21 @@ class PlayerController(
             return awaitCommanderReturn(hostCard, sa, "confirmReplacementEffect:Commander")
         }
 
-        // PCHuman uses GuiBase + InputConfirm
+        // The bare PromptRequest below (no semantic/route) used to go straight to
+        // bridge.requestChoice, which resolves an unclassified Generic semantic to
+        // ResolvedPromptRoute.AutoResolve — a synchronous default with no prompt
+        // ever reaching the client (see PromptRequest.policyDefault). That silently
+        // declined every optional replacement, e.g. Superior Spider-Man's "you may
+        // have it enter as a copy of a creature card in a graveyard": reported live,
+        // no prompt shown, no copy made. OptionalActionGate is this override's
+        // documented real interactive route (see its KDoc's consumer list).
         val message = prompt ?: replacementEffect.toString()
-        val request =
-            PromptRequest(
-                promptType = "confirm",
-                message = message,
-                options = listOf("Yes", "No"),
-                min = 1,
-                max = 1,
-                defaultIndex = if (isEnterAsCopyReplacement(message)) 1 else 0,
-            )
-        val result = bridge.requestChoice(request)
-        return result.firstOrNull() == 0
+        return optionalActionGate.await(
+            hostCard = replacementEffect.hostCard ?: sa?.hostCard,
+            defaultOnTimeout = !isEnterAsCopyReplacement(message),
+            logContext = "confirmReplacementEffect",
+            customPromptId = PromptIds.OPTIONAL_ACTION,
+        )
     }
 
     override fun chooseSingleReplacementEffect(possibleReplacers: List<ReplacementEffect>): ReplacementEffect {
