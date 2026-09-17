@@ -3,6 +3,7 @@ package leyline.game.snapshot
 import forge.card.GamePieceType
 import forge.game.card.Card
 import forge.game.card.CardFactory
+import forge.game.phase.PhaseType
 import forge.game.zone.ZoneType
 import io.kotest.assertions.assertSoftly
 import io.kotest.matchers.collections.shouldContain
@@ -17,6 +18,22 @@ import leyline.testkit.humanPlayer
 
 class SnapshotCaptureTest :
     BoardTest({
+
+        test("a live capture projects the phase the engine will actually enter next") {
+            // TurnInfo.nextPhase is the client's only source for the two-line priority
+            // button. Forge's own skip rules are private, so this pins the mirror in
+            // NextPhaseProjector against a real PhaseHandler rather than a fixture.
+            val (b, game, _) = startWithBoard { _, human, _ -> addCard("Grizzly Bears", human, ZoneType.Battlefield) }
+
+            val snap = SnapshotCapture.run(game, b, "test", 0)
+
+            assertSoftly {
+                // The board starts on turn 1 at Main1, where Arena sends Combat/BeginCombat
+                // (48 of its 211 turnInfo objects in the reference capture).
+                snap.phase.phase shouldBe PhaseType.MAIN1
+                snap.phase.nextPhase shouldBe PhaseType.COMBAT_BEGIN
+            }
+        }
 
         test("Puzzle-Goal-style EFFECT in Command zone: snapshot captures with grpId=0, no throw") {
             val (b, game, _) =

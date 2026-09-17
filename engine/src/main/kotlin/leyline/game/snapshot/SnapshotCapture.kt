@@ -194,11 +194,20 @@ object SnapshotCapture {
         bridge: GameBridge,
     ): PhaseSnapshot {
         val handler = game.phaseHandler
+        val turn = handler.turn.coerceAtLeast(1)
         return PhaseSnapshot(
-            turn = handler.turn.coerceAtLeast(1),
+            turn = turn,
             activePlayer = bridge.seatOf(handler.playerTurn) ?: SeatId(1),
             priorityPlayer = handler.priorityPlayer?.let { bridge.seatOf(it) ?: SeatId(1) },
             phase = handler.phase,
+            nextPhase =
+                NextPhaseProjector.project(
+                    current = handler.phase,
+                    skipDraw = handler.turn == 1 && game.players.size == 2,
+                    skipCombat = handler.playerTurn?.isSkippingCombat ?: false,
+                    skipDamageSteps = !handler.inCombat() || handler.combat.attackers.isEmpty(),
+                    phasesReversed = handler.playerTurn?.isPhasesReversed ?: false,
+                ),
         )
     }
 

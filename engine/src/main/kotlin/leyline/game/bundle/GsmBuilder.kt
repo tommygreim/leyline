@@ -25,6 +25,8 @@ data class GsmFrame(
     val turnNumber: Int,
     val phase: Phase,
     val step: Step,
+    val nextPhase: Phase = Phase.None_a549,
+    val nextStep: Step = Step.None_a2cb,
 ) {
     /** Build a [TurnInfo] proto from this frame's fields. */
     fun turnInfo(): TurnInfo =
@@ -36,6 +38,8 @@ data class GsmFrame(
             .setActivePlayer(activeSeat)
             .setPriorityPlayer(prioritySeat)
             .setDecisionPlayer(prioritySeat)
+            .setNextPhase(nextPhase)
+            .setNextStep(nextStep)
             .build()
 
     /** Build a PhaseOrStepModified annotation, assigning an ID from [idSource]. */
@@ -55,6 +59,8 @@ data class GsmFrame(
                 turnNumber = snap.phase.turn.coerceAtLeast(1),
                 phase = PlayerMapper.mapPhase(snap.phase.phase),
                 step = PlayerMapper.mapStep(snap.phase.phase),
+                nextPhase = PlayerMapper.mapPhase(snap.phase.nextPhase),
+                nextStep = PlayerMapper.mapStep(snap.phase.nextPhase),
             )
     }
 }
