@@ -35,6 +35,7 @@ import leyline.testkit.persistentAnnotation
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
 import wotc.mtgo.gre.external.messaging.Messages.ManaColor
+import wotc.mtgo.gre.external.messaging.Messages.ManaSpecType
 import wotc.mtgo.gre.external.messaging.Messages.SelectionValidationType
 import wotc.mtgo.gre.external.messaging.Messages.ZoneType as ProtoZoneType
 
@@ -274,6 +275,14 @@ class LandManaTest :
                     a.isBatchable.shouldBeTrue()
                     a.manaPaymentOptionsCount shouldBeGreaterThan 0
                     a.manaSelectionsCount shouldBeGreaterThan 0
+                    // ManaSpecType.FromBasic — previously never set for any mana
+                    // source (see ISSUES.md I41).
+                    a.manaPaymentOptionsList
+                        .single()
+                        .manaList
+                        .single()
+                        .specsList
+                        .map { it.type } shouldContain ManaSpecType.FromBasic
                 }
             }
         }

@@ -193,6 +193,7 @@ internal object ActivatedActionEmitter {
                 if (card.type.isSnow) {
                     manaInfo.addSpecs(ManaInfo.Spec.newBuilder().setType(ManaSpecType.FromSnow))
                 }
+                sourceKindSpec(card)?.let { manaInfo.addSpecs(ManaInfo.Spec.newBuilder().setType(it)) }
                 actionBuilder.addManaPaymentOptions(
                     ManaPaymentOption.newBuilder().addMana(manaInfo),
                 )
@@ -332,6 +333,21 @@ internal object ActivatedActionEmitter {
             else -> null
         }
     }
+
+    /**
+     * `ManaSpecType.FromBasic`/`FromTreasure`/`FromCave` — the mana source's
+     * kind, mutually exclusive with each other and with the separate
+     * `FromSnow` check above (a card can be both snow and one of these; the
+     * two calls are independent). No card is more than one of Basic/
+     * Treasure/Cave, so `firstOrNull` is exhaustive, not a priority order.
+     */
+    fun sourceKindSpec(card: Card): ManaSpecType? =
+        when {
+            card.type.isBasicLand -> ManaSpecType.FromBasic
+            card.type.hasSubtype("Treasure") -> ManaSpecType.FromTreasure
+            card.type.hasSubtype("Cave") -> ManaSpecType.FromCave
+            else -> null
+        }
 
     fun producedManaColors(sa: forge.game.spellability.SpellAbility): List<ManaColor> {
         val mana = sa.manaPart ?: return emptyList()

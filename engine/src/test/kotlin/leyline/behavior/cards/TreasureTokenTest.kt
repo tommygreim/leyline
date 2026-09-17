@@ -22,6 +22,7 @@ import leyline.testkit.beOnBattlefieldOf
 import leyline.testkit.gsm
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
+import wotc.mtgo.gre.external.messaging.Messages.ManaSpecType
 import leyline.testkit.StateMapperShell as StateMapper
 
 /**
@@ -130,6 +131,15 @@ class TreasureTokenTest :
             val treasureInstanceId = human.battlefield.iid(treasure)
             val treasureMana = manaActions.firstOrNull { it.instanceId == treasureInstanceId }
             treasureMana.shouldNotBeNull()
+            // ManaSpecType.FromTreasure — previously never set for any mana source
+            // (see ISSUES.md I41); the client had no way to distinguish this from
+            // an ordinary land tap in the mana preview.
+            treasureMana.manaPaymentOptionsList
+                .single()
+                .manaList
+                .single()
+                .specsList
+                .map { it.type } shouldContain ManaSpecType.FromTreasure
 
             // Lightning Bolt should be castable
             val castActions = actions.actionsList.filter { it.actionType == ActionType.Cast }

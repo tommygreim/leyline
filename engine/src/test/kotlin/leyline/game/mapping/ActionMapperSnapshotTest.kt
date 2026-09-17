@@ -242,13 +242,16 @@ class ActionMapperSnapshotTest :
                 activate should haveManaCost(snow = 2)
                 activate.hasAutoTapSolution().shouldBeTrue()
                 autoTapMana.map { it.color } shouldBe listOf(ManaColor.Blue_afc9, ManaColor.Blue_afc9)
+                // Snow-Covered Island is both FromSnow and FromBasic (see ISSUES.md I41) —
+                // the two specs are independent, not mutually exclusive.
                 autoTapMana.map { mana -> mana.specsList.map { it.type } } shouldBe
                     listOf(
-                        listOf(ManaSpecType.Predictive, ManaSpecType.FromSnow),
-                        listOf(ManaSpecType.Predictive, ManaSpecType.FromSnow),
+                        listOf(ManaSpecType.Predictive, ManaSpecType.FromSnow, ManaSpecType.FromBasic),
+                        listOf(ManaSpecType.Predictive, ManaSpecType.FromSnow, ManaSpecType.FromBasic),
                     )
                 snowMana.color shouldBe ManaColor.Blue_afc9
-                snowMana.specsList.map { it.type } shouldBe listOf(ManaSpecType.Predictive, ManaSpecType.FromSnow)
+                snowMana.specsList.map { it.type } shouldBe
+                    listOf(ManaSpecType.Predictive, ManaSpecType.FromSnow, ManaSpecType.FromBasic)
             }
         }
 

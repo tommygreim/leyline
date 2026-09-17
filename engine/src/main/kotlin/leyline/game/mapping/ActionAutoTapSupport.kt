@@ -34,6 +34,7 @@ internal object ActionAutoTapSupport {
         val color: ManaColor,
         val abilityGrpId: Int,
         val fromSnow: Boolean,
+        val kindSpec: ManaSpecType?,
     )
 
     fun build(
@@ -181,7 +182,15 @@ internal object ActionAutoTapSupport {
                 val registry = context.abilityRegistry(card, cardData)
                 val abilityGrpId = registry?.forSpellAbility(sa.definitionId) ?: ActivatedActionEmitter.basicLandAbilityGrpId(card, sa)
                 for (color in colors) {
-                    sources.add(ManaSource(instanceId, color, abilityGrpId, fromSnow = card.type.isSnow))
+                    sources.add(
+                        ManaSource(
+                            instanceId,
+                            color,
+                            abilityGrpId,
+                            fromSnow = card.type.isSnow,
+                            kindSpec = ActivatedActionEmitter.sourceKindSpec(card),
+                        ),
+                    )
                 }
             }
         }
@@ -205,6 +214,7 @@ internal object ActionAutoTapSupport {
             if (src.fromSnow) {
                 manaInfo.addSpecs(ManaInfo.Spec.newBuilder().setType(ManaSpecType.FromSnow))
             }
+            src.kindSpec?.let { manaInfo.addSpecs(ManaInfo.Spec.newBuilder().setType(it)) }
             builder.addAutoTapActions(
                 AutoTapAction
                     .newBuilder()
