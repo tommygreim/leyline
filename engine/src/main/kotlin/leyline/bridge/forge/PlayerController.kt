@@ -81,6 +81,7 @@ import leyline.bridge.handoff.RuntimeHorizonMode
 import leyline.bridge.handoff.TargetingCandidateValue
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.Seating
+import leyline.bridge.types.StaticChoiceIds
 import leyline.bridge.types.toCandidateRefs
 import leyline.game.data.KeywordAbilityIds
 import leyline.game.mapping.PromptIds
@@ -496,7 +497,35 @@ class PlayerController(
             } else {
                 options.toList()
             }
-        return staticChoiceCoordinator.confirmAction(displayMessage, displayOptions, (cardToShow ?: sa?.hostCard)?.id)
+        // A two-option "even/odd" call (Devil's Play-style) is the one shape
+        // staticChoiceCoordinator.confirmAction already routes through a real
+        // interactive prompt (ResolvedPromptRoute.StaticChoice); keep it as is.
+        if (isParityChoice(displayOptions)) {
+            return staticChoiceCoordinator.confirmAction(displayMessage, displayOptions, (cardToShow ?: sa?.hostCard)?.id)
+        }
+        // Every other shape here used to fall through staticChoiceCoordinator.confirmAction
+        // to a bare Generic-semantic PromptRequest, which resolves to
+        // ResolvedPromptRoute.AutoResolve — a synchronous default answer with no
+        // prompt ever reaching the client (PromptRequest.policyDefault). That is
+        // confirmAction's fallback for every "you may" confirmation modeled as a
+        // spell/ability EFFECT rather than a triggered ability — ScryEffect,
+        // SurveilEffect, DrawEffect, FightEffect, DestroyAllEffect, and 40+ more
+        // Forge effect classes, across 1,100+ cards scripted with `Optional$ True`
+        // — always silently answering "Yes", never asking. confirmTrigger already
+        // routes the equivalent triggered "you may" through OptionalActionGate;
+        // do the same here.
+        return optionalActionGate.await(
+            hostCard = hostCard,
+            defaultOnTimeout = true,
+            logContext = "confirmAction",
+            customPromptId = PromptIds.OPTIONAL_ACTION,
+        )
+    }
+
+    private fun isParityChoice(options: List<String>): Boolean {
+        if (options.size != 2) return false
+        val ids = options.map { StaticChoiceIds.parityIdForName(it) }
+        return ids.all { it != null } && ids.toSet().size == 2
     }
 
     override fun confirmTrigger(wrapper: WrappedAbility): Boolean {
@@ -612,9 +641,9 @@ class PlayerController(
             wrapper.hostCard?.effectSource?.hasKeyword("Paradigm") == true
 
     private fun isParadigmCopyCast(sa: SpellAbility?): Boolean =
-        sa?.isCastFromPlayEffect == true &&
+        sa != null &&
             sa.hasParam("WithoutManaCost") &&
-            isParadigmCopyCard(sa.hostCard)
+            (isParadigmCopyCard(sa.hostCard) || sa.hostCard?.effectSource?.hasKeyword("Paradigm") == true)
 
     private fun isParadigmCopyCard(card: Card?): Boolean = card?.isToken == true && card.copiedPermanent?.hasKeyword("Paradigm") == true
 
@@ -637,18 +666,18 @@ class PlayerController(
             return true
         }
 
-        // PCHuman's version uses InputConfirm (desktop-only). Route through bridge.
-        val request =
-            PromptRequest(
-                promptType = "confirm",
-                message = question,
-                options = listOf("Yes", "No"),
-                min = 1,
-                max = 1,
-                defaultIndex = 0,
-            )
-        val result = bridge.requestChoice(request)
-        return result.firstOrNull() == 0
+        // The bare PromptRequest below (no semantic/route) resolved to
+        // ResolvedPromptRoute.AutoResolve — a synchronous default with no prompt
+        // ever reaching the client — so every optional/alternative cost part
+        // (PlaySpellAbility: "Do you want to discard your hand?", "...pay {N}?",
+        // "...exile N cards from your library?", "...spend N energy counters?", and
+        // more) was silently paid every time, before the caster ever saw a prompt.
+        return optionalActionGate.await(
+            hostCard = sa.hostCard,
+            defaultOnTimeout = true,
+            logContext = "confirmPayment",
+            customPromptId = PromptIds.OPTIONAL_ACTION,
+        )
     }
 
     override fun confirmReplacementEffect(
@@ -801,18 +830,18 @@ class PlayerController(
     ): String? = staticChoiceCoordinator.chooseSomeType(kindOfType, sa, validTypes, isOptional)
 
     override fun willPutCardOnTop(c: Card): Boolean {
-        // PCHuman uses InputConfirm
-        val request =
-            PromptRequest(
-                promptType = "confirm",
-                message = "Put ${c.name} on top or bottom of library?",
-                options = listOf("Top", "Bottom"),
-                min = 1,
-                max = 1,
-                defaultIndex = 0,
-            )
-        val result = bridge.requestChoice(request)
-        return result.firstOrNull() == 0
+        // The bare PromptRequest this used to build (no semantic/route) resolved to
+        // ResolvedPromptRoute.AutoResolve — a synchronous default with no prompt
+        // ever reaching the client — so every Clash decision was silently forced
+        // to stay on top. Arena frames this as "Put that card on the bottom of
+        // your library?" (verified against its card database), the inverse sense
+        // of this method's return value.
+        return !optionalActionGate.await(
+            hostCard = c,
+            defaultOnTimeout = false,
+            logContext = "willPutCardOnTop",
+            customPromptId = PromptIds.CLASH_PUT_ON_BOTTOM,
+        )
     }
 
     // -- Zone ordering ----------------------------------------------------

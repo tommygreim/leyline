@@ -89,9 +89,23 @@ class CascadeDiscoverProjectionTest :
             puzzle = PUZZLE,
         ) {
             val before = messageSnapshot()
-            holdNextOptionalAction()
-            val cast = castSpellByName("Bloodbraid Elf")
-            cast shouldBe true
+            val castMsg =
+                leyline.testkit.performAction {
+                    actionType = ActionType.Cast
+                    instanceId = bridge.instanceId(human.hand.card("Bloodbraid Elf"))
+                    grpId = bridge.cardRepository.findGrpIdByName("Bloodbraid Elf")!!
+                }
+            send(submitWithGsId(castMsg))
+            allMessages.addAll(sink.messages)
+            accumulator.processAll(sink.messages)
+            sink.clear()
+            // PlayEffect's single-castable-option branch now asks "Do you want to
+            // play Llanowar Elves?" before playSaFromPlayEffect's own free-cast
+            // gate — accept it.
+            send(submitWithGsId(leyline.testkit.optionalActionResp(true)))
+            allMessages.addAll(sink.messages)
+            accumulator.processAll(sink.messages)
+            sink.clear()
 
             val bbeGrpId = bridge.cardRepository.findGrpIdByName("Bloodbraid Elf")!!
             val projectedStates = messagesSince(before).gameStateMessages()
@@ -177,8 +191,23 @@ class CascadeDiscoverProjectionTest :
             puzzle = DISCOVER_PUZZLE,
         ) {
             val before = messageSnapshot()
-            holdNextOptionalAction()
-            castSpellByName("Geological Appraiser") shouldBe true
+            val castMsg =
+                leyline.testkit.performAction {
+                    actionType = ActionType.Cast
+                    instanceId = bridge.instanceId(human.hand.card("Geological Appraiser"))
+                    grpId = bridge.cardRepository.findGrpIdByName("Geological Appraiser")!!
+                }
+            send(submitWithGsId(castMsg))
+            allMessages.addAll(sink.messages)
+            accumulator.processAll(sink.messages)
+            sink.clear()
+            // PlayEffect's single-castable-option branch now asks "Do you want to
+            // play Llanowar Elves?" before playSaFromPlayEffect's own free-cast
+            // gate — accept it.
+            send(submitWithGsId(leyline.testkit.optionalActionResp(true)))
+            allMessages.addAll(sink.messages)
+            accumulator.processAll(sink.messages)
+            sink.clear()
 
             val projectedStates = messagesSince(before).gameStateMessages()
             val appraiser =

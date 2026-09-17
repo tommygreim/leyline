@@ -92,6 +92,11 @@ object PromptIds {
      *  Loc text: "Put N +1/+1 counters on this creature?" — Yes = counters, No = Spirit token. */
     const val ENDURE_PUT_COUNTERS = 13976
 
+    /** Clash resolution "put that card on the bottom of your library?" (OptionalActionMessage).
+     *  Verified against Arena's card database. Yes = bottom, No = stays on top —
+     *  the inverse sense of `willPutCardOnTop`'s return value. */
+    const val CLASH_PUT_ON_BOTTOM = 3183
+
     /** Semantically neutral card/entity selection — "Choose items." */
     const val SELECT_N = 97
 
