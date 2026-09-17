@@ -136,6 +136,31 @@ object PromptIds {
     /** Pay-cost-via-select for "exile N from graveyard" — Escape's additional cost. */
     const val CHOOSE_OR_COST_PAY_EXILE_FROM_GRAVE = 5500
 
+    /** Pay-cost-via-select for "discard a card" (one card; the only count this
+     *  keyword uses as an alternate additional cost, e.g. Bitter Triumph's
+     *  `AlternateAdditionalCost:PayLife<3>:Discard<1/Card>`). Same text as
+     *  [DISCARD_COST]; verified against Arena's card database (promptId 1024
+     *  -> "Discard a card."). */
+    const val CHOOSE_OR_COST_DISCARD = DISCARD_COST
+
+    /** Pay-cost-via-select for "pay N life", keyed by N. Verified against Arena's
+     *  card database: each promptId's loc text is "Pay {N} life." — a statement,
+     *  matching the other CHOOSE_OR_COST_* constants, not the "Pay {N} life?"
+     *  question form used elsewhere. Covers every PayLife<N> amount seen in an
+     *  AlternateAdditionalCost line across the card pool (3, 4, 5). */
+    val CHOOSE_OR_COST_PAY_LIFE =
+        mapOf(
+            1 to 4215,
+            2 to 4271,
+            3 to 4275,
+            4 to 4249,
+            5 to 4214,
+            6 to 4327,
+            7 to 4326,
+            10 to 7022,
+            50 to 4244,
+        )
+
     /** Collect Evidence cost picker — "Exile any number of cards with total mana value N or greater." */
     const val COLLECT_EVIDENCE_COST = 12727
 

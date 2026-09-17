@@ -7,6 +7,7 @@ import leyline.bridge.coord.DeferredCastRejection
 import leyline.bridge.coord.DeferredCastResponse
 import leyline.bridge.coord.MatchActionWindowRuntime
 import leyline.game.bundle.CastingTimeOptionsBuilder
+import leyline.game.mapping.PromptIds
 import org.slf4j.LoggerFactory
 import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionsReq
 import wotc.mtgo.gre.external.messaging.Messages.ClientToGREMessage
@@ -176,14 +177,20 @@ internal class DeferredCastCostInteractionHandler(
     fun checkAlternateAdditionalCostChoice(actionClaim: MatchActionWindowRuntime.ActionClaim): Boolean {
         val plan = actionClaim.deferredCostPlan ?: return false
         val alternate = plan.alternate ?: return false
-        val optionPromptIds = alternate.choices.map { it.promptId }
+        // The client indexes SelectNReq.Ids straight into Prompt.Parameters with no
+        // bounds check (CastingTimeOption_ChooseOrCostRequest's constructor) — one Ids
+        // entry beyond Parameters.size throws there, and that throw drops the whole
+        // incoming message, hanging the game on whatever card triggered it. Every
+        // choice needs *a* parameter, so a branch we can't label precisely still gets
+        // a generic one rather than leaving Parameters short.
+        val optionPromptIds = alternate.choices.map { it.promptId ?: PromptIds.SELECT_N }
         val (ctoReq, ctoIds) =
             CastingTimeOptionsBuilder.buildChooseOrCostCastingTimeOptionsReq(
                 instanceId = plan.instanceId,
                 grpId = plan.grpId,
                 playerIdToPrompt = counters.seatId.value,
                 optionCount = alternate.choices.size,
-                optionPromptIds = if (optionPromptIds.all { it != null }) optionPromptIds.filterNotNull() else emptyList(),
+                optionPromptIds = optionPromptIds,
             )
         ctx.bridge.cutCoordinator.deferredCast.publishAlternate(
             claim = actionClaim,

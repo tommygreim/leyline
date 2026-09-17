@@ -4,6 +4,8 @@ import forge.card.mana.ManaCost
 import forge.game.GameActionUtil
 import forge.game.card.Card
 import forge.game.cost.CostBlight
+import forge.game.cost.CostDiscard
+import forge.game.cost.CostPayLife
 import forge.game.keyword.Keyword
 import forge.game.spellability.OptionalCost
 import forge.game.spellability.SpellAbility
@@ -157,11 +159,24 @@ internal object DeferredCastCostPlanMaterializer {
         // neutral until their exact structured cost can be materialized.
         if (costs.isOnlyManaCost) return null
         val parts = costs.costParts.map { it.javaClass.simpleName }
+        // A branch not covered by any case below returns null, not a guess:
+        // an imprecise but valid fallback is filled in by the caller, since an
+        // unfilled slot here is a client crash (see checkAlternateAdditionalCostChoice).
         return when {
             costs.costParts.any { it is CostBlight } -> PromptIds.CHOOSE_OR_COST_PAY_BLIGHT
             parts.any { it.contains("Sacrifice") } -> PromptIds.CHOOSE_OR_COST_PAY_SACRIFICE
             parts.any { it.contains("Exile") } -> PromptIds.CHOOSE_OR_COST_PAY_EXILE_FROM_GRAVE
-            else -> null
+            costs.costParts
+                .filterIsInstance<CostDiscard>()
+                .singleOrNull()
+                ?.convertAmount() == 1 ->
+                PromptIds.CHOOSE_OR_COST_DISCARD
+            else ->
+                costs.costParts
+                    .filterIsInstance<CostPayLife>()
+                    .singleOrNull()
+                    ?.convertAmount()
+                    ?.let { PromptIds.CHOOSE_OR_COST_PAY_LIFE[it] }
         }
     }
 

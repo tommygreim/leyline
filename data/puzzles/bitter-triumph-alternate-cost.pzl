@@ -1,0 +1,37 @@
+# Design Narrative
+# Mechanic: Select an AlternateAdditionalCost branch on Bitter Triumph
+#   (K:AlternateAdditionalCost:PayLife<3>:Discard<1/Card>), neither of which
+#   is a Sacrifice/Exile/Blight cost — the only branch shapes the request
+#   builder could previously label.
+# Forcing: Grizzly Bears in hand is the only card available to discard.
+# AI behavior: The scripted human path has one spell target and one cost choice.
+# Failure modes:
+#   WIN = the spell and the selected additional-cost branch resolve normally.
+#   LOSE = the cast, cost-choice, or targeting prompt did not resume the game.
+#   TIMEOUT = the CastingTimeOptionsReq never receives a client response — the
+#     defect this fixture guards: an unlabeled SelectNReq option index throws
+#     client-side (CastingTimeOption_ChooseOrCostRequest indexes straight into
+#     Prompt.Parameters with no bounds check) and hangs the match.
+# Card roles:
+#   Bitter Triumph — exposes the PayLife-or-Discard additional-cost branch.
+#   Grizzly Bears — the only discardable card; also proves the hand size drops.
+#   Centaur Courser — deterministic destroy target.
+# Protocol path: Cast, CastingTimeOptionsReq, SelectTargetsReq, CastingTimeOption.
+[metadata]
+Name:Bitter Triumph Alternate Cost
+Goal:Win
+Turns:2
+Difficulty:Easy
+Description:Choose an additional-cost branch and destroy Centaur Courser.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+
+humanhand=Bitter Triumph;Grizzly Bears
+humanbattlefield=Swamp;Swamp
+humanlibrary=Swamp
+aibattlefield=Centaur Courser
+ailibrary=Mountain

@@ -35,9 +35,13 @@ class BlightLifecycleTest :
             assertSoftly {
                 option.castingTimeOptionType shouldBe CastingTimeOptionType.ChooseOrCost
                 option.isRequired shouldBe true
-                option.selectNReq.prompt.promptId shouldBe PromptIds.SELECT_N
+                option.selectNReq.prompt.promptId shouldBe PromptIds.CHOOSE_OR_COST
+                // The mana-only branch ("pay {3}") isn't labeled with a card-specific
+                // prompt (see DeferredCastCostPlanMaterializer), but it still needs a
+                // real Prompt.Parameters entry: the client indexes idsList straight into
+                // this list with no bounds check, so a short list crashes the client.
                 option.selectNReq.prompt.parametersList
-                    .shouldBeEmpty()
+                    .map { it.promptId } shouldBe listOf(PromptIds.CHOOSE_OR_COST_PAY_BLIGHT, PromptIds.SELECT_N)
                 option.selectNReq.idsList shouldBe listOf(1, 2)
             }
 

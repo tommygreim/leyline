@@ -86,8 +86,12 @@ class EatenAliveInteractionTest :
                 option.castingTimeOptionType shouldBe CastingTimeOptionType.ChooseOrCost
                 option.isRequired shouldBe true
                 option.grpId shouldBe action.grpId
-                option.selectNReq.prompt.promptId shouldBe PromptIds.SELECT_N
-                option.selectNReq.prompt.parametersList shouldBe emptyList()
+                option.selectNReq.prompt.promptId shouldBe PromptIds.CHOOSE_OR_COST
+                // The mana-only branch ("pay {4}") isn't labeled with a card-specific
+                // prompt, but it still needs a real Prompt.Parameters entry: the client
+                // indexes idsList straight into this list with no bounds check.
+                option.selectNReq.prompt.parametersList
+                    .map { it.promptId } shouldBe listOf(PromptIds.CHOOSE_OR_COST_PAY_SACRIFICE, PromptIds.SELECT_N)
                 option.selectNReq.idsList shouldBe listOf(1, 2)
             }
 
