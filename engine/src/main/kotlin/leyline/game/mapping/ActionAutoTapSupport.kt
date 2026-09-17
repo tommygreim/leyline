@@ -18,6 +18,13 @@ import forge.game.zone.ZoneType as ForgeZoneType
  * Preserve the client-visible mana details here: predictive ids start at 10,
  * snow sources carry `FromSnow`, mana ability ids match the tapped source, and
  * two-generic hybrid costs may be paid either by color or by two generic mana.
+ *
+ * `X` is not part of that cost. The caster picks it, its minimum is zero, and no
+ * source produces "X" mana, so treating it as a colored requirement leaves every
+ * X spell unsolvable. That matters beyond auto-tap: the client's
+ * `Action.CanAffordToCast` treats a cast action with no `AutoTapSolution` and a
+ * cost that is not entirely `X` as unaffordable, and `HighlightUtil` then gives it
+ * `HighlightType.None` — so the card never lights up in hand.
  */
 internal object ActionAutoTapSupport {
     private const val INITIAL_MANA_ID = 10
@@ -49,7 +56,7 @@ internal object ActionAutoTapSupport {
 
         val usedSourceInstanceIds = mutableSetOf<Int>()
         val matched = mutableListOf<Pair<ManaSource, ManaColor>>()
-        val coloredReqs = manaCost.filter { it.first != ManaColor.Generic }
+        val coloredReqs = manaCost.filter { it.first != ManaColor.Generic && it.first != ManaColor.X }
         val genericReqs = manaCost.filter { it.first == ManaColor.Generic }
 
         for ((reqColor, reqCount) in coloredReqs) {
@@ -96,7 +103,7 @@ internal object ActionAutoTapSupport {
             if (hybridColor != null) {
                 hybridRequirements.add(hybridColor)
             } else {
-                ManaColorMapping.fromShard(shard)?.let(coloredRequirements::add)
+                ManaColorMapping.fromShard(shard)?.takeIf { it != ManaColor.X }?.let(coloredRequirements::add)
             }
         }
 

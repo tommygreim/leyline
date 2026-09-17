@@ -351,6 +351,35 @@ class LandManaTest :
             }
         }
 
+        test("an X spell still gets an autoTapSolution for its colored pips") {
+            // Traumatic Critique {X}{U}{R}. No source produces "X" mana, so counting X
+            // as a colored requirement leaves the solution unsolvable and the action
+            // ships without one. The client then reads Action.CanAffordToCast as false
+            // (the cost is not entirely X) and HighlightUtil never lights the card in
+            // hand — the defect seen at 2:07 of the 2026-09-16 screencast.
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Traumatic Critique", human, ZoneType.Hand)
+                    addCard("Island", human, ZoneType.Battlefield)
+                    addCard("Mountain", human, ZoneType.Battlefield)
+                }
+
+            val cast =
+                ActionMapper
+                    .buildFromSnapshot(1, GsmSnapshot.capture(board.game, board.bridge, "test", 0), board.bridge)
+                    .ofType(ActionType.Cast)
+                    .single()
+
+            assertSoftly {
+                cast.manaCostList.flatMap { it.colorList } shouldContain ManaColor.X
+                cast.hasAutoTapSolution().shouldBeTrue()
+                cast.autoTapSolution.autoTapActionsCount shouldBe 2
+                cast.autoTapSolution.autoTapActionsList
+                    .flatMap { it.manaPaymentOption.manaList }
+                    .map { it.color } shouldContainExactlyInAnyOrder listOf(ManaColor.Blue_afc9, ManaColor.Red_afc9)
+            }
+        }
+
         test("hybrid two-or-color autoTapSolution can use two generic for a missing color") {
             val board =
                 startWithBoard { _, human, _ ->
