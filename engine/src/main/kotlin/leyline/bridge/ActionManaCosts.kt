@@ -72,7 +72,7 @@ internal object ActionManaCosts {
                 }.toMutableList()
 
         fun canPayColor(color: ManaColor): Boolean {
-            val index = sourceColors.indexOfFirst { ManaColor.Generic in it || color in it }
+            val index = sourceColors.indexOfFirst { ManaColor.Generic in it || ManaColor.AnyColor in it || color in it }
             if (index >= 0) {
                 sourceColors.removeAt(index)
                 return true
@@ -108,7 +108,7 @@ internal object ActionManaCosts {
         val sourceColors = availableManaSourceColors(player).toMutableList()
 
         fun canPayColor(color: ManaColor): Boolean {
-            val index = sourceColors.indexOfFirst { ManaColor.Generic in it || color in it }
+            val index = sourceColors.indexOfFirst { ManaColor.Generic in it || ManaColor.AnyColor in it || color in it }
             if (index < 0) return false
             sourceColors.removeAt(index)
             return true
@@ -145,7 +145,10 @@ internal object ActionManaCosts {
         fun canPayColor(
             sourceIndex: Int,
             color: ManaColor,
-        ): Boolean = ManaColor.Generic in sourceColors[sourceIndex] || color in sourceColors[sourceIndex]
+        ): Boolean =
+            ManaColor.Generic in sourceColors[sourceIndex] ||
+                ManaColor.AnyColor in sourceColors[sourceIndex] ||
+                color in sourceColors[sourceIndex]
 
         fun payGeneric(
             needed: Int,

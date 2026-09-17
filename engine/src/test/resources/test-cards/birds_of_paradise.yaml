@@ -1,0 +1,12 @@
+name: "Birds of Paradise"
+grpId: 91888
+titleId: 2690
+abilities:
+  - id: 8
+    textId: 46
+    category: 3
+  - id: 1055
+    textId: 227440
+    category: 1
+    subCategory: 1
+expansionCode: "BLC"

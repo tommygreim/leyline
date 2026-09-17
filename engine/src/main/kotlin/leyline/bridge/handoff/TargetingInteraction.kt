@@ -52,6 +52,10 @@ data class TargetingWindowValue(
     val forgeAbilityId: Int,
     val isActivatedAbility: Boolean = false,
     val stackAbilityGrpId: Int = 0,
+    /** True when the targeting ability is Forge's `ApiType.Counter` ("counter
+     *  target spell/ability") — the client renders a distinct highlight color
+     *  (`HighlightType.Counterspell`) for stack targets in that case. */
+    val isCounterspell: Boolean = false,
 ) {
     init {
         require(targetIndex > 0)

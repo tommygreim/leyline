@@ -166,7 +166,10 @@ internal object ActionAutoTapSupport {
         if (reqColor == ManaColor.Snow_afc9) {
             src.fromSnow
         } else {
-            reqColor == ManaColor.Generic || src.color == ManaColor.Generic || src.color == reqColor
+            reqColor == ManaColor.Generic ||
+                src.color == ManaColor.Generic ||
+                src.color == ManaColor.AnyColor ||
+                src.color == reqColor
         }
 
     private fun collectManaSources(context: ActionBuildContext): List<ManaSource> {

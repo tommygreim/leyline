@@ -112,6 +112,37 @@ class StackTargetingInteractionTest :
         }
 
         session(
+            "Counterspell highlights its stack target with HighlightType.Counterspell",
+            fullControl = true,
+            puzzle = """
+                ActivePlayer=Human
+                ActivePhase=Main1
+                HumanLife=20
+                AILife=20
+
+                humanhand=Shock;Counterspell
+                humanbattlefield=Mountain;Island;Island
+                humanlibrary=Mountain;Mountain;Mountain
+                ailibrary=Plains;Plains;Plains
+                """,
+        ) {
+            castSpellByName("Shock").shouldBeTrue()
+            selectTargets(listOf(OPPONENT_SEAT))
+
+            castSpellByName("Counterspell").shouldBeTrue()
+            val shockTarget = latestTargetIidByCardName("Shock")
+
+            val target =
+                allMessages
+                    .last { it.hasSelectTargetsReq() }
+                    .selectTargetsReq
+                    .targetsList
+                    .flatMap { it.targetsList }
+                    .single { it.targetInstanceId == shockTarget }
+            target.highlight shouldBe wotc.mtgo.gre.external.messaging.Messages.HighlightType.Counterspell
+        }
+
+        session(
             "Make Disappear without Casualty counters the only stack spell",
             fullControl = true,
             puzzle = """

@@ -169,7 +169,7 @@ internal class TargetingWindowMaterializer(
                             .newBuilder()
                             .setTargetInstanceId(instanceId)
                             .setLegalAction(SelectAction.Select_a1ad)
-                            .setHighlight(candidate.highlight(window.chooserSeatId)),
+                            .setHighlight(candidate.highlight(window.chooserSeatId, window.isCounterspell)),
                     )
             }
         }
@@ -201,11 +201,16 @@ internal class TargetingWindowMaterializer(
                 ]?.value
         }
 
-    private fun TargetingCandidateValue.highlight(chooserSeatId: leyline.bridge.types.SeatId): HighlightType =
+    private fun TargetingCandidateValue.highlight(
+        chooserSeatId: leyline.bridge.types.SeatId,
+        isCounterspell: Boolean,
+    ): HighlightType =
         when (this) {
             is TargetingCandidateValue.Card -> HighlightType.Tepid
             is TargetingCandidateValue.Player -> if (seatId == chooserSeatId) HighlightType.Cold else HighlightType.Hot
-            is TargetingCandidateValue.StackObject -> HighlightType.Tepid
+            // A stack target for a "counter target spell/ability" effect gets
+            // its own highlight color, distinct from an ordinary spell target.
+            is TargetingCandidateValue.StackObject -> if (isCounterspell) HighlightType.Counterspell else HighlightType.Tepid
         }
 
     private fun targetPrompt(

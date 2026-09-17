@@ -46,7 +46,13 @@ object ManaColorMapping {
             "R" -> ManaColor.Red_afc9
             "G" -> ManaColor.Green_afc9
             "C" -> ManaColor.Colorless_afc9
-            "ANY" -> ManaColor.Generic
+            // The client's own AnyColorSelection expands a single AnyColor tag
+            // into a real WUBRG picker client-side — it does not need this
+            // server to enumerate five ManaPaymentOptions itself. Previously
+            // tagged Generic, which collapsed an "add one mana of any color"
+            // source (Birds of Paradise, ...) into what looks like a plain
+            // colorless/generic-only producer. See ISSUES.md I43.
+            "ANY" -> ManaColor.AnyColor
             else -> null
         }
 

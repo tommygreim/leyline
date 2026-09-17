@@ -19,13 +19,13 @@ class ProducedToManaColorTest :
                 ActionMapper.producedToManaColor("B") shouldBe ManaColor.Black_afc9
                 ActionMapper.producedToManaColor("G") shouldBe ManaColor.Green_afc9
                 ActionMapper.producedToManaColor("C") shouldBe ManaColor.Colorless_afc9
-                ActionMapper.producedToManaColor("ANY") shouldBe ManaColor.Generic
+                ActionMapper.producedToManaColor("ANY") shouldBe ManaColor.AnyColor
             }
         }
 
         test("case insensitive") {
             ActionMapper.producedToManaColor("r") shouldBe ManaColor.Red_afc9
-            ActionMapper.producedToManaColor("any") shouldBe ManaColor.Generic
+            ActionMapper.producedToManaColor("any") shouldBe ManaColor.AnyColor
         }
 
         test("unknown returns null") {

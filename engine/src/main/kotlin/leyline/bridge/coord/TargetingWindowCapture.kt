@@ -1,6 +1,7 @@
 package leyline.bridge.coord
 
 import forge.game.GameEntity
+import forge.game.ability.ApiType
 import forge.game.spellability.SpellAbility
 import leyline.bridge.handoff.PromptRequest
 import leyline.bridge.handoff.TargetingCandidateValue
@@ -82,6 +83,7 @@ internal class TargetingWindowCapture(
             forgeAbilityId = targetingAbility?.id ?: request.forgeAbilityId,
             isActivatedAbility = targetingAbility?.rootAbility?.isActivatedAbility == true,
             stackAbilityGrpId = abilityIdentity?.abilityGrpId ?: 0,
+            isCounterspell = targetingAbility?.api == ApiType.Counter,
         )
     }
 
