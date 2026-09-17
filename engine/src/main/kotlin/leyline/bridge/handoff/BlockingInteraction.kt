@@ -1,6 +1,7 @@
 package leyline.bridge.handoff
 
 import leyline.bridge.types.ForgeCardId
+import wotc.mtgo.gre.external.messaging.Messages.CardMechanicType
 import kotlin.ConsistentCopyVisibility
 
 /** Immutable engine-thread request presented before a blocking interaction waits. */
@@ -12,6 +13,10 @@ sealed interface BlockingInteraction {
         val commanderReturn: CommanderReturnPromptContext?,
         val freeCast: FreeCast? = null,
         val etbPayLifeReplacement: Boolean = false,
+        /** Client workflow hint (`OptionalActionMessage.optionalActionTypes`) — e.g.
+         *  Explore routes to a dedicated browser only when this is set. Null keeps
+         *  the message tag-free, same as before this field existed. */
+        val mechanicType: CardMechanicType? = null,
     ) : BlockingInteraction
 
     data class FreeCast(

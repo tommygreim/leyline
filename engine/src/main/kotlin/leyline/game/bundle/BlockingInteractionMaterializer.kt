@@ -55,7 +55,9 @@ internal class BlockingInteractionMaterializer(
                     .newBuilder()
                     .setSourceId(sourceId)
                     .setPrompt(prompt)
-                    .build()
+                    .apply {
+                        interaction.mechanicType?.let { addOptionalActionTypes(it) }
+                    }.build()
             val link = counter.nextGameStateLink()
             val pending = pendingMessage(link)
             BundleBuilder.BundleResult(

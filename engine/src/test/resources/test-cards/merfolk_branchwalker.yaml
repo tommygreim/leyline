@@ -1,0 +1,9 @@
+name: "Merfolk Branchwalker"
+grpId: 66363
+titleId: 173916
+abilities:
+  - id: 116886
+    textId: 934171
+    category: 2
+    subCategory: 8
+expansionCode: "XLN"

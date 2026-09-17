@@ -2,6 +2,7 @@ package leyline.bridge.handoff
 
 import forge.game.card.Card
 import leyline.bridge.types.ForgeCardId
+import wotc.mtgo.gre.external.messaging.Messages.CardMechanicType
 
 /**
  * Narrow access surface exposed by [PlayerController] to coordinators and helpers.
@@ -49,8 +50,12 @@ class OptionalActionGate(
      * @param defaultOnTimeout the value to return if the future times out (true for
      *   sites where auto-accepting is the safe fallback, false where auto-declining is)
      * @param logContext human-readable tag for timeout log lines (e.g. the override name)
+     * @param mechanicType client workflow hint (`OptionalActionMessage.optionalActionTypes`) —
+     *   set only when the caller knows which specialized browser this confirmation should
+     *   route to (e.g. Explore); null leaves the message untagged, same as before this
+     *   parameter existed.
      */
-    @Suppress("UnusedParameter")
+    @Suppress("UnusedParameter", "LongParameterList")
     fun await(
         hostCard: Card?,
         forceSnapshotBeforePrompt: Boolean = false,
@@ -60,6 +65,7 @@ class OptionalActionGate(
         commanderReturn: CommanderReturnPromptContext? = null,
         freeCast: BlockingInteraction.FreeCast? = null,
         etbPayLifeReplacement: Boolean = false,
+        mechanicType: CardMechanicType? = null,
     ): Boolean {
         if (hostCard == null) return true
         return interactionRuntime.awaitOptional(
@@ -70,6 +76,7 @@ class OptionalActionGate(
                 commanderReturn = commanderReturn,
                 freeCast = freeCast,
                 etbPayLifeReplacement = etbPayLifeReplacement,
+                mechanicType = mechanicType,
             ),
             sourceCard = hostCard,
             timeoutMs = actionBridge?.getTimeoutMs(),

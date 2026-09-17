@@ -87,6 +87,7 @@ import leyline.game.data.KeywordAbilityIds
 import leyline.game.mapping.PromptIds
 import org.apache.commons.lang3.tuple.ImmutablePair
 import org.slf4j.LoggerFactory
+import wotc.mtgo.gre.external.messaging.Messages.CardMechanicType
 import java.util.function.Predicate
 
 /**
@@ -514,11 +515,18 @@ class PlayerController(
         // — always silently answering "Yes", never asking. confirmTrigger already
         // routes the equivalent triggered "you may" through OptionalActionGate;
         // do the same here.
+        //
+        // Explore ("reveal top card; if nonland, put a +1/+1 counter or you may
+        // put it in the graveyard") tags CardMechanicType.Explore so the client
+        // picks its dedicated ExploreWorkflow instead of the generic fallback
+        // (confirmed by reading OptionalActionTranslation.Translate in the
+        // decompiled client — it dispatches on this exact tag; see ISSUES.md I42).
         return optionalActionGate.await(
             hostCard = hostCard,
             defaultOnTimeout = true,
             logContext = "confirmAction",
             customPromptId = PromptIds.OPTIONAL_ACTION,
+            mechanicType = if (sa?.api == ApiType.Explore) CardMechanicType.Explore else null,
         )
     }
 
