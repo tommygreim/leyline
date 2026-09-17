@@ -1357,6 +1357,14 @@ object StateMapper {
         }
     }
 
+    /**
+     * The combat step that follows a damage step, as Arena reports it: first strike
+     * damage leads to ordinary damage (5 of its turnInfo objects), ordinary damage to
+     * end of combat (6). Those are the only two steps `combatDamageStep` returns.
+     */
+    private fun stepAfterDamage(damageStep: Step): Step =
+        if (damageStep == Step.FirstStrikeDamage_a2cb) Step.CombatDamage_a2cb else Step.EndCombat_a2cb
+
     /** Assemble the final GameStateMessage proto from computed components. */
     @Suppress("LongParameterList")
     private fun assembleGsm(
@@ -1377,11 +1385,16 @@ object StateMapper {
     ): GameStateMessage {
         val effectiveTurnInfo =
             if (combatResult.hasCombatDamage) {
+                // The damage frame rewinds phase/step to the step the damage happened in,
+                // so the next phase from the live snapshot no longer follows it. Arena
+                // points a damage step at the next one in combat.
                 frame
                     .turnInfo()
                     .toBuilder()
                     .setPhase(Phase.Combat_a549)
                     .setStep(combatResult.damageStep)
+                    .setNextPhase(Phase.Combat_a549)
+                    .setNextStep(stepAfterDamage(combatResult.damageStep))
             } else {
                 frame.turnInfo().toBuilder()
             }
