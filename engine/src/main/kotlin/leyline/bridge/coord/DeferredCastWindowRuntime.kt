@@ -335,7 +335,13 @@ internal class DeferredCastWindowRuntime(
             ctoIds.toList(),
             entries
                 .mapIndexedNotNull { index, entry ->
-                    entry.abilityGrpId.takeIf { entry.type == CastingTimeOptionType.AdditionalCost }?.let { ctoIds[index] to it }
+                    // OptionalCost.type-based entries (Kicker excepted) stash their
+                    // abilityGrpId here regardless of which CastingTimeOptionType they
+                    // render as (AdditionalCost, Bargain, ...) — keyword-based entries
+                    // (keywordName != null) use keywordCostsByCtoId below instead.
+                    entry.abilityGrpId
+                        .takeIf { entry.keywordName == null && entry.type != CastingTimeOptionType.Kicker }
+                        ?.let { ctoIds[index] to it }
                 }.toMap(),
             entries.mapIndexedNotNull { index, entry -> entry.keywordName?.let { ctoIds[index] to it } }.toMap(),
         )

@@ -4,6 +4,7 @@ import forge.game.Game
 import forge.game.card.Card
 import forge.game.combat.CombatUtil
 import forge.game.player.Player
+import forge.game.staticability.StaticAbilityMustAttack
 import leyline.bridge.types.SeatId
 import leyline.bridge.types.opponent
 import leyline.game.data.KeywordAbilityIds
@@ -94,11 +95,13 @@ object RequestBuilder {
         instanceId: Int,
         legalRecipients: List<DamageRecipient>,
         alternativeGrpId: Int = 0,
+        mustAttack: Boolean = false,
     ): Attacker.Builder =
         Attacker
             .newBuilder()
             .setAttackerInstanceId(instanceId)
             .addAllLegalDamageRecipients(legalRecipients)
+            .setMustAttack(mustAttack)
             .apply {
                 if (alternativeGrpId != 0) setAlternativeGrpId(alternativeGrpId)
             }
@@ -121,6 +124,7 @@ object RequestBuilder {
     ): DeclareAttackersReq {
         val player = bridge.getPlayer(seatId) ?: return DeclareAttackersReq.getDefaultInstance()
         val builder = DeclareAttackersReq.newBuilder()
+        var hasRequirements = false
 
         for (card in player.getZone(ForgeZoneType.Battlefield).cards) {
             if (!card.isCreature) continue
@@ -132,15 +136,19 @@ object RequestBuilder {
             val selectedAlternativeGrpId = committedAttackAlternatives[instanceId] ?: 0
             val legalRecipients = legalAttackDamageRecipients(player, card, seatId, bridge)
             if (legalRecipients.isEmpty()) continue
+            // Forge's own InputAttack nags the player the same way: a
+            // creature entitiesMustAttack() lists is forced into combat.
+            val mustAttack = StaticAbilityMustAttack.entitiesMustAttack(card).isNotEmpty()
+            if (mustAttack) hasRequirements = true
 
-            val attacker = buildAttackerOption(instanceId, legalRecipients)
+            val attacker = buildAttackerOption(instanceId, legalRecipients, mustAttack = mustAttack)
             if (isCommitted && selectedAlternativeGrpId == 0) {
                 attacker.setSelectedDamageRecipient(selectedAttackDamageRecipient(instanceId, seatId, committedDamageRecipients))
             }
             builder.addAttackers(attacker)
 
             if (hasEnlist) {
-                val enlistAttacker = buildAttackerOption(instanceId, legalRecipients, KeywordAbilityIds.ENLIST)
+                val enlistAttacker = buildAttackerOption(instanceId, legalRecipients, KeywordAbilityIds.ENLIST, mustAttack)
                 if (isCommitted && selectedAlternativeGrpId == KeywordAbilityIds.ENLIST) {
                     enlistAttacker.setSelectedDamageRecipient(selectedAttackDamageRecipient(instanceId, seatId, committedDamageRecipients))
                 }
@@ -148,10 +156,15 @@ object RequestBuilder {
             }
 
             // qualifiedAttackers never has selectedDamageRecipient
-            builder.addQualifiedAttackers(buildAttackerOption(instanceId, legalRecipients))
-            if (hasEnlist) builder.addQualifiedAttackers(buildAttackerOption(instanceId, legalRecipients, KeywordAbilityIds.ENLIST))
+            builder.addQualifiedAttackers(buildAttackerOption(instanceId, legalRecipients, mustAttack = mustAttack))
+            if (hasEnlist) {
+                builder.addQualifiedAttackers(
+                    buildAttackerOption(instanceId, legalRecipients, KeywordAbilityIds.ENLIST, mustAttack),
+                )
+            }
         }
         builder.setCanSubmitAttackers(true)
+        builder.setHasRequirements(hasRequirements)
         // Conformance: client expects an empty manaCost entry entry.
         builder.addManaCost(ManaRequirement.getDefaultInstance())
 
@@ -175,6 +188,7 @@ object RequestBuilder {
         val player = bridge.getPlayer(seatId) ?: return DeclareBlockersReq.getDefaultInstance()
         val combat = game.phaseHandler.combat ?: return DeclareBlockersReq.getDefaultInstance()
         val builder = DeclareBlockersReq.newBuilder()
+        var hasRequirements = false
 
         for (card in player.getZone(ForgeZoneType.Battlefield).cards) {
             if (!card.isCreature) continue
@@ -186,11 +200,17 @@ object RequestBuilder {
             if (legalAttackers.isEmpty()) continue
 
             val instanceId = bridge.instanceId(card)
+            // Same check Forge's own InputBlock/validateBlocks uses to nag the
+            // player: this creature is forced to block one of its requirement
+            // attackers unless something already excuses it (lure satisfied, etc.).
+            val mustBlock = CombatUtil.mustBlockAnAttacker(card, combat, null)
+            if (mustBlock) hasRequirements = true
             val blocker =
                 Blocker
                     .newBuilder()
                     .setBlockerInstanceId(instanceId)
                     .setMaxAttackers(1)
+                    .setMustBlock(mustBlock)
 
             val assignedAttacker = blockerAssignments[instanceId]
             if (assignedAttacker != null) {
@@ -201,6 +221,7 @@ object RequestBuilder {
             }
             builder.addBlockers(blocker)
         }
+        builder.setHasRequirements(hasRequirements)
         // Conformance: client expects empty manaCost
         builder.addManaCost(ManaRequirement.getDefaultInstance())
 

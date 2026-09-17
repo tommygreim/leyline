@@ -895,6 +895,7 @@ object ActionMapper {
                     abilityCost = CastDisplayCost.of(ability, player) ?: ability.payCosts?.totalMana,
                     canPay = canPay,
                     envelope = ActivatedActionEmitter.Envelope.ABILITY_ONLY,
+                    nonManaCosts = ability.payCosts,
                     onActive = { action ->
                         addOffer(
                             action,

@@ -383,6 +383,7 @@ enum class AcceptanceCastingTimeOption(
     Kicker("kicker"),
     AdditionalCost("additional_cost"),
     Bargain("bargain"),
+    Casualty("casualty"),
     Cleave("cleave"),
     Overload("overload"),
     Blight("blight"),

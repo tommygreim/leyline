@@ -77,11 +77,7 @@ internal object DeferredCastCostPlanMaterializer {
             } else {
                 val entries =
                     optionalCosts.mapIndexed { index, cost ->
-                        val type =
-                            when (cost.type) {
-                                OptionalCost.Kicker1, OptionalCost.Kicker2 -> CastingTimeOptionType.Kicker
-                                else -> CastingTimeOptionType.AdditionalCost
-                            }
+                        val type = optionalCostType(cost.type)
                         val abilityGrpId =
                             if (cost.type == OptionalCost.Bargain || cost.type == OptionalCost.Teamwork) {
                                 card
@@ -96,7 +92,7 @@ internal object DeferredCastCostPlanMaterializer {
                         keywordCosts.map { name ->
                             val slot = card.findKeywordSlot(name, keywordCount)
                             val abilityGrpId = slot?.let { cardData?.abilityIds?.getOrNull(it)?.first } ?: 0
-                            DeferredCastCostPlan.OptionalCostEntry(CastingTimeOptionType.AdditionalCost, abilityGrpId, name)
+                            DeferredCastCostPlan.OptionalCostEntry(keywordCostType(name), abilityGrpId, name)
                         }
                 DeferredCastCostPlan.optional(entries, cardData?.manaCost.orEmpty())
             }
@@ -139,6 +135,35 @@ internal object DeferredCastCostPlanMaterializer {
 
     private fun Card.binaryKeywordCosts(): List<String> =
         keywords.mapNotNull { keyword -> keyword.keyword?.takeIf { it in binaryKeywordCostNames }?.toString() }
+
+    private fun optionalCostType(type: OptionalCost): CastingTimeOptionType =
+        when (type) {
+            OptionalCost.Kicker1, OptionalCost.Kicker2 -> CastingTimeOptionType.Kicker
+            OptionalCost.Bargain -> CastingTimeOptionType.Bargain
+            OptionalCost.Buyback,
+            OptionalCost.Entwine,
+            OptionalCost.PromiseGift,
+            OptionalCost.Retrace,
+            OptionalCost.Jumpstart,
+            OptionalCost.Offering,
+            OptionalCost.Teamwork,
+            OptionalCost.ReduceW,
+            OptionalCost.ReduceU,
+            OptionalCost.ReduceB,
+            OptionalCost.ReduceR,
+            OptionalCost.ReduceG,
+            OptionalCost.AltCost,
+            OptionalCost.Flash,
+            OptionalCost.Generic,
+            -> CastingTimeOptionType.AdditionalCost
+        }
+
+    private fun keywordCostType(keywordName: String): CastingTimeOptionType =
+        when (keywordName) {
+            Keyword.CASUALTY.toString() -> CastingTimeOptionType.Casualty
+            Keyword.CONSPIRE.toString() -> CastingTimeOptionType.Conspire
+            else -> CastingTimeOptionType.AdditionalCost
+        }
 
     private fun Card.findKeywordSlot(
         keywordName: String,

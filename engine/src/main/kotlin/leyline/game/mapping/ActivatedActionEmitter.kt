@@ -6,6 +6,7 @@ import forge.game.cost.CostTap
 import forge.game.player.Player
 import forge.game.spellability.SpellAbility
 import leyline.bridge.ActionAvailability
+import leyline.bridge.ActionCostParts
 import leyline.bridge.ActionManaCosts
 import leyline.bridge.getNonManaActivatedAbilities
 import leyline.bridge.getPlayableManaAbilities
@@ -94,6 +95,7 @@ internal object ActivatedActionEmitter {
                 autoTapSolution = autoTap,
                 canPay = canPay,
                 envelope = envelope,
+                nonManaCosts = ability.payCosts,
                 onActive = { action -> onActive(action, abilityIndex, ability, abilityGrpId) },
             )
         }
@@ -110,6 +112,7 @@ internal object ActivatedActionEmitter {
         autoTapSolution: AutoTapSolution? = null,
         canPay: Boolean,
         envelope: Envelope,
+        nonManaCosts: forge.game.cost.Cost? = null,
         onActive: (Action) -> Unit = {},
     ) {
         val actionBuilder =
@@ -130,6 +133,7 @@ internal object ActivatedActionEmitter {
         if ((!canPay || envelope.activeManaCost) && abilityCost != null && !abilityCost.isNoCost) {
             ActionManaCosts.addManaCostFromForge(abilityCost, actionBuilder, abilityGrpId)
         }
+        actionBuilder.addAllCosts(ActionCostParts.of(nonManaCosts))
         autoTapSolution?.let(actionBuilder::setAutoTapSolution)
         if (canPay) {
             val action = actionBuilder.build()

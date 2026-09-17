@@ -21,6 +21,7 @@ internal fun AcceptanceCastingTimeOption.toProtoType(): CastingTimeOptionType =
         AcceptanceCastingTimeOption.Kicker -> CastingTimeOptionType.Kicker
         AcceptanceCastingTimeOption.AdditionalCost -> CastingTimeOptionType.AdditionalCost
         AcceptanceCastingTimeOption.Bargain -> CastingTimeOptionType.Bargain
+        AcceptanceCastingTimeOption.Casualty -> CastingTimeOptionType.Casualty
         AcceptanceCastingTimeOption.Cleave -> CastingTimeOptionType.CastThroughAbility
         AcceptanceCastingTimeOption.Overload -> CastingTimeOptionType.CastThroughAbility
         AcceptanceCastingTimeOption.Blight -> CastingTimeOptionType.ChooseOrCost

@@ -460,7 +460,7 @@ scenarios:
       - expect:
           action: { type: cast, card: Rowan's Grim Search }
       - cast: Rowan's Grim Search
-      - choose: { optional_cost: additional_cost }
+      - choose: { optional_cost: bargain }
       - select_cost: { zone: battlefield, cards: [Manalith] }
       - expect:
           all:
@@ -474,7 +474,7 @@ scenarios:
       - expect:
           action: { type: cast, card: Cut Your Losses }
       - cast: Cut Your Losses
-      - choose: { optional_cost: additional_cost }
+      - choose: { optional_cost: casualty }
       - target: opponent
       - select_cost: { zone: battlefield, cards: [Grizzly Bears] }
       - target: opponent
@@ -503,7 +503,7 @@ scenarios:
       - expect:
           action: { type: cast, card: Make Disappear }
       - cast: Make Disappear
-      - choose: { optional_cost: additional_cost }
+      - choose: { optional_cost: casualty }
       - target: { side: ours, zone: stack, card: Lightning Bolt }
       - select_cost: { zone: battlefield, cards: [Grizzly Bears] }
       - pass_until:
