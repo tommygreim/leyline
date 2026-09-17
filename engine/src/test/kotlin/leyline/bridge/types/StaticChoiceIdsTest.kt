@@ -35,4 +35,18 @@ class StaticChoiceIdsTest :
                 StaticChoiceIds.parityIdForName("Odds") shouldBe 1
             }
         }
+
+        test("maps Forge card-type names to CardType static ids, distinct from the subtype domain") {
+            assertSoftly {
+                StaticChoiceIds.cardTypeIdFor("Artifact") shouldBe 1
+                StaticChoiceIds.cardTypeIdFor("Creature") shouldBe 2
+                StaticChoiceIds.cardTypeIdFor("Enchantment") shouldBe 3
+                StaticChoiceIds.cardTypeIdFor("Instant") shouldBe 4
+                StaticChoiceIds.cardTypeIdFor("Land") shouldBe 5
+                StaticChoiceIds.cardTypeIdFor("Sorcery") shouldBe 10
+                // "Creature" is a card type, not a subtype (subtypes are things
+                // like "Goblin") — the two domains use unrelated numbering.
+                StaticChoiceIds.subtypeIdFor("Creature") shouldBe null
+            }
+        }
     })

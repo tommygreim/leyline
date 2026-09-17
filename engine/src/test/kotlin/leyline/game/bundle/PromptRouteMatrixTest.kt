@@ -126,6 +126,8 @@ class PromptRouteMatrixTest :
                         staticChoice(PromptSemantic.StaticParityChoice, StaticChoiceKind.Parity),
                     PromptSemantic.StaticKeywordChoice to
                         staticChoice(PromptSemantic.StaticKeywordChoice, StaticChoiceKind.Keyword),
+                    PromptSemantic.StaticCardTypeChoice to
+                        staticChoice(PromptSemantic.StaticCardTypeChoice, StaticChoiceKind.CardType),
                 )
 
             PromptSemantic.entries

@@ -1,5 +1,6 @@
 package leyline.bridge.types
 
+import wotc.mtgo.gre.external.messaging.Messages.CardType
 import wotc.mtgo.gre.external.messaging.Messages.SubType
 
 /** Arena static-list ids used by enum-domain SelectN prompts. */
@@ -11,6 +12,17 @@ object StaticChoiceIds {
             .filter { it.name != "UNRECOGNIZED" }
             .filter { it.number > 0 }
             .filterNot { it.name.startsWith("PlaceholderSubType") }
+            .associateBy(
+                keySelector = { normalize(it.name.substringBefore('_')) },
+                valueTransform = { it.number },
+            )
+
+    private val cardTypeByKey: Map<String, Int> =
+        CardType
+            .values()
+            .asSequence()
+            .filter { it.name != "UNRECOGNIZED" }
+            .filter { it.number > 0 }
             .associateBy(
                 keySelector = { normalize(it.name.substringBefore('_')) },
                 valueTransform = { it.number },
@@ -28,6 +40,9 @@ object StaticChoiceIds {
         }
 
     fun subtypeIdFor(typeName: String): Int? = subtypeByKey[normalize(typeName)]
+
+    /** Forge's `CoreType` name ("Creature", "Kindred", …) to the proto `CardType` id. */
+    fun cardTypeIdFor(typeName: String): Int? = cardTypeByKey[normalize(typeName)]
 
     private fun normalize(value: String): String = value.filter { it.isLetterOrDigit() }.lowercase()
 }

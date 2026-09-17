@@ -55,7 +55,7 @@ internal class StaticChoiceWindowMaterializer {
             .newBuilder()
             .setContext(SelectionContext.Resolution_a163)
             .setListType(
-                if (window.kind == StaticChoiceKind.Subtype || window.kind == StaticChoiceKind.Keyword) {
+                if (isExplicitSubset(window.kind)) {
                     SelectionListType.StaticSubset
                 } else {
                     SelectionListType.Static
@@ -70,10 +70,14 @@ internal class StaticChoiceWindowMaterializer {
             .setPrompt(Prompt.newBuilder())
             .apply {
                 window.sourceForgeCardId?.let { sourceId = context.requiredInstanceId(it, "StaticChoice source") }
-                if (window.kind == StaticChoiceKind.Subtype || window.kind == StaticChoiceKind.Keyword) {
+                if (isExplicitSubset(window.kind)) {
                     addAllIds(window.options.map { it.protocolValue })
                 }
             }.build()
+
+    /** Open-ended domains where `validTypes` is a narrowed subset, not the whole enum. */
+    private fun isExplicitSubset(kind: StaticChoiceKind): Boolean =
+        kind == StaticChoiceKind.Subtype || kind == StaticChoiceKind.Keyword || kind == StaticChoiceKind.CardType
 
     private fun staticList(kind: StaticChoiceKind): StaticList =
         when (kind) {
@@ -81,6 +85,7 @@ internal class StaticChoiceWindowMaterializer {
             StaticChoiceKind.Subtype -> StaticList.SubTypes
             StaticChoiceKind.Parity -> StaticList.Parities
             StaticChoiceKind.Keyword -> StaticList.Keywords
+            StaticChoiceKind.CardType -> StaticList.CardTypes
         }
 
     private fun outerPromptId(kind: StaticChoiceKind): Int =
@@ -89,6 +94,7 @@ internal class StaticChoiceWindowMaterializer {
             StaticChoiceKind.Subtype,
             StaticChoiceKind.Parity,
             StaticChoiceKind.Keyword,
+            StaticChoiceKind.CardType,
             -> PromptIds.CHOOSE_TYPE
         }
 }

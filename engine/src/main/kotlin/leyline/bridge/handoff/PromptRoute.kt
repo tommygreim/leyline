@@ -180,6 +180,7 @@ enum class StaticChoiceKind {
     Subtype,
     Parity,
     Keyword,
+    CardType,
 }
 
 data class StaticChoicePromptRoute(
@@ -318,6 +319,8 @@ object PromptRouteResolver {
                 staticChoice(semantic, StaticChoiceKind.Parity)
             PromptSemantic.StaticKeywordChoice ->
                 staticChoice(semantic, StaticChoiceKind.Keyword)
+            PromptSemantic.StaticCardTypeChoice ->
+                staticChoice(semantic, StaticChoiceKind.CardType)
             PromptSemantic.SelectNCostSacrifice -> payCosts(semantic, PayCostsRouteKind.Sacrifice, "sacrifice")
             PromptSemantic.SelectNCostExileFromGrave ->
                 payCosts(semantic, PayCostsRouteKind.SelectCostExileFromGrave, "exile-from-grave")

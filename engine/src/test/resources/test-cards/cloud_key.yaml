@@ -1,0 +1,11 @@
+name: "Cloud Key"
+grpId: 82811
+titleId: 14938
+abilities:
+  - id: 91623
+    textId: 961531
+    category: 3
+  - id: 3381
+    textId: 14941
+    category: 3
+expansionCode: "BRR"

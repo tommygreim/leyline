@@ -154,10 +154,22 @@ class StaticChoiceCoordinator(
         validTypes: Collection<String>,
         isOptional: Boolean,
     ): String? {
+        // "Card" (ChooseTypeEffect's Type$ Card — Artifact/Creature/Land/...) is
+        // a different id domain from every other kindOfType (creature/land/
+        // artifact subtypes, all part of the same SubType space): subtypeIdFor
+        // never matches a card-type name, so before this every "Card" choice
+        // silently fell through to the no-choices branch below and picked the
+        // first valid type with no prompt at all. Everything else keeps using
+        // SubTypes — creature-type names genuinely are Forge subtypes, so that
+        // domain is already correct for them.
+        val isCardType = kindOfType == "Card"
+        val staticList = if (isCardType) StaticList.CardTypes else StaticList.SubTypes
+        val idFor: (String) -> Int? = if (isCardType) StaticChoiceIds::cardTypeIdFor else StaticChoiceIds::subtypeIdFor
+        val semantic = if (isCardType) PromptSemantic.StaticCardTypeChoice else PromptSemantic.StaticSubtypeChoice
         val choices =
             validTypes
                 .sorted()
-                .mapNotNull { type -> StaticChoiceIds.subtypeIdFor(type)?.let { id -> type to id } }
+                .mapNotNull { type -> idFor(type)?.let { id -> type to id } }
         if (choices.isEmpty()) return if (isOptional) null else validTypes.firstOrNull()
 
         val idx =
@@ -169,9 +181,9 @@ class StaticChoiceCoordinator(
                     min = if (isOptional) 0 else 1,
                     max = 1,
                     defaultIndex = 0,
-                    route = PromptRouteResolver.resolve(PromptSemantic.StaticSubtypeChoice),
+                    route = PromptRouteResolver.resolve(semantic),
                     sourceEntityId = sourceEntityId(sa),
-                    staticList = StaticList.SubTypes,
+                    staticList = staticList,
                     staticOptionIds = choices.map { it.second },
                 ),
             ).firstOrNull()

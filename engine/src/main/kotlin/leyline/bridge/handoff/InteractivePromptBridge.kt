@@ -851,6 +851,9 @@ enum class PromptSemantic {
 
     /** Static enum choice: choose a keyword via `StaticList_Keywords`. */
     StaticKeywordChoice,
+
+    /** Static enum choice: choose a card type via `StaticList_CardTypes`. */
+    StaticCardTypeChoice,
 }
 
 /**

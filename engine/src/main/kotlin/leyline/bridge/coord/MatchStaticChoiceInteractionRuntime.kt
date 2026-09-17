@@ -147,5 +147,6 @@ internal class MatchStaticChoiceInteractionRuntime(
             StaticChoiceKind.Subtype -> StaticList.SubTypes.number
             StaticChoiceKind.Parity -> StaticList.Parities.number
             StaticChoiceKind.Keyword -> StaticList.Keywords.number
+            StaticChoiceKind.CardType -> StaticList.CardTypes.number
         }
 }
