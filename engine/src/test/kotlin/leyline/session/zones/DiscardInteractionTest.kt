@@ -3,6 +3,7 @@ package leyline.session.zones
 import io.kotest.assertions.assertSoftly
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.kotest.matchers.ints.shouldBeInRange
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -294,5 +295,44 @@ class DiscardInteractionTest :
                     .filter { it.message.contains("iscard", ignoreCase = true) }
             discardPrompts shouldHaveSize 1
             discardPrompts.first().outcome shouldBe PromptCallStatus.RESPONDED
+        }
+
+        // --- Unless-type discard (Winternight Stories: discard 2, or 1 if a creature) ---
+
+        session(
+            "unless-type discard reaches a real prompt and honors the single-creature branch",
+            puzzleFile = "data/puzzles/winternight-stories-unless-discard.pzl",
+            turns = 2,
+        ) {
+            // TargetingCoordinator.chooseCardsToDiscardUnlessType previously built its own
+            // PromptRequest with no candidateRefs and the Generic semantic, which resolves
+            // to no coordinator-owned runtime: bridge.requestChoice silently returned its
+            // default index and the discard was never actually asked of the player.
+            castSpellByName("Winternight Stories") shouldBe true
+            passUntilResolved(maxPasses = 8)
+
+            val req = lastSelectNReq()
+            val bearId = findInstanceId(req.idsList, "Grizzly Bears")
+            respondToSelectN(listOf(bearId))
+
+            assertSoftly {
+                req.minSel shouldBe 1
+                req.maxSel shouldBe 2
+                req.idsList shouldHaveSize 3
+
+                // Discarding a single creature satisfies the unless clause: 3 drawn - 1
+                // discarded, not 3 - 2.
+                human.getZone(ForgeZoneType.Hand).cards.filter { it.name == "Grizzly Bears" } shouldHaveSize 2
+                human.getZone(ForgeZoneType.Graveyard).cards.filter { it.name == "Grizzly Bears" } shouldHaveSize 1
+
+                // A real interactive round trip, not a silently defaulted choice.
+                val discardPrompts =
+                    bridge
+                        .promptBridge(SeatId(1))
+                        .history
+                        .filter { it.message.contains("discard", ignoreCase = true) }
+                discardPrompts.shouldNotBeEmpty()
+                discardPrompts.last().outcome shouldBe PromptCallStatus.RESPONDED
+            }
         }
     })

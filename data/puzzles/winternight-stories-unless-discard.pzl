@@ -1,0 +1,35 @@
+# Design Narrative
+# Mechanic: Winternight Stories's post-draw discard —
+#   DB$ Discard | Defined$ You | NumCards$ 2 | Mode$ TgtChoose | UnlessType$ Creature
+#   — discard 2 cards, unless one of them is a creature, in which case a single
+#   creature card is enough.
+# Failure modes:
+#   WIN = the spell resolves and the discard is answered by a real client choice.
+#   LOSE = the cast did not complete before the turn limit.
+#   TIMEOUT = the discard prompt never receives a client response — the defect
+#     this fixture guards: chooseCardsToDiscardUnlessType built its own bare
+#     PromptRequest with no candidateRefs and the Generic semantic, which
+#     resolves to no coordinator-owned runtime, so the choice was silently
+#     auto-decided with no prompt ever reaching the client.
+# Card roles:
+#   Winternight Stories — draws 3, then exposes the unless-type discard.
+#   Grizzly Bears — every card the draw can produce is a creature, so the
+#     "unless" branch is reachable regardless of library draw order.
+# Protocol path: Cast, ActionsAvailableReq, SelectNReq (discard).
+[metadata]
+Name:Winternight Stories Unless-Type Discard
+Goal:Win
+Turns:2
+Difficulty:Easy
+Description:Cast Winternight Stories, draw three, discard one creature to satisfy the unless clause.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+
+humanhand=Winternight Stories
+humanbattlefield=Island;Island;Island
+humanlibrary=Grizzly Bears;Grizzly Bears;Grizzly Bears
+ailibrary=Mountain

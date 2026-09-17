@@ -537,30 +537,23 @@ class TargetingCoordinator(
         hand: CardCollectionView,
         param: Array<String>,
         sa: SpellAbility,
-    ): CardCollectionView {
-        val labels =
-            hand.map { card ->
-                val isMatchingType = card.isValid(param, sa.activatingPlayer, sa.hostCard, sa)
-                if (isMatchingType) "${card.name} (${param.joinToString("/")})" else card.name
-            }
-        val request =
-            PromptRequest(
-                promptType = "choose_cards",
-                message = "Choose $min card(s) to discard (or pick a ${param.joinToString("/")} to reveal)",
-                options = labels,
-                min = 1,
-                max = min,
-                defaultIndex = 0,
-            )
-        val indices = bridge.requestChoice(request)
-        val handList = hand.toList()
-        val result = CardCollection()
-        for (idx in indices) {
-            val card = handList.getOrNull(idx) ?: continue
-            result.add(card)
-        }
-        return result
-    }
+    ): CardCollectionView =
+        // Same TgtChoose discard family as chooseCardsToDiscardFrom (DiscardEffect.java's
+        // adjacent branch), just with the extra "or discard one matching card instead"
+        // escape hatch — route it the same way. The previous hand-rolled PromptRequest
+        // skipped candidateRefs and left semantic at its Generic default, which resolves
+        // to no coordinator-owned runtime: bridge.requestChoice returned its default
+        // index with no prompt ever reaching the client (Winternight Stories, reported
+        // live — the discard was silently auto-chosen).
+        chooseCardsViaBridge(
+            hand,
+            min = 1,
+            max = min,
+            "Choose $min card(s) to discard (or discard a single ${param.joinToString("/")} instead)",
+            semantic = PromptSemantic.SelectNDiscardEffect,
+            candidateRefs = buildCandidateRefs(hand),
+            sourceEntityId = sa.hostCard?.id,
+        )
 
     // -- Reveal ------------------------------------------------------------
 
