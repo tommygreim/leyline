@@ -15,6 +15,8 @@ data class ReplacementOptionValue(
 data class ReplacementWindowValue(
     val options: List<ReplacementOptionValue>,
     val defaultOptionIndex: Int,
+    /** True when every option is a Dredge replacement — wire signal for `SelectReplacementsType.AllDredge`. */
+    val allDredge: Boolean = false,
 ) {
     init {
         require(options.size >= 2) { "Replacement selection requires at least two options" }
