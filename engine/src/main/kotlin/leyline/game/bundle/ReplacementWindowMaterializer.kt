@@ -7,6 +7,7 @@ import wotc.mtgo.gre.external.messaging.Messages.GREMessageType
 import wotc.mtgo.gre.external.messaging.Messages.Prompt
 import wotc.mtgo.gre.external.messaging.Messages.ReplacementEffect
 import wotc.mtgo.gre.external.messaging.Messages.SelectReplacementReq
+import wotc.mtgo.gre.external.messaging.Messages.SelectReplacementsType
 
 /** Value-only GRE preparation for one settled competing-replacement window. */
 internal class ReplacementWindowMaterializer {
@@ -18,7 +19,12 @@ internal class ReplacementWindowMaterializer {
         require(rows.map { it.replacementEffectId }.distinct().size == rows.size) {
             "Replacement rows have colliding request-local effect ids"
         }
-        val request = SelectReplacementReq.newBuilder().addAllReplacements(rows).build()
+        val request =
+            SelectReplacementReq
+                .newBuilder()
+                .addAllReplacements(rows)
+                .apply { if (window.allDredge) setReplacementsType(SelectReplacementsType.AllDredge) }
+                .build()
         val state =
             context.gameState
                 .toBuilder()

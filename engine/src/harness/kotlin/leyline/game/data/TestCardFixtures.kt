@@ -39,7 +39,7 @@ object TestCardFixtures {
         val titleId: Int,
         val expansionCode: String,
         val abilities: List<Ability>,
-        val hiddenAbilities: List<Pair<Int, Int>> = emptyList(),
+        val hiddenAbilities: List<Ability> = emptyList(),
         val tokens: Map<Int, Int>,
         val linkedFaceType: Int,
         val linkedFaces: List<Int>,
@@ -149,7 +149,10 @@ object TestCardFixtures {
                 (raw["abilities"] as? List<*>).orEmpty().mapIndexed { i, entry ->
                     parseAbility(i, entry as Map<String, Any?>)
                 },
-            hiddenAbilities = parseAbilityPairs(raw["hiddenAbilities"] as? List<*>),
+            hiddenAbilities =
+                (raw["hiddenAbilities"] as? List<*>).orEmpty().mapIndexed { i, entry ->
+                    parseHiddenAbility(i, entry as Map<String, Any?>)
+                },
             tokens = parseTokens(raw["tokens"] as? Map<*, *>),
             linkedFaceType = (raw["linkedFaceType"] as? Number)?.toInt() ?: 0,
             linkedFaces = (raw["linkedFaces"] as? List<*>).orEmpty().map { (it as Number).toInt() },
@@ -183,14 +186,28 @@ object TestCardFixtures {
             key to (v as Number).toInt()
         }
 
+    /**
+     * Hidden ability entry — same shape as [parseAbility], but `category` is
+     * optional (defaults to 0/"unknown"). Most hidden abilities are simple
+     * id:textId presence pairs; a few (e.g. a keyword granted onto other
+     * cards, like The Necrobloom's Dredge grant) need `baseId`/`category` too
+     * so [CardRepository.findKeywordAbilityGrpId]'s BaseId-chain check can
+     * resolve them.
+     */
     @Suppress("UNCHECKED_CAST")
-    private fun parseAbilityPairs(raw: List<*>?): List<Pair<Int, Int>> =
-        raw.orEmpty().mapIndexed { i, entry ->
-            val m = entry as? Map<String, Any?> ?: error("hiddenAbilities[$i] is not a mapping")
-            val id = (m["id"] as? Number)?.toInt() ?: error("hiddenAbilities[$i].id missing")
-            val textId = (m["textId"] as? Number)?.toInt() ?: error("hiddenAbilities[$i].textId missing")
-            id to textId
-        }
+    private fun parseHiddenAbility(
+        i: Int,
+        m: Map<String, Any?>,
+    ): Identity.Ability =
+        Identity.Ability(
+            id = (m["id"] as? Number)?.toInt() ?: error("hiddenAbilities[$i].id missing"),
+            textId = (m["textId"] as? Number)?.toInt() ?: error("hiddenAbilities[$i].textId missing"),
+            category = (m["category"] as? Number)?.toInt() ?: 0,
+            subCategory = (m["subCategory"] as? Number)?.toInt() ?: 0,
+            baseId = (m["baseId"] as? Number)?.toInt() ?: 0,
+            activationMana = parseManaCost((m["mana"] as? String).orEmpty()),
+            modalChildren = (m["modalChildren"] as? List<*>).orEmpty().map { (it as Number).toInt() },
+        )
 
     @Suppress("UNCHECKED_CAST")
     private fun parseRules(raw: Map<String, Any?>): Rules? {

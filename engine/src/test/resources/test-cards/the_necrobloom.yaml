@@ -1,0 +1,16 @@
+name: "The Necrobloom"
+grpId: 91044
+titleId: 760611
+abilities:
+  - id: 172426
+    textId: 870468
+    category: 2
+  - id: 172427
+    textId: 760613
+    category: 3
+hiddenAbilities:
+  - id: 1328
+    textId: 3287
+    category: 3
+    baseId: 53
+expansionCode: "MH3"

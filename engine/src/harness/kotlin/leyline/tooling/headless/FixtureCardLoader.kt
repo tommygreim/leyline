@@ -146,7 +146,7 @@ object FixtureCardLoader {
         repo: InMemoryCardRepository,
         identity: TestCardFixtures.Identity,
     ) {
-        for (ab in identity.abilities) {
+        for (ab in identity.abilities + identity.hiddenAbilities) {
             repo.registerAbilityInfo(ab.id, AbilityInfo(ab.baseId, ab.activationMana, ab.category, ab.subCategory))
             if (ab.modalChildren.isNotEmpty()) {
                 repo.registerModalOptions(identity.grpId, ModalAbilityInfo(ab.id, ab.modalChildren))

@@ -69,7 +69,12 @@ interface CardRepository {
      *    keywordAbilityId`. Used for alt-cost keywords (Warp, Sneak,
      *    Flashback, Madness) where each printing has its own ability row
      *    with a per-printing mana cost, all chained to the keyword's
-     *    well-known base id.
+     *    well-known base id. Checked against both [CardData.abilityIds] and
+     *    [CardData.hiddenAbilityIds] — a keyword granted onto other cards by
+     *    a static ability (e.g. The Necrobloom's "land cards in your
+     *    graveyard have dredge 2") carries its per-amount ability row
+     *    (`AddKeyword$ Dredge:2`'s "Dredge 2") on the granting card's own
+     *    hidden abilities, not the affected card's own printed data.
      */
     fun findKeywordAbilityGrpId(
         cardGrpId: Int,
@@ -81,7 +86,7 @@ interface CardRepository {
             if (abilityGrpId == keywordAbilityId) return abilityGrpId
         }
         // BaseId chain
-        for ((abilityGrpId, _) in data.abilityIds) {
+        for ((abilityGrpId, _) in data.abilityIds + data.hiddenAbilityIds) {
             val info = findAbilityInfo(abilityGrpId) ?: continue
             if (info.baseId == keywordAbilityId) return abilityGrpId
         }
@@ -202,6 +207,17 @@ object KeywordAbilityIds {
     const val KICKER = 34
     const val FLASHBACK = 35
     const val MADNESS = 36
+
+    /**
+     * No Arena card prints Dredge directly (Golgari Grave-Troll, Stinkweed
+     * Imp, etc. aren't in Arena's card pool). The Necrobloom (MH3) is the
+     * only source: its own static ability grants `Dredge:2` to land cards
+     * in the graveyard, and that granted keyword's per-amount ability row
+     * ("Dredge 2", id 1328) lives in The Necrobloom's own hidden abilities,
+     * chained via BaseId to this root (id 53, TextId "Dredge") — verified
+     * against Arena's card database, same BaseId-root shape as [MADNESS].
+     */
+    const val DREDGE = 53
     const val RETRACE = 82
     const val EVOKE = 75
     const val OVERLOAD = 97
