@@ -73,6 +73,7 @@ internal class TargetingWindowCapture(
                                     ref.index,
                                     ForgeCardId(ref.entityId),
                                     zoneId(ref.zone, cardOwnerSeat(ForgeCardId(ref.entityId))),
+                                    hasExistingRole = hasExistingRole(ForgeCardId(ref.entityId)),
                                 )
                             PromptCandidateKind.Player ->
                                 playerSeat(ref.entityId)?.let { TargetingCandidateValue.Player(ref.index, it) }
@@ -227,6 +228,14 @@ internal class TargetingWindowCapture(
         owner.bridge.findCard(cardId)?.owner?.let { cardOwner ->
             if (cardOwner == owner.bridge.getPlayer(SeatId(1))) SeatId(1) else SeatId(2)
         } ?: runtimeSeat
+
+    /** True when the candidate already has a Role-type Aura attached (CR 702.166) —
+     *  targeting it will replace that Role, which the client highlights distinctly. */
+    private fun hasExistingRole(cardId: ForgeCardId): Boolean =
+        owner.bridge
+            .findCard(cardId)
+            ?.attachedCards
+            ?.any { it.type.hasSubtype("Role") } == true
 
     private fun playerSeat(entityId: Int): SeatId? = listOf(SeatId(1), SeatId(2)).firstOrNull { owner.bridge.getPlayer(it)?.id == entityId }
 

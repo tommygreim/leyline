@@ -206,7 +206,11 @@ internal class TargetingWindowMaterializer(
         isCounterspell: Boolean,
     ): HighlightType =
         when (this) {
-            is TargetingCandidateValue.Card -> HighlightType.Tepid
+            // A candidate that already has a Role attached gets its own highlight
+            // color — targeting it will replace the existing Role (CR 702.166),
+            // and the client renders distinct copy ("Select Cold Role Targets")
+            // for that case instead of the ordinary target-confirmation flow.
+            is TargetingCandidateValue.Card -> if (hasExistingRole) HighlightType.ReplaceRole else HighlightType.Tepid
             is TargetingCandidateValue.Player -> if (seatId == chooserSeatId) HighlightType.Cold else HighlightType.Hot
             // A stack target for a "counter target spell/ability" effect gets
             // its own highlight color, distinct from an ordinary spell target.

@@ -13,6 +13,7 @@ import leyline.game.mapping.FrameIdResolver
 import leyline.game.state.ProjectionState
 import leyline.game.state.ProjectionTransition
 import wotc.mtgo.gre.external.messaging.Messages.GameStateMessage
+import wotc.mtgo.gre.external.messaging.Messages.HighlightType
 
 class TargetingWindowMaterializerTest :
     FunSpec({
@@ -100,6 +101,61 @@ class TargetingWindowMaterializerTest :
                 .map { it.targetInstanceId }
                 .distinct()
                 .size shouldBe 3
+        }
+
+        test("card candidate with an existing Role gets ReplaceRole highlight; a plain card gets Tepid") {
+            val plainCardId = ForgeCardId(201)
+            val roleCardId = ForgeCardId(202)
+            val prior = ProjectionState.initial()
+            val editor = prior.editor()
+            val plainIid = editor.identities.getOrAlloc(plainCardId)
+            val roleIid = editor.identities.getOrAlloc(roleCardId)
+            val projection = editor.freeze()
+            val window =
+                TargetingWindowValue(
+                    sourceForgeCardId = ForgeCardId(1),
+                    sourceGrpId = 1,
+                    outerAbilityGrpId = 2,
+                    targetingAbilityGrpId = 3,
+                    targetSourceZoneId = 7,
+                    targetPromptId = null,
+                    targetIndex = 1,
+                    minTargets = 1,
+                    maxTargets = 2,
+                    chooserSeatId = SeatId(1),
+                    candidates =
+                        listOf(
+                            TargetingCandidateValue.Card(optionIndex = 0, forgeCardId = plainCardId, zoneId = 28),
+                            TargetingCandidateValue.Card(
+                                optionIndex = 1,
+                                forgeCardId = roleCardId,
+                                zoneId = 28,
+                                hasExistingRole = true,
+                            ),
+                        ),
+                    isTriggeredAbility = false,
+                    forgeAbilityId = 0,
+                )
+
+            val prepared =
+                TargetingWindowMaterializer(seatId = 1).initial(
+                    gameState = GameStateMessage.newBuilder().build(),
+                    gameStateId = 10,
+                    counter = LogicalSequencePlanner(),
+                    projection = projection,
+                    transition = ProjectionTransition(prior.revision, projection),
+                    window = window,
+                )
+            val targets =
+                prepared.bundle.messages
+                    .single { it.hasSelectTargetsReq() }
+                    .selectTargetsReq
+                    .targetsList
+                    .single()
+                    .targetsList
+
+            targets.single { it.targetInstanceId == plainIid.value }.highlight shouldBe HighlightType.Tepid
+            targets.single { it.targetInstanceId == roleIid.value }.highlight shouldBe HighlightType.ReplaceRole
         }
 
         test("missing stack projection identity fails publication") {

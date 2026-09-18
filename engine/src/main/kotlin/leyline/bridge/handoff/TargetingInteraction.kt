@@ -13,6 +13,10 @@ sealed interface TargetingCandidateValue {
         override val optionIndex: Int,
         val forgeCardId: ForgeCardId,
         val zoneId: Int,
+        /** True when this candidate already has a Role-type Aura attached — the
+         *  client highlights it distinctly (`HighlightType.ReplaceRole`) since
+         *  targeting it will replace the existing Role (CR 702.166). */
+        val hasExistingRole: Boolean = false,
     ) : TargetingCandidateValue
 
     data class Player(

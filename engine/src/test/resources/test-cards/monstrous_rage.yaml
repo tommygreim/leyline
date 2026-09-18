@@ -1,0 +1,10 @@
+name: "Monstrous Rage"
+grpId: 86843
+titleId: 731627
+abilities:
+  - id: 168860
+    textId: 731629
+    category: 4
+expansionCode: "WOE"
+tokens:
+  "168860": 87500
