@@ -1,0 +1,22 @@
+name: "Royal"
+grpId: 87498
+titleId: 738239
+abilities:
+  - id: 1027
+    textId: 605
+    category: 3
+  - id: 169814
+    textId: 738238
+    category: 3
+isToken: true
+isPrimaryCard: false
+power: ""
+toughness: ""
+colors: []
+types:
+  - 3
+subtypes:
+  - 6
+  - 417
+supertypes: []
+manaCost: ""

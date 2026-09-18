@@ -1,0 +1,10 @@
+name: "Royal Treatment"
+grpId: 86891
+titleId: 731767
+abilities:
+  - id: 168902
+    textId: 731769
+    category: 4
+expansionCode: "WOE"
+tokens:
+  "168902": 87498

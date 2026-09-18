@@ -1,0 +1,22 @@
+name: "Monster"
+grpId: 87500
+titleId: 738232
+abilities:
+  - id: 1027
+    textId: 605
+    category: 3
+  - id: 15269
+    textId: 23415
+    category: 3
+isToken: true
+isPrimaryCard: false
+power: ""
+toughness: ""
+colors: []
+types:
+  - 3
+subtypes:
+  - 6
+  - 417
+supertypes: []
+manaCost: ""
