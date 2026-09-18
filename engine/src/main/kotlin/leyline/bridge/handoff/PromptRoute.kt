@@ -237,6 +237,7 @@ data class TapPaymentDescriptor(
                 TapPaymentKind.TotalPower to 2 -> 8924
                 TapPaymentKind.TotalPower to 3 -> 8925
                 TapPaymentKind.TotalPower to 4 -> 8922
+                TapPaymentKind.TapExact to 1 -> 183
                 TapPaymentKind.TapExact to 2 -> 2595
                 TapPaymentKind.TapExact to 3 -> 3579
                 TapPaymentKind.UntapExact to 2 -> 8840

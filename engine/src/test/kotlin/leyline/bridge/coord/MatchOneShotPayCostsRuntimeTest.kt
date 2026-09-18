@@ -291,6 +291,7 @@ class MatchOneShotPayCostsRuntimeTest :
                     Triple(TapPaymentKind.TotalPower, 2, 8924),
                     Triple(TapPaymentKind.TotalPower, 3, 8925),
                     Triple(TapPaymentKind.TotalPower, 4, 8922),
+                    Triple(TapPaymentKind.TapExact, 1, 183),
                     Triple(TapPaymentKind.TapExact, 2, 2595),
                     Triple(TapPaymentKind.TapExact, 3, 3579),
                     Triple(TapPaymentKind.UntapExact, 2, 8840),
@@ -349,7 +350,6 @@ class MatchOneShotPayCostsRuntimeTest :
 
             assertSoftly {
                 TapPaymentDescriptor.grounded(TapPaymentKind.TotalPower, 5).shouldBeNull()
-                TapPaymentDescriptor.grounded(TapPaymentKind.TapExact, 1).shouldBeNull()
                 TapPaymentDescriptor.grounded(TapPaymentKind.UntapExact, 1).shouldBeNull()
             }
         }
