@@ -7,6 +7,7 @@ import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.shouldBe
 import leyline.bridge.handoff.PendingActionKind
 import leyline.bridge.types.SeatId
+import leyline.game.data.KeywordAbilityIds
 import leyline.game.mapping.PromptIds
 import leyline.testkit.MatchFlowHarness
 import leyline.testkit.SessionTest
@@ -146,6 +147,43 @@ class EnlistTrainingLifecycleTest :
                 powerToughnessMod.affectedIdsList shouldContain faithbonderIid
             }
         }
+
+        session("Exert attack alternative drives Forge's exert callback", puzzle = exertPuzzle) {
+            val glorybringerIid = human.battlefield.iid("Glorybringer")
+            val courserIid = ai.battlefield.iid("Centaur Courser")
+            advanceToAttackersReq()
+
+            val echo = toggleAttackers(listOf(glorybringerIid), mapOf(glorybringerIid to KeywordAbilityIds.EXERT))
+            val exertOption =
+                echo
+                    .first { it.hasDeclareAttackersReq() }
+                    .declareAttackersReq
+                    .attackersList
+                    .single {
+                        it.attackerInstanceId == glorybringerIid && it.alternativeGrpId == KeywordAbilityIds.EXERT
+                    }
+            exertOption.hasSelectedDamageRecipient().shouldBeTrue()
+
+            val triggerSnap = messageSnapshot()
+            submitAttackers()
+            passUntil(maxPasses = 10) { messagesSince(triggerSnap).any { it.hasSelectTargetsReq() } }.shouldBeTrue()
+            selectTargets(listOf(courserIid))
+            passUntilResolved(maxPasses = 10)
+
+            ai.graveyard.card("Centaur Courser").name shouldBe "Centaur Courser"
+        }
+
+        session("Normal attack does not exert Glorybringer", puzzle = exertPuzzle) {
+            val glorybringerIid = human.battlefield.iid("Glorybringer")
+            advanceToAttackersReq()
+
+            val attackSnap = messageSnapshot()
+            toggleAttackers(listOf(glorybringerIid))
+            submitAttackers()
+            passUntilResolved(maxPasses = 10)
+
+            messagesSince(attackSnap).filter { it.hasSelectTargetsReq() } shouldBe emptyList()
+        }
     }) {
     companion object {
         private fun MatchFlowHarness.advanceToAttackersReq() {
@@ -199,6 +237,26 @@ class EnlistTrainingLifecycleTest :
             humanbattlefield=Benalish Faithbonder;Centaur Courser
             humanlibrary=Plains;Plains;Plains
             ailibrary=Mountain;Mountain;Mountain
+            """.trimIndent()
+
+        private val exertPuzzle =
+            """
+            [metadata]
+            Name:Exert Glorybringer
+            Goal:Win
+            Turns:5
+
+            [state]
+            ActivePlayer=Human
+            ActivePhase=Main1
+            HumanLife=20
+            AILife=20
+            removesummoningsickness=true
+
+            humanbattlefield=Glorybringer
+            humanlibrary=Mountain;Mountain;Mountain
+            aibattlefield=Centaur Courser
+            ailibrary=Forest;Forest;Forest
             """.trimIndent()
     }
 }

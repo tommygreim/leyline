@@ -1,0 +1,14 @@
+name: "Glorybringer"
+grpId: 73935
+titleId: 76644
+abilities:
+  - id: 8
+    textId: 46
+    category: 3
+  - id: 9
+    textId: 101
+    category: 3
+  - id: 88118
+    textId: 76646
+    category: 3
+expansionCode: "AKR"

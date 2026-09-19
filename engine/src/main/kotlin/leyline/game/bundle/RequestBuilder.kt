@@ -3,6 +3,7 @@ package leyline.game.bundle
 import forge.game.Game
 import forge.game.card.Card
 import forge.game.combat.CombatUtil
+import forge.game.cost.CostExert
 import forge.game.player.Player
 import forge.game.staticability.StaticAbilityMustAttack
 import leyline.bridge.types.SeatId
@@ -132,6 +133,7 @@ object RequestBuilder {
 
             val instanceId = bridge.instanceId(card)
             val hasEnlist = card.hasKeyword("Enlist")
+            val hasExert = card.staticAbilities.any { it.hasAttackCost(card, CostExert::class.java) }
             val isCommitted = instanceId in committedAttackerIds
             val selectedAlternativeGrpId = committedAttackAlternatives[instanceId] ?: 0
             val legalRecipients = legalAttackDamageRecipients(player, card, seatId, bridge)
@@ -154,12 +156,24 @@ object RequestBuilder {
                 }
                 builder.addAttackers(enlistAttacker)
             }
+            if (hasExert) {
+                val exertAttacker = buildAttackerOption(instanceId, legalRecipients, KeywordAbilityIds.EXERT, mustAttack)
+                if (isCommitted && selectedAlternativeGrpId == KeywordAbilityIds.EXERT) {
+                    exertAttacker.setSelectedDamageRecipient(selectedAttackDamageRecipient(instanceId, seatId, committedDamageRecipients))
+                }
+                builder.addAttackers(exertAttacker)
+            }
 
             // qualifiedAttackers never has selectedDamageRecipient
             builder.addQualifiedAttackers(buildAttackerOption(instanceId, legalRecipients, mustAttack = mustAttack))
             if (hasEnlist) {
                 builder.addQualifiedAttackers(
                     buildAttackerOption(instanceId, legalRecipients, KeywordAbilityIds.ENLIST, mustAttack),
+                )
+            }
+            if (hasExert) {
+                builder.addQualifiedAttackers(
+                    buildAttackerOption(instanceId, legalRecipients, KeywordAbilityIds.EXERT, mustAttack),
                 )
             }
         }

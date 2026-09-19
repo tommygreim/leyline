@@ -1880,6 +1880,12 @@ class PlayerController(
         return CardCollection(selected)
     }
 
+    override fun exertAttackers(attackers: MutableList<Card>): MutableList<Card> {
+        val coord = priorityLoopCoordinator ?: return super.exertAttackers(attackers)
+        val selected = coord.exertAttackers(attackers)
+        return CardCollection(selected)
+    }
+
     override fun declareBlockers(
         defender: Player,
         combat: Combat,

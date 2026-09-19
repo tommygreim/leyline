@@ -220,6 +220,15 @@ class PriorityLoopCoordinator(
         return attackers.filter { card -> selected[ForgeCardId(card.id)] == KeywordAbilityIds.ENLIST }
     }
 
+    fun exertAttackers(attackers: List<Card>): List<Card> {
+        val selected = pendingAttackAlternativeByAttacker
+        if (selected.isEmpty()) return emptyList()
+        // Enlist is collected in Forge's next callback, so retain that part of
+        // the declaration until it is consumed there.
+        pendingAttackAlternativeByAttacker = selected.filterValues { it != KeywordAbilityIds.EXERT }
+        return attackers.filter { card -> selected[ForgeCardId(card.id)] == KeywordAbilityIds.EXERT }
+    }
+
     fun declareBlockers(
         defender: Player,
         combat: Combat,
