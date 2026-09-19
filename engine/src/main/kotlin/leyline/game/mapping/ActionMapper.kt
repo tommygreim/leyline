@@ -7,6 +7,7 @@ import forge.game.player.Player
 import forge.game.spellability.LandAbility
 import forge.game.spellability.SpellAbility
 import leyline.bridge.ActionAvailability
+import leyline.bridge.ActionCostParts
 import leyline.bridge.ActionManaCosts
 import leyline.bridge.PriorityActionCandidates
 import leyline.bridge.buildMdfcBackLandAbility
@@ -66,6 +67,20 @@ object ActionMapper {
         sa: SpellAbility,
         player: Player,
     ): Boolean = ActionAvailability.canExecute(sa, player)
+
+    /**
+     * Start every spell-cast action with the supported non-mana parts of its
+     * Forge cost. Cast rails vary in identity fields, but all share this cost
+     * projection contract.
+     */
+    private fun castActionBuilder(
+        actionType: ActionType,
+        ability: SpellAbility?,
+    ): Action.Builder =
+        Action
+            .newBuilder()
+            .setActionType(actionType)
+            .also { it.addAllCosts(ActionCostParts.of(ability?.payCosts)) }
 
     /**
      * Naive action list for opponent-turn / remote-frame GSM embedding: Cast
@@ -497,9 +512,7 @@ object ActionMapper {
 
             if (!canPay) {
                 val inactiveBuilder =
-                    Action
-                        .newBuilder()
-                        .setActionType(ActionType.Cast)
+                    castActionBuilder(ActionType.Cast, sa)
                         .setInstanceId(instanceId)
                         .setGrpId(grpId)
                         .setFacetId(instanceId)
@@ -532,9 +545,7 @@ object ActionMapper {
             }
 
             val actionBuilder =
-                Action
-                    .newBuilder()
-                    .setActionType(ActionType.Cast)
+                castActionBuilder(ActionType.Cast, sa)
                     .setInstanceId(instanceId)
                     .setGrpId(grpId)
                     .setFacetId(instanceId)
@@ -707,9 +718,7 @@ object ActionMapper {
         val untimed = getAllCastableAbilities(card, player, checkTiming = false)
         val sa = choosePrimaryHandCastAbility(card, untimed) ?: return
         builder.addInactiveActions(
-            Action
-                .newBuilder()
-                .setActionType(ActionType.Cast)
+            castActionBuilder(ActionType.Cast, sa)
                 .setInstanceId(instanceId)
                 .setGrpId(grpId)
                 .setFacetId(instanceId)
@@ -786,9 +795,7 @@ object ActionMapper {
                     }
 
                 val actionBuilder =
-                    Action
-                        .newBuilder()
-                        .setActionType(ActionType.Cast)
+                    castActionBuilder(ActionType.Cast, sa)
                         .setInstanceId(instanceId)
                 if (executable) {
                     actionBuilder.setShouldStop(ShouldStopEvaluator.shouldStop(ActionType.Cast))
@@ -1084,9 +1091,7 @@ object ActionMapper {
         if (!ActionAvailability.hasLegalTargetsAndModes(sa)) return null
         sa.setActivatingPlayer(player)
         val actionBuilder =
-            Action
-                .newBuilder()
-                .setActionType(ActionType.CastMdfc)
+            castActionBuilder(ActionType.CastMdfc, sa)
                 .setInstanceId(instanceId)
                 .setSourceId(instanceId)
                 .setShouldStop(ShouldStopEvaluator.shouldStop(ActionType.CastMdfc))
@@ -1139,9 +1144,7 @@ object ActionMapper {
         player: Player,
         cardData: CardData?,
     ): Action =
-        Action
-            .newBuilder()
-            .setActionType(ActionType.Cast)
+        castActionBuilder(ActionType.Cast, sa)
             .setInstanceId(instanceId)
             .setGrpId(grpId)
             .setFacetId(instanceId)
@@ -1224,9 +1227,7 @@ object ActionMapper {
         // grpId = creature face — client can't resolve IsPrimaryCard=0 adventure
         // faces and rejects the action if grpId is unknown. manaCost from the
         // adventure SA provides the correct cost for the Choose One modal.
-        return Action
-            .newBuilder()
-            .setActionType(ActionType.CastAdventure)
+        return castActionBuilder(ActionType.CastAdventure, adventureSa)
             .setInstanceId(instanceId)
             .setGrpId(creatureGrpId)
             .setShouldStop(ShouldStopEvaluator.shouldStop(ActionType.CastAdventure))
@@ -1265,9 +1266,7 @@ object ActionMapper {
                     true
                 }
             val actionBuilder =
-                Action
-                    .newBuilder()
-                    .setActionType(descriptor.actionType)
+                castActionBuilder(descriptor.actionType, sa)
                     .setInstanceId(instanceId)
                     .setShouldStop(ShouldStopEvaluator.shouldStop(descriptor.actionType))
                     .addAllManaCost(CastDisplayCost.requirements(sa, player, null))
@@ -1302,9 +1301,7 @@ object ActionMapper {
                 } ?: continue
             sa.setActivatingPlayer(player)
             val action =
-                Action
-                    .newBuilder()
-                    .setActionType(ActionType.Cast)
+                castActionBuilder(ActionType.Cast, sa)
                     .setInstanceId(instanceId)
                     .setGrpId(faceGrpId)
                     .setFacetId(instanceId)
@@ -1384,9 +1381,7 @@ object ActionMapper {
             if (!canCast) return null
         }
 
-        return Action
-            .newBuilder()
-            .setActionType(ActionType.CastOmen)
+        return castActionBuilder(ActionType.CastOmen, omenSa)
             .setInstanceId(instanceId)
             .setShouldStop(ShouldStopEvaluator.shouldStop(ActionType.CastOmen))
             .addAllManaCost(CastDisplayCost.requirements(omenSa, player, null))
@@ -1403,9 +1398,7 @@ object ActionMapper {
         val omenSa = omenState.nonManaAbilities?.firstOrNull() ?: return null
         omenSa.setActivatingPlayer(player)
         if (!omenSa.canPlay()) return null
-        return Action
-            .newBuilder()
-            .setActionType(ActionType.CastOmen)
+        return castActionBuilder(ActionType.CastOmen, omenSa)
             .setInstanceId(instanceId)
             .addAllManaCost(CastDisplayCost.requirements(omenSa, player, null))
             .build()
@@ -1423,9 +1416,7 @@ object ActionMapper {
         adventureSa.setActivatingPlayer(player)
         // Only emit inactive if the adventure is legal but unaffordable
         if (!adventureSa.canPlay()) return null
-        return Action
-            .newBuilder()
-            .setActionType(ActionType.CastAdventure)
+        return castActionBuilder(ActionType.CastAdventure, adventureSa)
             .setInstanceId(instanceId)
             .setGrpId(creatureGrpId)
             .addAllManaCost(CastDisplayCost.requirements(adventureSa, player, null))
@@ -1470,9 +1461,7 @@ object ActionMapper {
             if (!emitted.add(alternativeGrpId to payCostPairs)) continue
 
             val actionBuilder =
-                Action
-                    .newBuilder()
-                    .setActionType(ActionType.Cast)
+                castActionBuilder(ActionType.Cast, sa)
                     .setInstanceId(instanceId)
                     .setGrpId(grpId)
                     .setFacetId(instanceId)

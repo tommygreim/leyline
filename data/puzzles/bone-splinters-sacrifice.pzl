@@ -1,0 +1,18 @@
+[metadata]
+Name:Bone Splinters Mandatory Sacrifice
+Goal:Survive
+Turns:2
+Difficulty:Easy
+Description:Cast Bone Splinters, sacrifice a creature as its mandatory additional cost, and destroy the opposing creature.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+
+humanhand=Bone Splinters
+humanbattlefield=Swamp;Grizzly Bears
+humanlibrary=Swamp
+aibattlefield=Centaur Courser
+ailibrary=Forest

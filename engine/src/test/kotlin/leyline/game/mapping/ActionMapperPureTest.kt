@@ -149,6 +149,27 @@ class ActionMapperPureTest :
             actions.inactiveActionsList.none { it.actionType == ActionType.Cast }.shouldBeTrue()
         }
 
+        test("hand Cast previews its mandatory sacrifice cost") {
+            val (b, game, _) =
+                startWithBoard { _, human, ai ->
+                    addCard("Bone Splinters", human, ZoneType.Hand)
+                    addCard("Swamp", human, ZoneType.Battlefield)
+                    addCard("Grizzly Bears", human, ZoneType.Battlefield)
+                    addCard("Centaur Courser", ai, ZoneType.Battlefield)
+                }
+
+            val actions = ActionMapper.buildFromSnapshot(1, SnapshotCapture.run(game, b, "test", 0), b)
+            val cast = actions.actionsList.single { it.actionType == ActionType.Cast }
+
+            assertSoftly {
+                cast should haveManaCost(black = 1)
+                cast.costsList.map { it.type } shouldBe listOf(CostType.Effect)
+                cast.costsList
+                    .single()
+                    .effectCost.count shouldBe 1
+            }
+        }
+
         // -----------------------------------------------------------------------
         // Snapshot projection: Unaffordable Activate → inactiveActions
         // -----------------------------------------------------------------------

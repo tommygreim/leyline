@@ -94,6 +94,22 @@ scenarios:
           all:
             - zone_contains: { side: ours, zone: battlefield, card: Mardu Outrider }
             - zone_contains: { side: ours, zone: graveyard, card: Mountain }
+  - id: bone-splinters-mandatory-sacrifice
+    puzzle: bone-splinters-sacrifice
+    run: cast Bone Splinters, sacrifice Grizzly Bears as its mandatory additional cost, and destroy Centaur Courser
+    expect: the mandatory sacrifice and target both resolve through the ordinary hand-cast path
+    steps:
+      - expect:
+          action: { type: cast, card: Bone Splinters }
+      - cast: Bone Splinters
+      - target: { side: opponent, zone: battlefield, card: Centaur Courser }
+      - select_cost: { zone: battlefield, cards: [Grizzly Bears] }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: graveyard, card: Bone Splinters }
+            - zone_contains: { side: ours, zone: graveyard, card: Grizzly Bears }
+            - zone_contains: { side: opponent, zone: graveyard, card: Centaur Courser }
   - id: jump-start-radical-idea
     puzzle: jump-start-radical-idea
     run: cast Radical Idea from graveyard by discarding Coral Merfolk

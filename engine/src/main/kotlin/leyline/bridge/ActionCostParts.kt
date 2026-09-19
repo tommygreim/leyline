@@ -19,10 +19,12 @@ import forge.game.cost.Cost as ForgeCost
  * `orCost`/`andCost`); before this, the only variant ever built anywhere in
  * the engine was `manaCost`. This covers the self-referential cost kinds
  * `CostType` has a dedicated wire shape for — tap/sacrifice/exile/untap the
- * source, pay life — so a non-mana activation cost gets *some* preview
- * instead of none. Every other Forge `CostPart` (draw, mill, reveal,
- * discard-a-different-card, ...) has no corresponding `CostType` value and
- * is left out rather than guessed at. See ISSUES.md I37.
+ * source, pay life, and a fixed-number sacrifice of another permanent
+ * (`Effect`) — so a non-mana activation or spell cost gets *some* preview
+ * instead of none.
+ * Every other Forge `CostPart` (draw, mill, reveal, discard-a-different-card,
+ * ...) has no corresponding `CostType` value and is left out rather than
+ * guessed at. See ISSUES.md I37.
  */
 internal object ActionCostParts {
     fun of(payCosts: ForgeCost?): List<Cost> {
@@ -35,6 +37,8 @@ internal object ActionCostParts {
                     part is CostUntap -> Cost.newBuilder().setType(CostType.UntapSelf).setEffectCost(effectCost(part))
                     part is CostSacrifice && part.payCostFromSource() ->
                         Cost.newBuilder().setType(CostType.SacSelf).setEffectCost(effectCost(part))
+                    part is CostSacrifice && part.convertAmount() != null ->
+                        Cost.newBuilder().setType(CostType.Effect).setEffectCost(effectCost(part))
                     part is CostExile && part.payCostFromSource() ->
                         Cost.newBuilder().setType(CostType.ExileSelf).setEffectCost(effectCost(part))
                     part is CostDiscard && part.payCostFromSource() ->
