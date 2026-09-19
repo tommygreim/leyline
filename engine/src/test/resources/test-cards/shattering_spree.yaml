@@ -1,0 +1,11 @@
+name: "Shattering Spree"
+grpId: 98651
+titleId: 15675
+abilities:
+  - id: 3605
+    textId: 15676
+    category: 2
+  - id: 22564
+    textId: 5214
+    category: 4
+expansionCode: "TLE"

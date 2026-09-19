@@ -4,6 +4,7 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.core.test.TestScope
 import leyline.IntegrationTag
 import leyline.game.bundle.InvariantSelection
+import leyline.tooling.headless.HeadlessResponseMode
 import leyline.tooling.headless.ScriptedAction
 import leyline.tooling.headless.dumpDiagnostics
 import kotlin.time.Duration
@@ -91,6 +92,7 @@ abstract class SessionTest(
         validating: Boolean = true,
         validation: InvariantSelection = MatchFlowHarness.defaultValidation(validating),
         aiScript: List<ScriptedAction>? = null,
+        responseMode: HeadlessResponseMode = HeadlessResponseMode.AutoForTests,
         fullControl: Boolean = false,
         timeout: Duration? = null,
         block: suspend MatchFlowHarness.() -> Unit,
@@ -113,6 +115,7 @@ abstract class SessionTest(
                     opponentDeckList = opponentDeckList,
                     validating = validating,
                     validation = validation,
+                    responseMode = responseMode,
                     fullControl = fullControl,
                 )
             try {
