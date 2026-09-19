@@ -88,11 +88,15 @@ internal class StaticChoiceWindowMaterializer {
 
     /** Open-ended domains where `validTypes` is a narrowed subset, not the whole enum. */
     private fun isExplicitSubset(kind: StaticChoiceKind): Boolean =
-        kind == StaticChoiceKind.Subtype || kind == StaticChoiceKind.Keyword || kind == StaticChoiceKind.CardType
+        kind == StaticChoiceKind.CardColor ||
+            kind == StaticChoiceKind.Subtype ||
+            kind == StaticChoiceKind.Keyword ||
+            kind == StaticChoiceKind.CardType
 
     private fun staticList(kind: StaticChoiceKind): StaticList =
         when (kind) {
             StaticChoiceKind.Color -> StaticList.Colors
+            StaticChoiceKind.CardColor -> StaticList.CardColors
             StaticChoiceKind.Subtype -> StaticList.SubTypes
             StaticChoiceKind.Parity -> StaticList.Parities
             StaticChoiceKind.Keyword -> StaticList.Keywords
@@ -102,6 +106,7 @@ internal class StaticChoiceWindowMaterializer {
     private fun outerPromptId(kind: StaticChoiceKind): Int =
         when (kind) {
             StaticChoiceKind.Color -> PromptIds.CHOOSE_COLOR
+            StaticChoiceKind.CardColor -> PromptIds.CHOOSE_COLOR
             StaticChoiceKind.Subtype,
             StaticChoiceKind.Parity,
             StaticChoiceKind.Keyword,

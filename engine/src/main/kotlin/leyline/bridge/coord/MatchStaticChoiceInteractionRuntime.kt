@@ -144,6 +144,7 @@ internal class MatchStaticChoiceInteractionRuntime(
     private fun StaticChoiceKind.choiceDomain(): Int =
         when (this) {
             StaticChoiceKind.Color -> StaticList.Colors.number
+            StaticChoiceKind.CardColor -> StaticList.CardColors.number
             StaticChoiceKind.Subtype -> StaticList.SubTypes.number
             StaticChoiceKind.Parity -> StaticList.Parities.number
             StaticChoiceKind.Keyword -> StaticList.Keywords.number

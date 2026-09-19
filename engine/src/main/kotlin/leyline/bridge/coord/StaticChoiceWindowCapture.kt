@@ -15,6 +15,7 @@ internal object StaticChoiceWindowCapture {
         val expectedList =
             when (route.descriptor.kind) {
                 StaticChoiceKind.Color -> StaticList.Colors
+                StaticChoiceKind.CardColor -> StaticList.CardColors
                 StaticChoiceKind.Subtype -> StaticList.SubTypes
                 StaticChoiceKind.Parity -> StaticList.Parities
                 StaticChoiceKind.Keyword -> StaticList.Keywords

@@ -122,6 +122,8 @@ class PromptRouteMatrixTest :
                     PromptSemantic.LearnLesson to
                         cardSelect(PromptSemantic.LearnLesson, CardSelectKind.Learn),
                     PromptSemantic.StaticColorChoice to staticChoice(PromptSemantic.StaticColorChoice, StaticChoiceKind.Color),
+                    PromptSemantic.StaticCardColorChoice to
+                        staticChoice(PromptSemantic.StaticCardColorChoice, StaticChoiceKind.CardColor),
                     PromptSemantic.StaticSubtypeChoice to staticChoice(PromptSemantic.StaticSubtypeChoice, StaticChoiceKind.Subtype),
                     PromptSemantic.StaticParityChoice to
                         staticChoice(PromptSemantic.StaticParityChoice, StaticChoiceKind.Parity),

@@ -874,6 +874,9 @@ enum class PromptSemantic {
     /** Static enum choice: choose one or more colors via `StaticList_Colors`. */
     StaticColorChoice,
 
+    /** Static enum choice: choose a card color, including Colorless, via `StaticList_CardColors`. */
+    StaticCardColorChoice,
+
     /** Static enum choice: choose a subtype via `StaticList_SubTypes`. */
     StaticSubtypeChoice,
 

@@ -1,0 +1,8 @@
+name: "Giver of Runes"
+grpId: 71354
+titleId: 429917
+abilities:
+  - id: 137432
+    textId: 429919
+    category: 1
+expansionCode: "MH1"

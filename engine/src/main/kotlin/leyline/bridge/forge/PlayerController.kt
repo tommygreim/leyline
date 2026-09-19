@@ -862,6 +862,11 @@ class PlayerController(
         isOptional: Boolean,
     ): String? = staticChoiceCoordinator.chooseSomeType(kindOfType, sa, validTypes, isOptional)
 
+    override fun chooseProtectionType(
+        sa: SpellAbility,
+        choices: List<String>,
+    ): String = staticChoiceCoordinator.chooseProtectionType(sa, choices)
+
     override fun willPutCardOnTop(c: Card): Boolean {
         // The bare PromptRequest this used to build (no semantic/route) resolved to
         // ResolvedPromptRoute.AutoResolve — a synchronous default with no prompt

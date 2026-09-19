@@ -78,6 +78,15 @@ class MatchStaticChoiceInteractionRuntimeTest :
                     PromptIds.CHOOSE_COLOR,
                 ),
                 Case(
+                    PromptSemantic.StaticCardColorChoice,
+                    StaticChoiceKind.CardColor,
+                    listOf("Colorless", "Black"),
+                    listOf(StaticChoiceIds.cardColorIdForName("Colorless")!!, StaticChoiceIds.cardColorIdForName("Black")!!),
+                    StaticList.CardColors,
+                    SelectionListType.StaticSubset,
+                    PromptIds.CHOOSE_COLOR,
+                ),
+                Case(
                     PromptSemantic.StaticSubtypeChoice,
                     StaticChoiceKind.Subtype,
                     listOf("Goblin", "Human"),
@@ -201,12 +210,7 @@ class MatchStaticChoiceInteractionRuntimeTest :
                     req.minWeight shouldBe Int.MIN_VALUE
                     req.maxWeight shouldBe Int.MAX_VALUE
                     req.prompt.parametersList.shouldBeEmpty()
-                    req.idsList shouldBe
-                        if (case.kind == StaticChoiceKind.Subtype || case.kind == StaticChoiceKind.Keyword) {
-                            case.values
-                        } else {
-                            emptyList()
-                        }
+                    req.idsList shouldBe if (case.listType == SelectionListType.StaticSubset) case.values else emptyList()
                     req.sourceId shouldBe sourceInstanceId
                     message.prompt.promptId shouldBe case.outerPromptId
                     sourceParameter.parameterName shouldBe "CardId"
