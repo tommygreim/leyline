@@ -6,6 +6,7 @@ import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.shouldBe
 import leyline.bridge.types.StaticChoiceIds
 import leyline.testkit.SessionTest
+import wotc.mtgo.gre.external.messaging.Messages.SelectionContext
 import wotc.mtgo.gre.external.messaging.Messages.SelectionListType
 import wotc.mtgo.gre.external.messaging.Messages.StaticList
 
@@ -46,6 +47,8 @@ class CloudKeyStaticChoiceTest :
 
             assertSoftly {
                 req.listType shouldBe SelectionListType.StaticSubset
+                // Not Resolution: that context makes the client show the opponent's hand.
+                req.context shouldBe SelectionContext.Replacement_a163
                 req.staticList shouldBe StaticList.CardTypes
                 req.idsList shouldContainExactlyInAnyOrder
                     listOf("Artifact", "Creature", "Enchantment", "Instant", "Sorcery").map {

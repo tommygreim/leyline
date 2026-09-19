@@ -53,8 +53,19 @@ internal class StaticChoiceWindowMaterializer {
     ): SelectNReq =
         SelectNReq
             .newBuilder()
-            .setContext(SelectionContext.Resolution_a163)
-            .setListType(
+            // The client copies every listed id into UnfilteredIds, and a Resolution-context
+            // CardTypes subset then opens its "choice with context" browser, which shows the
+            // opponent's hand (built for look-then-choose effects). A card-type choice made
+            // as a permanent enters (Cloud Key) is a replacement, which gets plain buttons.
+            .setContext(
+                if (window.kind ==
+                    StaticChoiceKind.CardType
+                ) {
+                    SelectionContext.Replacement_a163
+                } else {
+                    SelectionContext.Resolution_a163
+                },
+            ).setListType(
                 if (isExplicitSubset(window.kind)) {
                     SelectionListType.StaticSubset
                 } else {
