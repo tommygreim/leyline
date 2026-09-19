@@ -26,6 +26,7 @@ class NumericInputGate(
         max: Int,
         defaultOnTimeout: Int,
         logContext: String,
+        presentation: BlockingInteraction.NumericPresentation = BlockingInteraction.NumericPresentation.Generic,
     ): Int {
         if (sourceCard == null) return min
         return interactionRuntime.awaitNumeric(
@@ -34,6 +35,7 @@ class NumericInputGate(
                 min = min,
                 max = max,
                 defaultValue = defaultOnTimeout,
+                presentation = presentation,
             ),
             timeoutMs = actionBridge?.getTimeoutMs(),
         )

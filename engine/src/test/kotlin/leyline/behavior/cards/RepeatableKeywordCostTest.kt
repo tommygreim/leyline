@@ -1,11 +1,11 @@
 package leyline.behavior.cards
 
-import io.kotest.assertions.assertSoftly
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.shouldBe
 import leyline.testkit.SessionTest
 import leyline.testkit.after
 import leyline.tooling.headless.HeadlessResponseMode
+import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
 
 class RepeatableKeywordCostTest :
     SessionTest({
@@ -32,13 +32,16 @@ class RepeatableKeywordCostTest :
                 """.trimIndent(),
         ) {
             val cast = after { castSpellByName("Shattering Spree").shouldBeTrue() }
-            val numeric = cast.messages.single { it.hasNumericInputReq() }.numericInputReq
-            assertSoftly {
-                numeric.minValue shouldBe 0
-                numeric.maxValue shouldBe 3
-            }
+            val replicate =
+                cast
+                    .expectCastingTimeOptionsReq {
+                        option(CastingTimeOptionType.Replicate, ctoId = 1)
+                    }.castingTimeOptionReqList
+                    .single()
+            replicate.numericInputReq.minValue shouldBe 0
+            replicate.numericInputReq.maxValue shouldBe 3
 
-            respondToNumericInput(2)
+            respondToReplicate(replicate.ctoId, 2)
             passUntil(maxPasses = 8) { allMessages.any { it.hasSelectTargetsReq() } }.shouldBeTrue()
         }
     })

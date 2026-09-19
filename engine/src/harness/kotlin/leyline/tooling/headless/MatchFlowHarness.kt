@@ -1610,6 +1610,17 @@ class MatchFlowHarness(
         submitAndAwaitClientResult(submitWithGsId(castingTimeXResp(ctoId, value)), "X cost response")
     }
 
+    /** Respond to Arena's dedicated Replicate casting-time option. */
+    fun respondToReplicate(
+        ctoId: Int,
+        value: Int,
+    ) {
+        submitAndAwaitClientResult(
+            submitWithGsId(castingTimeXResp(ctoId, value, CastingTimeOptionType.Replicate)),
+            "replicate response",
+        )
+    }
+
     /** Respond to a required alternate-additional-cost CastingTimeOptionsReq. */
     fun respondToAlternateCost(
         ctoId: Int,

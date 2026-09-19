@@ -223,6 +223,26 @@ internal class MatchBlockingInteractionRuntime(
         value: Int,
     ): Boolean = complete(interactionId, gameStateId, Answer.Numeric(value))
 
+    /** Admit the numeric child response used by Arena's dedicated Replicate workflow. */
+    fun submitReplicate(
+        gameStateId: Int,
+        ctoId: Int,
+        value: Int,
+    ): Boolean =
+        synchronized(owner.feedLock) {
+            val pending = window ?: return@synchronized false
+            val numeric = pending.published.interaction as? BlockingInteraction.Numeric ?: return@synchronized false
+            if (pending.future.isDone ||
+                pending.published.gameStateId != gameStateId ||
+                numeric.presentation != BlockingInteraction.NumericPresentation.Replicate ||
+                ctoId != REPLICATE_CTO_ID ||
+                value !in numeric.min..numeric.max
+            ) {
+                return@synchronized false
+            }
+            pending.future.complete(Answer.Numeric(value))
+        }
+
     fun submitDamageCommand(
         interactionId: String,
         gameStateId: Int,
@@ -460,4 +480,8 @@ internal class MatchBlockingInteractionRuntime(
         cards: Map<ForgeCardId, Card>,
         assignments: Map<ForgeCardId?, Int>,
     ): MutableMap<Card?, Int> = assignments.entries.associateTo(linkedMapOf()) { (id, amount) -> id?.let(cards::get) to amount }
+
+    private companion object {
+        const val REPLICATE_CTO_ID = 1
+    }
 }

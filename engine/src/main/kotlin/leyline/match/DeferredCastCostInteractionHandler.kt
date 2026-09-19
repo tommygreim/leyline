@@ -29,7 +29,7 @@ internal class DeferredCastCostInteractionHandler(
 
     fun onCastingTimeOptions(greMsg: ClientToGREMessage): HandlerResult {
         val deferredCast = ctx.bridge.cutCoordinator.deferredCast
-        if (!deferredCast.hasPrompt()) return HandlerResult.NotHandled
+        if (!deferredCast.hasPrompt()) return admitReplicateResponse(greMsg)
         val resp = greMsg.castingTimeOptionsResp
         val optionResponses =
             if (resp.castingTimeOptionRespsCount > 0) {
@@ -91,6 +91,19 @@ internal class DeferredCastCostInteractionHandler(
                 HandlerResult.Resume
             }
         }
+    }
+
+    private fun admitReplicateResponse(greMsg: ClientToGREMessage): HandlerResult {
+        val response = greMsg.castingTimeOptionsResp.castingTimeOptionResp
+        val value = response.numericInputResp.numericInputValue
+        val accepted =
+            response.castingTimeOptionType == wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType.Replicate &&
+                ctx.bridge.cutCoordinator.promptRuntimes(counters.seatId).blocking.submitReplicate(
+                    gameStateId = greMsg.gameStateId,
+                    ctoId = response.ctoId,
+                    value = value,
+                )
+        return if (accepted) HandlerResult.Resume else HandlerResult.NotHandled
     }
 
     private fun bridgeAfterDeferredResponse() = Unit

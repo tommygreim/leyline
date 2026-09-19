@@ -25,6 +25,7 @@ import leyline.game.state.ProjectionTransition
 import wotc.mtgo.gre.external.messaging.Messages.*
 
 /** Value-oriented message/state preparation for coordinator-owned blocking interactions. */
+@Suppress("LargeClass") // One protocol materializer intentionally owns all blocking prompt message shapes.
 internal class BlockingInteractionMaterializer(
     private val seatId: Int,
 ) {
@@ -395,7 +396,7 @@ internal class BlockingInteractionMaterializer(
             val sourceId =
                 interaction.sourceId?.let { editor.identities.getOrAlloc(it).value }
                     ?: error("Numeric interaction requires a source")
-            val req =
+            val numericReq =
                 NumericInputReq
                     .newBuilder()
                     .setMaxValue(interaction.max)
@@ -411,20 +412,46 @@ internal class BlockingInteractionMaterializer(
                     .addParameters(cardIdPromptParameter(sourceId))
                     .build()
             val link = counter.nextGameStateLink()
+            val requestMessage =
+                if (interaction.presentation == BlockingInteraction.NumericPresentation.Replicate) {
+                    val replicate =
+                        CastingTimeOptionReq
+                            .newBuilder()
+                            .setCtoId(REPLICATE_CTO_ID)
+                            .setCastingTimeOptionType(CastingTimeOptionType.Replicate)
+                            .setAffectedId(sourceId)
+                            .setAffectorId(sourceId)
+                            .setPlayerIdToPrompt(seatId)
+                            .setIsRequired(true)
+                            .setNumericInputReq(numericReq)
+                            .build()
+                    makeGRE(GREMessageType.CastingTimeOptionsReq_695e, link.gsId, counter.nextMsgId()) {
+                        it.castingTimeOptionsReq = CastingTimeOptionsReq.newBuilder().addCastingTimeOptionReq(replicate).build()
+                        it.prompt = Prompt.newBuilder().setPromptId(PromptIds.CASTING_TIME_OPTIONS).build()
+                        it.allowCancel = AllowCancel.Abort
+                        it.allowUndo = true
+                    }
+                } else {
+                    makeGRE(GREMessageType.NumericInputReq_695e, link.gsId, counter.nextMsgId()) {
+                        it.numericInputReq = numericReq
+                        it.prompt = prompt
+                        it.allowCancel = AllowCancel.No_a526
+                    }
+                }
             BundleBuilder.BundleResult(
                 listOf(
                     makeGRE(GREMessageType.GameStateMessage_695e, link.gsId, counter.nextMsgId()) {
                         it.gameStateMessage = pendingMessage(link)
                     },
-                    makeGRE(GREMessageType.NumericInputReq_695e, link.gsId, counter.nextMsgId()) {
-                        it.numericInputReq = req
-                        it.prompt = prompt
-                        it.allowCancel = AllowCancel.No_a526
-                    },
+                    requestMessage,
                 ),
                 actionGameStateId = link.gsId,
             )
         }
+
+    private companion object {
+        const val REPLICATE_CTO_ID = 1
+    }
 
     fun damage(
         prior: ProjectionState,

@@ -34,7 +34,14 @@ sealed interface BlockingInteraction {
         val min: Int,
         val max: Int,
         val defaultValue: Int,
+        /** The generic X picker is a different client workflow from Replicate. */
+        val presentation: NumericPresentation = NumericPresentation.Generic,
     ) : BlockingInteraction
+
+    enum class NumericPresentation {
+        Generic,
+        Replicate,
+    }
 
     @ConsistentCopyVisibility
     data class Damage private constructor(

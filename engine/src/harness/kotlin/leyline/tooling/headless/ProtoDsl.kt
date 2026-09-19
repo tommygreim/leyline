@@ -412,6 +412,7 @@ fun optionalCostResp(ctoId: Int): ClientToGREMessage =
 fun castingTimeXResp(
     ctoId: Int,
     value: Int,
+    type: CastingTimeOptionType = CastingTimeOptionType.ChooseX_a7b4,
 ): ClientToGREMessage =
     clientMessage(ClientMessageType.CastingTimeOptionsResp_097b) {
         setCastingTimeOptionsResp(
@@ -419,7 +420,7 @@ fun castingTimeXResp(
                 CastingTimeOptionResp
                     .newBuilder()
                     .setCtoId(ctoId)
-                    .setCastingTimeOptionType(CastingTimeOptionType.ChooseX_a7b4)
+                    .setCastingTimeOptionType(type)
                     .setNumericInputResp(NumericInputResp.newBuilder().setNumericInputValue(value)),
             ),
         )

@@ -1508,6 +1508,12 @@ class PlayerController(
                     max = maxPayableKeywordCostCopies(sa, cost, max),
                     defaultOnTimeout = 0,
                     logContext = "chooseNumberForKeywordCost(${keyword.keyword})",
+                    presentation =
+                        if (keyword.keyword == Keyword.REPLICATE) {
+                            BlockingInteraction.NumericPresentation.Replicate
+                        } else {
+                            BlockingInteraction.NumericPresentation.Generic
+                        },
                 )
         }
 

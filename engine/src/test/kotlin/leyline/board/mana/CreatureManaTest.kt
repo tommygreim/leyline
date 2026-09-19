@@ -109,6 +109,36 @@ class CreatureManaTest :
                 .map { it.selectedColor } shouldBe listOf(ManaColor.Red_afc9)
         }
 
+        test("a restricted double-mana ability advertises both mana in its action") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Tablet of Discovery", human, ZoneType.Battlefield)
+                }
+
+            val tablet =
+                board.human
+                    .getZone(ZoneType.Battlefield)
+                    .cards
+                    .single { it.name == "Tablet of Discovery" }
+            val actions =
+                ActionMapper
+                    .buildFromSnapshot(1, GsmSnapshot.capture(board.game, board.bridge, "test", 0), board.bridge)
+                    .ofType(ActionType.ActivateMana)
+                    .filter { it.instanceId == board.instanceId(tablet.id) }
+
+            actions
+                .map {
+                    it.manaPaymentOptionsList
+                        .single()
+                        .manaList
+                        .single()
+                        .count
+                }.sorted() shouldBe listOf(1, 2)
+            actions
+                .map { it.manaSelectionsList.single().selectionCount }
+                .sorted() shouldBe listOf(1, 2)
+        }
+
         test("Reflecting Pool exposes the live colors its lands can produce for manual mana") {
             val board =
                 startWithBoard { _, human, _ ->

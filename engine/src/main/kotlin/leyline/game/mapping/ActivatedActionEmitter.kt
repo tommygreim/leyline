@@ -173,6 +173,12 @@ internal object ActivatedActionEmitter {
             val abilityGrpId = registry?.forSpellAbility(sa.definitionId) ?: basicLandAbilityGrpId
             val colors = producedManaColors(sa)
             if (colors.isEmpty()) return@mapNotNull null
+            // `Produced$ R | Amount$ 2` is one choice that creates two red
+            // mana, not two independently selectable single-mana choices.
+            // Keeping the amount on both the payment option and selection is
+            // what distinguishes it from another `{T}: Add {R}` ability on
+            // the same source (Tablet of Discovery is the canonical example).
+            val producedCount = sa.amountOfManaGenerated(false).coerceAtLeast(1)
 
             val actionBuilder =
                 Action
@@ -195,7 +201,7 @@ internal object ActivatedActionEmitter {
                         .setSrcInstanceId(instanceId)
                         .addSpecs(ManaInfo.Spec.newBuilder().setType(ManaSpecType.Predictive))
                         .setAbilityGrpId(abilityGrpId)
-                        .setCount(1)
+                        .setCount(producedCount)
                 if (card.type.isSnow) {
                     manaInfo.addSpecs(ManaInfo.Spec.newBuilder().setType(ManaSpecType.FromSnow))
                 }
@@ -210,7 +216,7 @@ internal object ActivatedActionEmitter {
                     .newBuilder()
                     .setInstanceId(instanceId)
                     .setAbilityGrpId(abilityGrpId)
-                    .setSelectionCount(1)
+                    .setSelectionCount(producedCount)
                     .setValidationType(SelectionValidationType.NonRepeatable)
             for (manaColor in colors) {
                 selection.addOptions(
@@ -218,7 +224,7 @@ internal object ActivatedActionEmitter {
                         .newBuilder()
                         .setSelectedColor(manaColor)
                         .addMana(
-                            ManaColorCount.newBuilder().setColor(manaColor).setCount(1),
+                            ManaColorCount.newBuilder().setColor(manaColor).setCount(producedCount),
                         ),
                 )
             }
