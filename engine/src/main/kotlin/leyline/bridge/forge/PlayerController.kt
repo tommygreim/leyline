@@ -676,6 +676,19 @@ class PlayerController(
             return true
         }
 
+        // Forge asks "pay N life?" for any non-mandatory life cost, including one
+        // the caster just picked as an additional-cost branch (Bitter Triumph) or
+        // committed to by activating a fetch land. Arena never re-asks; only a life
+        // payment chosen during resolution is a real decision.
+        if (costPart is CostPayLife &&
+            sa.hostCard
+                ?.game
+                ?.stack
+                ?.isResolving == false
+        ) {
+            return true
+        }
+
         // The bare PromptRequest below (no semantic/route) resolved to
         // ResolvedPromptRoute.AutoResolve — a synchronous default with no prompt
         // ever reaching the client — so every optional/alternative cost part

@@ -50,12 +50,17 @@ class AlternateAdditionalCostChoiceTest :
 
             // Completing the flow proves the fix end to end: before it, the client
             // never responded to this CastingTimeOptionsReq at all.
+            val prompts = allMessages.count { it.hasOptionalActionMessage() }
             after { respondToAlternateCost(option.ctoId, option.selectNReq.idsList.first()) }
                 .expectOneSelectTargetsReq()
             selectTargets(listOf(ai.battlefield.iid("Centaur Courser")))
             passUntilResolved(maxPasses = 8)
 
             assertSoftly {
+                // Choosing "pay 3 life" already committed to it; Forge's own "pay 3 life?"
+                // confirm afterwards was a redundant Decline / Take Action prompt.
+                allMessages.count { it.hasOptionalActionMessage() } shouldBe prompts
+                human.life shouldBe 17
                 ai.getZone(ZoneType.Battlefield).cards.map { it.name } shouldNotContain "Centaur Courser"
                 ai.getZone(ZoneType.Graveyard).cards.map { it.name } shouldBe listOf("Centaur Courser")
             }
