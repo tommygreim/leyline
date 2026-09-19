@@ -75,6 +75,7 @@ object PromptIds {
 
     /** Optional X-mana payment — "Pay {X}?" */
     const val OPTIONAL_PAY_X = 1159
+    const val DREDGE_THIS_CARD = 89
 
     /** Commander zone replacement decision: "Move your commander to the command zone?" */
     const val COMMANDER_RETURN_TO_COMMAND = 144

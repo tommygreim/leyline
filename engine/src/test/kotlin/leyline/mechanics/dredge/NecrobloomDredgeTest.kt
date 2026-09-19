@@ -5,6 +5,7 @@ import io.kotest.assertions.assertSoftly
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import leyline.game.mapping.PromptIds
 import leyline.testkit.SessionTest
 import wotc.mtgo.gre.external.messaging.Messages.GREMessageType
 import wotc.mtgo.gre.external.messaging.Messages.SelectReplacementsType
@@ -72,6 +73,11 @@ class NecrobloomDredgeTest :
             passUntilResolved(maxPasses = 8)
 
             assertSoftly {
+                // The confirm that follows the choice says "Dredge this card?", not "Choose options.".
+                allMessages
+                    .last { it.hasOptionalActionMessage() }
+                    .optionalActionMessage.prompt.promptId shouldBe
+                    PromptIds.DREDGE_THIS_CARD
                 // Chosen Forest dredged back to hand; the other one untouched in the graveyard.
                 human.getZone(ZoneType.Hand).cards.any { it.id == chosenForestId } shouldBe true
                 human.getZone(ZoneType.Graveyard).cards.any { it.id == untouchedForestId } shouldBe true
@@ -79,5 +85,36 @@ class NecrobloomDredgeTest :
                 human.getZone(ZoneType.Graveyard).cards.count { it.name == "Plains" } shouldBe 2
                 (libraryCountBefore - human.getZone(ZoneType.Library).cards.size) shouldBe 2
             }
+        }
+
+        session(
+            "a single dredge-eligible land still gets a 'Dredge this card?' confirm, not a bare choice",
+            puzzle =
+                """
+                [metadata]
+                Name:Single dredge land
+                Goal:Draw with one dredge-eligible land in the graveyard.
+                Turns:1
+                Difficulty:Easy
+
+                [state]
+                ActivePlayer=Human
+                ActivePhase=Main1
+                HumanLife=20
+                AILife=20
+
+                humanhand=Think Twice
+                humanbattlefield=The Necrobloom;Island;Island
+                humangraveyard=Forest
+                humanlibrary=Plains;Plains;Plains;Plains
+                ailibrary=Mountain
+                """.trimIndent(),
+        ) {
+            castSpellByName("Think Twice") shouldBe true
+
+            allMessages
+                .last { it.hasOptionalActionMessage() }
+                .optionalActionMessage.prompt.promptId shouldBe
+                PromptIds.DREDGE_THIS_CARD
         }
     })

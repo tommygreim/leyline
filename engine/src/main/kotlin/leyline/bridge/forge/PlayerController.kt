@@ -727,9 +727,12 @@ class PlayerController(
             hostCard = replacementEffect.hostCard ?: sa?.hostCard,
             defaultOnTimeout = !isEnterAsCopyReplacement(message),
             logContext = "confirmReplacementEffect",
-            customPromptId = PromptIds.OPTIONAL_ACTION,
+            customPromptId = if (isDredgeReplacement(replacementEffect)) PromptIds.DREDGE_THIS_CARD else PromptIds.OPTIONAL_ACTION,
         )
     }
+
+    private fun isDredgeReplacement(effect: ReplacementEffect): Boolean =
+        effect.hostCard?.keywords?.any { it.keyword == Keyword.DREDGE && it.replacements.any { replacement -> replacement === effect } } == true
 
     override fun chooseSingleReplacementEffect(possibleReplacers: List<ReplacementEffect>): ReplacementEffect {
         val first = possibleReplacers.first()
