@@ -148,6 +148,37 @@ class StaticChoiceCoordinator(
         return ColorSet.fromMask(mask)
     }
 
+    /** Choose one protection quality that is representable by Arena's CardColors static list. */
+    fun chooseProtectionType(
+        sa: SpellAbility,
+        options: List<String>,
+    ): String {
+        if (options.size <= 1) return options.firstOrNull().orEmpty()
+        val choices = options.mapNotNull { option -> StaticChoiceIds.cardColorIdForName(option)?.let { option to it } }
+        if (choices.size != options.size) {
+            log.warn("chooseProtectionType: unsupported mixed protection options {}; using first option", options)
+            return options.first()
+        }
+
+        val selected =
+            bridge
+                .requestStaticChoice(
+                    PromptRequest(
+                        promptType = "choose_one",
+                        message = "Choose a protection quality",
+                        options = choices.map { it.first },
+                        min = 1,
+                        max = 1,
+                        defaultIndex = 0,
+                        route = PromptRouteResolver.resolve(PromptSemantic.StaticCardColorChoice),
+                        sourceEntityId = sourceEntityId(sa),
+                        staticList = StaticList.CardColors,
+                        staticOptionIds = choices.map { it.second },
+                    ),
+                ).firstOrNull()
+        return selected?.let { choices.getOrNull(it)?.first } ?: choices.first().first
+    }
+
     fun chooseSomeType(
         kindOfType: String,
         sa: SpellAbility?,

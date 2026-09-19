@@ -182,6 +182,7 @@ data class SelectNShape(
 
 enum class StaticChoiceKind {
     Color,
+    CardColor,
     Subtype,
     Parity,
     Keyword,
@@ -320,6 +321,8 @@ object PromptRouteResolver {
             PromptSemantic.LearnLesson -> cardSelect(semantic, CardSelectKind.Learn)
             PromptSemantic.StaticColorChoice ->
                 staticChoice(semantic, StaticChoiceKind.Color)
+            PromptSemantic.StaticCardColorChoice ->
+                staticChoice(semantic, StaticChoiceKind.CardColor)
             PromptSemantic.StaticSubtypeChoice ->
                 staticChoice(semantic, StaticChoiceKind.Subtype)
             PromptSemantic.StaticParityChoice ->

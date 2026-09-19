@@ -1,10 +1,21 @@
 package leyline.bridge.types
 
+import wotc.mtgo.gre.external.messaging.Messages.CardColor
 import wotc.mtgo.gre.external.messaging.Messages.CardType
 import wotc.mtgo.gre.external.messaging.Messages.SubType
 
 /** Arena static-list ids used by enum-domain SelectN prompts. */
 object StaticChoiceIds {
+    private val cardColorByKey: Map<String, Int> =
+        CardColor
+            .values()
+            .asSequence()
+            .filter { it.name != "UNRECOGNIZED" }
+            .associateBy(
+                keySelector = { normalize(it.name.substringBefore('_')) },
+                valueTransform = { it.number },
+            )
+
     private val subtypeByKey: Map<String, Int> =
         SubType
             .values()
@@ -31,6 +42,9 @@ object StaticChoiceIds {
     fun colorIdForMask(mask: Byte): Int? = WubrgColorMapping.staticIdForMagicMask(mask)
 
     fun colorIdForName(name: String): Int? = WubrgColorMapping.staticIdForName(name)
+
+    /** `StaticList.CardColors` includes Colorless, unlike the WUBRG-only Colors list. */
+    fun cardColorIdForName(name: String): Int? = cardColorByKey[normalize(name)]
 
     fun parityIdForName(name: String): Int? =
         when (normalize(name)) {
