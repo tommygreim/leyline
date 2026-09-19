@@ -21,17 +21,21 @@ import leyline.testkit.firstGameObjectByIid
 import leyline.testkit.persistentAnnotationsOfType
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
 import wotc.mtgo.gre.external.messaging.Messages.GREToClientMessage
+import wotc.mtgo.gre.external.messaging.Messages.OrderingType
 
 class OpusAbilityWordLifecycleTest :
     SessionTest({
         fun MatchFlowHarness.castTargetedSpell(
             spellName: String,
             targetIid: Int,
+            orderTriggers: Boolean = false,
         ): List<GREToClientMessage> =
             after {
                 castSpellByName(spellName).shouldBeTrue()
                 selectTargetsIterative(listOf(targetIid))
                 submitTargets()
+                // Two Opus triggers flagged OrderDuplicates ask for a stack order.
+                if (orderTriggers) respondToSelectN(lastSelectNReq().idsList, OrderingType.OrderAsIndicated)
                 passUntilResolved(maxPasses = 20)
             }.messages
 
@@ -117,7 +121,7 @@ class OpusAbilityWordLifecycleTest :
         ) {
             val target = instanceIdOf("Grizzly Bears", ai)
 
-            val messages = castTargetedSpell("Unfriendly Fire", target)
+            val messages = castTargetedSpell("Unfriendly Fire", target, orderTriggers = true)
             val markers = messages.opusMarkers()
             val markerIds = markers.map { it.id }.toSet()
             val fullMarker = markers.maxBy { it.affectedIdsCount }

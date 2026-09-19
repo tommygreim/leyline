@@ -256,7 +256,7 @@ object SnapshotCapture {
         return StackSnapshot(entries)
     }
 
-    private fun resolveStackSourceCardGrpId(
+    internal fun resolveStackSourceCardGrpId(
         sourceCard: Card,
         cards: CardRepository,
     ): Int =

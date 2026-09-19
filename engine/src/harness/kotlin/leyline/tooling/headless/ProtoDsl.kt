@@ -298,11 +298,15 @@ fun submitTargetsReq(): ClientToGREMessage = clientMessage(ClientMessageType.Sub
  * selectNResp(ids = listOf(iid))
  * ```
  */
-fun selectNResp(ids: List<Int>): ClientToGREMessage =
+fun selectNResp(
+    ids: List<Int>,
+    useArbitrary: OrderingType? = null,
+): ClientToGREMessage =
     clientMessage(ClientMessageType.SelectNresp) {
         setSelectNResp(
             SelectNResp.newBuilder().apply {
                 for (id in ids) addIds(id)
+                useArbitrary?.let { setUseArbitrary(it) }
             },
         )
     }

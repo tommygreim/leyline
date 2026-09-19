@@ -63,4 +63,10 @@ data class StackEntry(
     val runtimeTriggerId: Int = 0,
     /** Forge identity of the source card behind an engine effect helper. */
     val effectSourceForgeCardId: ForgeCardId? = null,
+    /**
+     * True for a pre-stack ability shown to the client before Forge puts it on the stack: it
+     * appears in the frame's objects, but its lifecycle annotations wait for the events that
+     * describe the trigger going on the stack.
+     */
+    val deferAnnouncement: Boolean = false,
 )

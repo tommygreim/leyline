@@ -237,6 +237,7 @@ class PlayerController(
     private var activeSourceIsSpell: Boolean = false
     private var activeStackTargetingAbility: SpellAbility? = null
     private var activeDividedAllocationAbility: SpellAbility? = null
+    private var simultaneousAbilities: List<SpellAbility> = emptyList()
     private val priorityLoopCoordinator: PriorityLoopCoordinator? =
         actionBridge?.let { ab ->
             PriorityLoopCoordinator(
@@ -280,6 +281,7 @@ class PlayerController(
                 stackTargetCandidate = ::stackTargetCandidate,
                 currentDividedAllocationAbility = { activeDividedAllocationAbility },
                 beforeDividedAllocation = targetingCoordinator::recordCompletedTargetSpec,
+                currentSimultaneousAbilities = { simultaneousAbilities },
             ),
         )
     }
@@ -981,6 +983,20 @@ class PlayerController(
     ): CardCollectionView = targetingCoordinator.chooseCardsToDiscardUnlessType(min, hand, param, sa)
 
     // -- Simultaneous triggered abilities ----------------------------------
+
+    /**
+     * PCHuman decides whether an ordering prompt is due (identical triggers aren't worth one)
+     * and hands the list to [ClientGuiGame.order] as views; the live abilities ride along here so
+     * the prompt runtime keeps the exact handles.
+     */
+    override fun orderSimultaneousSa(activePlayerSAs: List<SpellAbility>): List<SpellAbility> {
+        simultaneousAbilities = activePlayerSAs
+        try {
+            return super.orderSimultaneousSa(activePlayerSAs)
+        } finally {
+            simultaneousAbilities = emptyList()
+        }
+    }
 
     override fun playTrigger(
         host: Card,

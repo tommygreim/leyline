@@ -695,6 +695,34 @@ class InteractivePromptBridge(
         }
     }
 
+    /** Route one simultaneous-trigger ordering choice with its exact Forge handles; null keeps Forge's order. */
+    fun requestTriggerOrder(
+        request: PromptRequest,
+        abilities: List<SpellAbility>,
+    ): TriggerOrderInteractionResult? {
+        check(request.route is ResolvedPromptRoute.OrderTriggers) { "OrderTriggers route required" }
+        if (NonInteractiveScope.active != null || !isGameLoopThread() || timeoutMs == 0L) return null
+        val runtime = checkNotNull(runtimeBindings.triggerOrder) { "TriggerOrder runtime is not registered" }
+        return try {
+            val result = runtime.awaitTriggerOrder(request, abilities, timeoutMs)
+            if (result == null) {
+                record(request, PromptCallStatus.DEFAULTED_POLICY, emptyList())
+                null
+            } else {
+                record(
+                    request,
+                    if (result.timedOut) PromptCallStatus.TIMEOUT else PromptCallStatus.RESPONDED,
+                    result.optionIndices,
+                )
+                if (result.timedOut) prioritySignal?.signal() else prioritySignal?.markPromptResolved()
+                result
+            }
+        } catch (ex: Exception) {
+            record(request, PromptCallStatus.ERROR, emptyList())
+            throw ex
+        }
+    }
+
     private fun requestMigratedChoice(
         request: PromptRequest,
         targetingSa: SpellAbility?,
@@ -747,6 +775,9 @@ enum class PromptSemantic {
 
     /** Choose which of several competing self-replacement effects applies first. */
     SelectReplacement,
+
+    /** Choose the order simultaneous triggered abilities go on the stack. */
+    OrderTriggers,
 
     /** Order cards going to the bottom of a library. */
     OrderForBottom,

@@ -1,0 +1,8 @@
+name: "Blood Artist"
+grpId: 72268
+titleId: 40341
+abilities:
+  - id: 99395
+    textId: 944174
+    category: 2
+expansionCode: "JMP"

@@ -91,7 +91,7 @@ object ZoneTransferAdapter {
                         stackAbilityLookup = { forgeAbilityId ->
                             (snapshot.stack.entries + previousSnapshot?.stack?.entries.orEmpty())
                                 .firstOrNull { it.forgeAbilityId == forgeAbilityId }
-                                ?.let { StackAbilitySourceFacts(it.forgeCardId, it.isActivatedAbility) }
+                                ?.let { StackAbilitySourceFacts(it.forgeCardId, it.isActivatedAbility, it.deferAnnouncement) }
                         },
                         paradigmSourceIidLookup = { fid ->
                             StateZoneProjection.paradigmSourceStackIid(

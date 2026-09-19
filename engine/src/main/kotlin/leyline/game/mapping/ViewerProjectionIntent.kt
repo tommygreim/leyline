@@ -84,6 +84,8 @@ sealed interface ProjectionSupplement {
         val controllerSeatId: SeatId,
         val targetForgeCardIds: List<ForgeCardId>,
         val isActivatedAbility: Boolean = true,
+        /** See [leyline.game.snapshot.StackEntry.deferAnnouncement]. */
+        val deferAnnouncement: Boolean = false,
     ) : ProjectionSupplement
 
     /** Copied spell visible on the client stack while Forge is choosing its new targets. */

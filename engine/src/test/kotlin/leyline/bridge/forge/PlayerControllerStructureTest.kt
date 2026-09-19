@@ -75,6 +75,7 @@ class PlayerControllerStructureTest :
                 "isAI",
                 "mulliganKeepHand",
                 "orderMoveToZoneList",
+                "orderSimultaneousSa",
                 "payCostToPreventEffect",
                 "payManaCost",
                 "playChosenSpellAbility",
@@ -87,8 +88,8 @@ class PlayerControllerStructureTest :
                 "willPutCardOnTop",
             )
 
-        test("override count is pinned at 63") {
-            expectedOverrides.size shouldBe 63
+        test("override count is pinned at 64") {
+            expectedOverrides.size shouldBe 64
         }
 
         test("PlayerController declares exactly the expected overrides") {

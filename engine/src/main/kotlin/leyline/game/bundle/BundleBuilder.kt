@@ -18,6 +18,7 @@ import leyline.bridge.handoff.RevealChoiceWindowValue
 import leyline.bridge.handoff.SearchWindowValue
 import leyline.bridge.handoff.StaticChoiceKind
 import leyline.bridge.handoff.TargetingWindowValue
+import leyline.bridge.handoff.TriggerOrderWindowValue
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.InstanceId
 import leyline.bridge.types.SeatId
@@ -100,6 +101,7 @@ class BundleBuilder(
     private val searchWindows = SearchWindowMaterializer(SeatId(seatId))
     private val replacementWindows = ReplacementWindowMaterializer()
     private val orderWindows = OrderWindowMaterializer()
+    private val triggerOrderWindows = TriggerOrderWindowMaterializer()
     private val distributionWindows = DistributionWindowMaterializer()
     private val groupingWindows = GroupingWindowMaterializer()
     private val manaSourcePayments = ManaSourcePaymentMaterializer(seatId)
@@ -1594,6 +1596,40 @@ class BundleBuilder(
             frame,
             counter,
             { context -> replacementWindows.prepare(context, window) },
+            { it.bundle.messages },
+        )
+    }
+
+    /**
+     * Prepare, but do not install, one coordinator-owned simultaneous-trigger ordering window.
+     * The client resolves each option id to an object it already knows, so the pending triggers
+     * are shown on the stack in this frame, ahead of Forge putting them there.
+     */
+    internal fun prepareTriggerOrderWindow(
+        game: Game,
+        counter: LogicalSequencePlanner,
+        window: TriggerOrderWindowValue,
+        routes: List<ViewerRoute>,
+    ): PreparedViewerCut<SettledPromptMaterialization> {
+        val supplements =
+            window.options.reversed().map {
+                ProjectionSupplement.PreStackAbility(
+                    forgeAbilityId = it.forgeAbilityId,
+                    sourceForgeCardId = it.sourceForgeCardId,
+                    abilityGrpId = it.abilityGrpId,
+                    sourceCardGrpId = it.sourceCardGrpId,
+                    ownerSeatId = it.ownerSeatId,
+                    controllerSeatId = it.controllerSeatId,
+                    targetForgeCardIds = emptyList(),
+                    isActivatedAbility = false,
+                    deferAnnouncement = true,
+                )
+            }
+        val frame = prepareViewerPromptProjection(game, counter, routes, ViewerProjectionIntent.of(supplements))
+        return finishSettledPrompt(
+            frame,
+            counter,
+            { context -> triggerOrderWindows.prepare(context, window) },
             { it.bundle.messages },
         )
     }

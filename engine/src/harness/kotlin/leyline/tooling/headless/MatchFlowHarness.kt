@@ -1521,8 +1521,11 @@ class MatchFlowHarness(
      *
      * @param selectedInstanceIds the instanceIds the player chose (e.g. the legendary to keep)
      */
-    fun respondToSelectN(selectedInstanceIds: List<Int>) {
-        submitPromptResponse(selectNResp(ids = selectedInstanceIds), "selection response")
+    fun respondToSelectN(
+        selectedInstanceIds: List<Int>,
+        useArbitrary: OrderingType? = null,
+    ) {
+        submitPromptResponse(selectNResp(ids = selectedInstanceIds, useArbitrary = useArbitrary), "selection response")
     }
 
     fun respondToOrder(orderedInstanceIds: List<Int>) {
