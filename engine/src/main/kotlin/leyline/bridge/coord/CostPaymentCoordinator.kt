@@ -340,15 +340,16 @@ class CostPaymentCoordinator(
             player.lobbyPlayer?.name,
             context,
         )
+        val manaPart = cost.costParts.firstOrNull { it is CostPartMana } as? CostPartMana
         val accepted =
             optionalActionGate.await(
                 hostCard = hostCard,
                 defaultOnTimeout = false,
                 logContext = "payCostToPreventEffect:$context",
+                costText = manaPart?.mana?.let { ManaCostText.clientText(it.toColorCounts()) }?.takeIf { it.isNotEmpty() },
             )
         if (!accepted) return false
 
-        val manaPart = cost.costParts.firstOrNull { it is CostPartMana } as? CostPartMana
         if (manaPart == null) {
             log.warn("Optional mana cost accepted but no CostPartMana in cost {} — declining", cost)
             return false

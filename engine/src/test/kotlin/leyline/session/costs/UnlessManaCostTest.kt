@@ -72,6 +72,10 @@ class UnlessManaCostTest :
             holdNextOptionalAction()
             playLand("Rupture Spire").shouldBeTrue()
             optionalPrompts() shouldBe prior + 1
+            // "Pay {1}." (PayCosts prompt with a Cost parameter), not the generic "Choose options."
+            val prompt = allMessages.last { it.hasOptionalActionMessage() }.optionalActionMessage.prompt
+            prompt.promptId shouldBe leyline.game.mapping.PromptIds.PAY_COSTS
+            prompt.parametersList.map { it.parameterName to it.stringValue } shouldBe listOf("Cost" to "o1")
             respondToOptionalAction(accept = true)
 
             assertSoftly {

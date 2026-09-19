@@ -17,6 +17,9 @@ sealed interface BlockingInteraction {
          *  Explore routes to a dedicated browser only when this is set. Null keeps
          *  the message tag-free, same as before this field existed. */
         val mechanicType: CardMechanicType? = null,
+        /** Client mana-cost text (`o1`, `oUoB`, ...) shown as "Pay {cost}." instead of the
+         *  generic "Choose options." prompt. Null keeps the generic prompt. */
+        val costText: String? = null,
     ) : BlockingInteraction
 
     data class FreeCast(

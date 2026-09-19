@@ -47,9 +47,16 @@ internal class BlockingInteractionMaterializer(
             val prompt =
                 Prompt
                     .newBuilder()
-                    .setPromptId(interaction.customPromptId ?: PromptIds.OPTIONAL_ACTION)
-                    .addParameters(cardIdPromptParameter(sourceId))
-                    .build()
+                    .setPromptId(
+                        interaction.customPromptId ?: interaction.costText?.let { PromptIds.PAY_COSTS } ?: PromptIds.OPTIONAL_ACTION,
+                    ).apply {
+                        val cost = interaction.costText
+                        if (cost != null) {
+                            addParameters(costPromptParameter(cost))
+                        } else {
+                            addParameters(cardIdPromptParameter(sourceId))
+                        }
+                    }.build()
             val optional =
                 OptionalActionMessage
                     .newBuilder()
@@ -570,6 +577,14 @@ internal class BlockingInteractionMaterializer(
             .setPrevGameStateId(link.prevGsId)
             .setPendingMessageCount(1)
             .setUpdate(GameStateUpdate.SendAndRecord)
+            .build()
+
+    private fun costPromptParameter(costText: String): PromptParameter =
+        PromptParameter
+            .newBuilder()
+            .setParameterName("Cost")
+            .setType(ParameterType.NonLocalizedString)
+            .setStringValue(costText)
             .build()
 
     private fun cardIdPromptParameter(value: Int): PromptParameter =

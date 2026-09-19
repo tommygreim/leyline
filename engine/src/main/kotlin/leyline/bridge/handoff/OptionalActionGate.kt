@@ -66,6 +66,7 @@ class OptionalActionGate(
         freeCast: BlockingInteraction.FreeCast? = null,
         etbPayLifeReplacement: Boolean = false,
         mechanicType: CardMechanicType? = null,
+        costText: String? = null,
     ): Boolean {
         if (hostCard == null) return true
         return interactionRuntime.awaitOptional(
@@ -77,6 +78,7 @@ class OptionalActionGate(
                 freeCast = freeCast,
                 etbPayLifeReplacement = etbPayLifeReplacement,
                 mechanicType = mechanicType,
+                costText = costText,
             ),
             sourceCard = hostCard,
             timeoutMs = actionBridge?.getTimeoutMs(),
