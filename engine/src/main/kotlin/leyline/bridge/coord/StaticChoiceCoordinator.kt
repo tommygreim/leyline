@@ -1,6 +1,7 @@
 package leyline.bridge.coord
 
 import forge.card.ColorSet
+import forge.game.card.Card
 import forge.game.player.PlayerController.BinaryChoiceType
 import forge.game.spellability.SpellAbility
 import leyline.bridge.handoff.InteractivePromptBridge
@@ -116,6 +117,36 @@ class StaticChoiceCoordinator(
         val idx = indices.firstOrNull() ?: return 0
         if (idx >= colorOptions.size) return 0
         return colorChoices[idx].colorMask
+    }
+
+    /** Choose a mana color from a colored subset plus Arena's Colorless entry. */
+    fun chooseColorAllowColorless(
+        message: String,
+        card: Card,
+        colors: ColorSet,
+    ): Byte {
+        if (colors.isColorless) return 0
+
+        val choices =
+            colors.orderedColors.map { it.getName().replaceFirstChar(Char::uppercase) to it.colorMask } +
+                ("Colorless" to 0.toByte())
+        val selected =
+            bridge
+                .requestStaticChoice(
+                    PromptRequest(
+                        promptType = "choose_one",
+                        message = message,
+                        options = choices.map { it.first },
+                        min = 1,
+                        max = 1,
+                        defaultIndex = 0,
+                        route = PromptRouteResolver.resolve(PromptSemantic.StaticCardColorChoice),
+                        sourceEntityId = card.id.takeIf { it > 0 },
+                        staticList = StaticList.CardColors,
+                        staticOptionIds = choices.map { StaticChoiceIds.cardColorIdForName(it.first)!! },
+                    ),
+                ).firstOrNull()
+        return selected?.let { choices.getOrNull(it)?.second } ?: choices.first().second
     }
 
     fun chooseColors(
