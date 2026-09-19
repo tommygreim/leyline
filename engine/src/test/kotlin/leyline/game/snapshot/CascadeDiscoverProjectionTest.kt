@@ -62,6 +62,26 @@ private val DISCOVER_PUZZLE =
     ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest
     """.trimIndent()
 
+private val CASCADE_KICKER_PUZZLE =
+    """
+    [metadata]
+    Name:Cascade free cast declines kicker
+    Goal:Survive
+    Turns:5
+
+    [state]
+    ActivePlayer=Human
+    ActivePhase=Main1
+    HumanLife=20
+    AILife=20
+
+    humanhand=Bloodbraid Elf
+    humanbattlefield=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Forest;Forest
+    humanlibrary=Burst Lightning;Forest;Forest;Mountain;Mountain;Forest;Mountain;Forest;Mountain;Forest;Mountain;Forest
+    aibattlefield=Grizzly Bears
+    ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest
+    """.trimIndent()
+
 /**
  * End-to-end coverage for the trigger-ability projection on the Stack zone.
  *
@@ -279,5 +299,37 @@ class CascadeDiscoverProjectionTest :
                 castingTimeOption.affectedIdsList shouldBe listOf(castingTimeOption.affectorId)
                 castStates.flatMap { it.diffDeletedPersistentAnnotationIdsList } shouldContain castingTimeOption.id
             }
+        }
+
+        session(
+            "Cascade free cast declines kicker when no casting-time choice was collected",
+            puzzle = CASCADE_KICKER_PUZZLE,
+        ) {
+            val bloodbraid = human.hand.card("Bloodbraid Elf")
+            send(
+                submitWithGsId(
+                    leyline.testkit.performAction {
+                        actionType = ActionType.Cast
+                        instanceId = bridge.instanceId(bloodbraid)
+                        grpId = bridge.cardRepository.findGrpIdByName("Bloodbraid Elf")!!
+                    },
+                ),
+            )
+            allMessages.addAll(sink.messages)
+            accumulator.processAll(sink.messages)
+            sink.clear()
+            send(submitWithGsId(leyline.testkit.optionalActionResp(true)))
+            allMessages.addAll(sink.messages)
+            accumulator.processAll(sink.messages)
+            sink.clear()
+
+            val beforeFreeCast = messageSnapshot()
+            respondToOptionalAction(accept = true)
+            messagesSince(beforeFreeCast).any { it.hasSelectTargetsReq() } shouldBe true
+
+            selectTargets(listOf(OPPONENT_SEAT))
+            passUntilResolved()
+
+            ai.life shouldBe 18
         }
     })
