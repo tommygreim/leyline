@@ -66,15 +66,19 @@ class PriorityPolicyRuntimeTest :
             }
         }
 
-        test("own stack passes but new opponent response reopens even during a disabled phase") {
+        test("own stack opens a window only when there is something to respond with; an opponent response always reopens") {
             assertSoftly {
                 val policy = runtime()
                 val ownSpell = PriorityStackObject(1, 1)
                 val response = PriorityStackObject(2, 2)
-                policy.visible(observation(phase = PhaseType.UPKEEP, meaningful = true, stack = listOf(ownSpell))).shouldBeFalse()
+                // Another castable instant lets the player stack a second spell on their own.
+                policy.visible(observation(phase = PhaseType.UPKEEP, meaningful = true, stack = listOf(ownSpell))).shouldBeTrue()
+                policy.visible(observation(phase = PhaseType.UPKEEP, stack = listOf(ownSpell))).shouldBeFalse()
                 policy.visible(observation(phase = PhaseType.UPKEEP, meaningful = true, stack = listOf(response, ownSpell))).shouldBeTrue()
                 policy.visible(observation(phase = PhaseType.UPKEEP, stack = listOf(response, ownSpell))).shouldBeFalse()
                 policy.classifyPriorityWindow(observation(meaningful = true, stack = listOf(ownSpell))) shouldBe
+                    PriorityWindowDecision.Present(PriorityWindowMode.Visible, autoResolve = false)
+                policy.classifyPriorityWindow(observation(stack = listOf(ownSpell))) shouldBe
                     PriorityWindowDecision.Present(PriorityWindowMode.SyncOnly, autoResolve = true)
             }
         }

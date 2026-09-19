@@ -48,7 +48,7 @@ private enum class PriorityWindowReason(
     TURN_YIELD(false),
     STACK_YIELD(false),
     NO_EXECUTABLE_ACTION(false),
-    OWN_STACK(false),
+    OWN_STACK(true),
     OPPONENT_STACK(true),
     ENABLED_PHASE(true),
     PHASE_NOT_ENABLED(false),
