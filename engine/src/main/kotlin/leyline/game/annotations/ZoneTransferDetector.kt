@@ -158,6 +158,7 @@ internal data class ZoneTransferContext(
 internal data class StackAbilitySourceFacts(
     val sourceCardId: ForgeCardId,
     val isActivatedAbility: Boolean,
+    val deferAnnouncement: Boolean = false,
 )
 
 /**
@@ -1278,6 +1279,7 @@ object ZoneTransferDetector {
 
             val abilityForgeId = forgeIdLookup(InstanceId(obj.instanceId)) ?: continue
             val stackFacts = stackAbilityLookup(FrameIdResolver.stackAbilitySourceForgeId(abilityForgeId).value)
+            if (stackFacts?.deferAnnouncement == true) continue
             val sourceCardForgeId =
                 stackFacts?.sourceCardId
                     ?: resolveStackAbilitySourceCard(

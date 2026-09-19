@@ -52,6 +52,7 @@ class PromptRouteMatrixTest :
                     PromptSemantic.GroupedSearch to ResolvedPromptRoute.Search(PromptSemantic.GroupedSearch),
                     PromptSemantic.SelectReplacement to
                         ResolvedPromptRoute.SelectReplacement(PromptSemantic.SelectReplacement),
+                    PromptSemantic.OrderTriggers to ResolvedPromptRoute.OrderTriggers(PromptSemantic.OrderTriggers),
                     PromptSemantic.OrderForBottom to
                         ResolvedPromptRoute.Order(PromptSemantic.OrderForBottom, OrderRouteKind.Bottom),
                     PromptSemantic.OrderForTop to ResolvedPromptRoute.Order(PromptSemantic.OrderForTop, OrderRouteKind.Top),

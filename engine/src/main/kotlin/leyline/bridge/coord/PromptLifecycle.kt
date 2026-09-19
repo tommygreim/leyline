@@ -29,6 +29,7 @@ internal enum class PromptTerminalPriority {
     Replacement,
     Distribution,
     Order,
+    TriggerOrder,
     Grouping,
     CardSelect,
     StaticChoice,

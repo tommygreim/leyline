@@ -21,6 +21,7 @@ internal class MatchPromptRuntimeSet(
     val search = MatchSearchInteractionRuntime(owner, settled, runtimeSeat = runtimeSeat)
     val replacement = MatchReplacementInteractionRuntime(owner, settled, runtimeSeat = runtimeSeat)
     val order = MatchOrderInteractionRuntime(owner, settled, runtimeSeat = runtimeSeat)
+    val triggerOrder = MatchTriggerOrderInteractionRuntime(owner, settled, runtimeSeat = runtimeSeat)
     val distribution = MatchDistributionInteractionRuntime(owner, settled, runtimeSeat = runtimeSeat)
     val grouping = MatchGroupingInteractionRuntime(owner, settled, runtimeSeat = runtimeSeat)
     val cardSelect = MatchCardSelectInteractionRuntime(owner, settled, runtimeSeat = runtimeSeat)
@@ -38,6 +39,7 @@ internal class MatchPromptRuntimeSet(
             search = search,
             replacement = replacement,
             order = order,
+            triggerOrder = triggerOrder,
             distribution = distribution,
             grouping = grouping,
             cardSelect = cardSelect,

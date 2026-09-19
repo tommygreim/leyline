@@ -217,6 +217,15 @@ private val promptRouteFamilies =
             semantics = listOf(PromptSemantic.OrderForBottom, PromptSemantic.OrderForTop),
         ),
         PromptRouteFamily(
+            name = "TriggerOrder",
+            materializers = listOf("$MATERIALIZERS.TriggerOrderWindowMaterializer"),
+            handoffValues = "$HANDOFF.(TriggerOrder.*Value|PublishedTriggerOrderInteraction)",
+            prepareMethod = "prepareTriggerOrderWindow",
+            runtime = "$COORD.MatchTriggerOrderInteractionRuntime",
+            routeType = ResolvedPromptRoute.OrderTriggers::class,
+            semantics = listOf(PromptSemantic.OrderTriggers),
+        ),
+        PromptRouteFamily(
             name = "Distribution",
             materializers = listOf("$MATERIALIZERS.DistributionWindowMaterializer"),
             handoffValues = "$HANDOFF.DistributionWindowValue",

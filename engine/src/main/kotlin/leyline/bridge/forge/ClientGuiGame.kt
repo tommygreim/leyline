@@ -62,6 +62,7 @@ class ClientGuiGame(
     private val stackTargetCandidate: (Int, Any?) -> TargetingCandidateValue.StackObject? = { _, _ -> null },
     private val currentDividedAllocationAbility: () -> SpellAbility? = { null },
     private val beforeDividedAllocation: (SpellAbility) -> List<DistributionTargetRef> = { emptyList() },
+    private val currentSimultaneousAbilities: () -> List<SpellAbility> = { emptyList() },
 ) : IGuiGame {
     private data class StackTargetOptionSet(
         val candidates: List<TargetingCandidateValue.StackObject>,
@@ -367,23 +368,15 @@ class ClientGuiGame(
         sideboardingMode: Boolean,
         showRememberCheckbox: Boolean,
     ): IGuiGame.OrderResult<T> {
-        // Trigger-order auto-resolve. Forge's `PCHuman.orderSimultaneousSa`
-        // routes through here with `SpellAbilityView` choices for simultaneous
-        // triggers. The protocol does not surface a stepper for that decision —
-        // the engine resolves with APNAP / first-controller-orders default. Any
-        // bridge round-trip we tried to emit here would land as a `choose_one`
-        // request the client doesn't render and would time out, by which point
-        // the session has often torn down. Short-circuit: return the engine's
-        // already-ordered list (preselect = dest; first-time = source) and
-        // let resolution proceed.
-        //
-        // PCHuman currently passes exactly one non-empty list; if a future
-        // partial-preselect mode ever populates both, prefer dest (the
-        // preselected order is the load-bearing input).
+        // Forge's `PCHuman.orderSimultaneousSa` routes simultaneous triggers (CR 603.3b) through
+        // here as `SpellAbilityView`s, either the first-time list or the previously chosen
+        // order as `destChoices`. PCHuman passes exactly one non-empty list; if a future
+        // partial-preselect mode ever populates both, prefer dest (the preselected order is
+        // the load-bearing input). The list is ordered resolve-first.
         val orderedDest = destChoices.orEmpty()
         val payload = if (sourceChoices.isNotEmpty()) sourceChoices else orderedDest
         if (payload.firstOrNull { it != null } is SpellAbilityView) {
-            return IGuiGame.OrderResult(payload.toList(), false)
+            return IGuiGame.OrderResult(orderSimultaneousAbilities(payload), false)
         }
 
         if (sourceChoices.size <= 1) return IGuiGame.OrderResult(sourceChoices.toList(), false)
@@ -407,6 +400,26 @@ class ClientGuiGame(
         }
         result.addAll(remaining)
         return IGuiGame.OrderResult(result, false)
+    }
+
+    /** The player's stack order for simultaneous triggers; Forge's own order when no prompt is due. */
+    @Suppress("UNCHECKED_CAST")
+    private fun <T : Any?> orderSimultaneousAbilities(views: List<T>): List<T> {
+        val abilitiesById = currentSimultaneousAbilities().associateBy { it.id }
+        val handles = views.map { abilitiesById[(it as SpellAbilityView).id] ?: return views.toList() }
+        val request =
+            PromptRequest(
+                promptType = "order_triggers",
+                message = "Choose the order to put triggered abilities on the stack",
+                options = views.map { it.toString() },
+                min = views.size,
+                max = views.size,
+                defaultIndex = 0,
+                route = PromptRouteResolver.resolve(PromptSemantic.OrderTriggers),
+            )
+        val result = bridge.requestTriggerOrder(request, handles) ?: return views.toList()
+        val viewsById = views.associateBy { (it as SpellAbilityView).id }
+        return result.handles.map { viewsById.getValue(it.id) }
     }
 
     override fun <T : Any?> insertInList(

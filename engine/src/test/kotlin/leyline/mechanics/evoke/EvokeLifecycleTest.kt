@@ -20,6 +20,7 @@ import leyline.testkit.persistentAnnotationsOfType
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
 import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
+import wotc.mtgo.gre.external.messaging.Messages.OrderingType
 
 class EvokeLifecycleTest :
     SessionTest({
@@ -63,6 +64,9 @@ class EvokeLifecycleTest :
                 castAction.detailInt("alternativeGrpId") shouldBe evokeAbilityGrpId
             }
 
+            passUntilResolved(maxPasses = 12)
+            // The draw trigger and the evoke sacrifice trigger fire together: the player orders them.
+            respondToSelectN(lastSelectNReq().idsList, OrderingType.OrderAsIndicated)
             passUntilResolved(maxPasses = 12)
             val lifecycle = messagesSince(snap)
             val entryFrame =

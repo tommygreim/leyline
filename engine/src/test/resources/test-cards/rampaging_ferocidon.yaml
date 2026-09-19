@@ -1,0 +1,14 @@
+name: "Rampaging Ferocidon"
+grpId: 66273
+titleId: 173836
+abilities:
+  - id: 142
+    textId: 102
+    category: 3
+  - id: 92939
+    textId: 90234
+    category: 3
+  - id: 1176
+    textId: 934599
+    category: 2
+expansionCode: "XLN"

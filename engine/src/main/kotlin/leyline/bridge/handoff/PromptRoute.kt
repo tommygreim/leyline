@@ -71,6 +71,11 @@ sealed interface ResolvedPromptRoute {
         val kind: OrderRouteKind,
     ) : ResolvedPromptRoute
 
+    /** Simultaneous-trigger ordering (CR 603.3b) owned by the settled trigger-order slot. */
+    data class OrderTriggers(
+        override val semantic: PromptSemantic,
+    ) : ResolvedPromptRoute
+
     /** Fixed-total allocation across already-selected targets. */
     data class Distribution(
         override val semantic: PromptSemantic,
@@ -289,6 +294,7 @@ object PromptRouteResolver {
             PromptSemantic.Search -> ResolvedPromptRoute.Search(semantic)
             PromptSemantic.GroupedSearch -> ResolvedPromptRoute.Search(semantic)
             PromptSemantic.SelectReplacement -> ResolvedPromptRoute.SelectReplacement(semantic)
+            PromptSemantic.OrderTriggers -> ResolvedPromptRoute.OrderTriggers(semantic)
             PromptSemantic.OrderForBottom -> ResolvedPromptRoute.Order(semantic, OrderRouteKind.Bottom)
             PromptSemantic.OrderForTop -> ResolvedPromptRoute.Order(semantic, OrderRouteKind.Top)
             PromptSemantic.DividedAllocationDamage -> ResolvedPromptRoute.Distribution(semantic, DistributionRouteKind.Damage)

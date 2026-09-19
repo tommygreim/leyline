@@ -505,6 +505,7 @@ object StateProjectionCompiler {
                             isActivatedAbility = ability.isActivatedAbility,
                             targets = ability.targetForgeCardIds,
                             forgeAbilityId = ability.forgeAbilityId,
+                            deferAnnouncement = ability.deferAnnouncement,
                         ),
                     ) + stack.entries,
                 )
