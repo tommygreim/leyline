@@ -1698,7 +1698,8 @@ class PlayerController(
         // it calls getAbilityToPlay() which blocks on InteractivePromptBridge — deadlock
         // since the engine thread is already in this call.
         // Instead, read the stashed decision from TargetingHandler (set after client
-        // responded to CastingTimeOptionsReq). Fallback: auto-accept all (test harness).
+        // responded to CastingTimeOptionsReq). Missing decisions decline optional
+        // costs, including free-cast paths that have no casting-time window.
         var sa = chosenSa
         val optionalCosts =
             GameActionUtil

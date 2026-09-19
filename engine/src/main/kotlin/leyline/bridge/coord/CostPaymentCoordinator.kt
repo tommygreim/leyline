@@ -259,8 +259,9 @@ class CostPaymentCoordinator(
      * Optional cost resolution (kicker, buyback, flashback, cycling, warp,
      * Madness alt-cost). Reads the stashed decision from [leyline.bridge.handoff.PromptJournal]
      * after the client responded to `CastingTimeOptionsReq`. Falls back to
-     * auto-accepting all optional costs when no stash is present (e.g. test
-     * harness paths that bypass the castingTimeOptions flow).
+     * declining when no decision is present. Free-cast paths do not open a
+     * casting-time choice window, and paying an optional cost without a
+     * client decision is never safe.
      */
     fun chooseOptionalCosts(
         chosenSa: SpellAbility,
@@ -277,8 +278,12 @@ class CostPaymentCoordinator(
             )
             return chosen
         }
-        log.info("chooseOptionalCosts: auto-accepting {} optional costs for {}", optionalCosts.size, chosenSa.hostCard?.name)
-        return optionalCosts
+        log.info(
+            "chooseOptionalCosts: no decision recorded — declining {} optional costs for {}",
+            optionalCosts.size,
+            chosenSa.hostCard?.name,
+        )
+        return mutableListOf()
     }
 
     /**
