@@ -136,7 +136,6 @@ class HarmonizeLifecycleTest :
             val harmonizeAbilityGrpId = bridge.cardRepository.findKeywordAbilityGrpId(cardGrpId, KeywordAbilityIds.HARMONIZE)!!
             val bearIid = human.battlefield.iid("Grizzly Bears")
 
-            nextNumericInput(2)
             castSpellByName(
                 "Winternight Stories",
                 zone = ZoneType.Graveyard,
@@ -145,6 +144,8 @@ class HarmonizeLifecycleTest :
 
             val payCosts = allMessages.last { it.hasPayCostsReq() }
             assertSoftly {
+                // The creature is asked for directly: no bare "choose X" numeric prompt first.
+                allMessages.none { it.type == wotc.mtgo.gre.external.messaging.Messages.GREMessageType.NumericInputReq_695e } shouldBe true
                 payCosts.prompt.promptId shouldBe checkNotNull(TapPaymentDescriptor.grounded(TapPaymentKind.TapExact, 1)).promptId
                 payCosts.payCostsReq.effectCostReq.costSelection.idsList shouldContain bearIid
             }

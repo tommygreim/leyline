@@ -288,9 +288,15 @@ class PlayerController(
 
     companion object {
         private val log = LoggerFactory.getLogger(PlayerController::class.java)
+
+        /** Forge's title for Harmonize's power question; see [chooseHarmonizeTapPower]. */
+        private const val HARMONIZE_TAP_TITLE = "Choose power of creature to tap"
     }
 
     private var pendingManaColorChoice: Byte? = null
+
+    /** Creature chosen for the current Harmonize cast, consumed by its tap-cost payment. */
+    private var harmonizeTap: Card? = null
 
     fun <T> withManaColorChoice(
         colorMask: Byte?,
@@ -732,7 +738,8 @@ class PlayerController(
     }
 
     private fun isDredgeReplacement(effect: ReplacementEffect): Boolean =
-        effect.hostCard?.keywords?.any { it.keyword == Keyword.DREDGE && it.replacements.any { replacement -> replacement === effect } } == true
+        effect.hostCard?.keywords?.any { it.keyword == Keyword.DREDGE && it.replacements.any { replacement -> replacement === effect } } ==
+            true
 
     override fun chooseSingleReplacementEffect(possibleReplacers: List<ReplacementEffect>): ReplacementEffect {
         val first = possibleReplacers.first()
@@ -1203,6 +1210,12 @@ class PlayerController(
         isOptional: Boolean,
         prompt: String,
     ): CardCollectionView {
+        if (cpl is CostTapType && sa.isHarmonize) {
+            harmonizeTap?.takeIf { it in optionList }?.let { chosen ->
+                harmonizeTap = null
+                return CardCollection(chosen)
+            }
+        }
         val tapPayment = TapPaymentPolicy.exact(cpl, amount, sa)
         val semantic =
             when (cpl) {
@@ -1426,6 +1439,7 @@ class PlayerController(
     ): Int =
         when {
             max <= 0 -> 0
+            keyword.keyword == Keyword.HARMONIZE && max == 1 -> if (harmonizeTap != null) 1 else 0
             max == 1 -> costPaymentCoordinator.chooseKeywordCostBinary(prompt, keyword.keyword?.toString())
             // max > 1: getGui().getInteger() is bridged through ClientGuiGame, safe to inherit.
             else -> super.chooseNumberForKeywordCost(sa, cost, keyword, prompt, max)
@@ -1453,6 +1467,7 @@ class PlayerController(
         // PCHuman short-circuits when the range is degenerate; preserve that
         // invariant so we don't ship a NumericInputReq with maxValue == minValue
         // (or worse, max < min) and wait for a pointless client roundtrip.
+        if (sa.isHarmonize && title == HARMONIZE_TAP_TITLE) return chooseHarmonizeTapPower(sa)
         if (min >= max) return min
         return numericInputGate.await(
             sourceCard = sa.hostCard,
@@ -1461,6 +1476,39 @@ class PlayerController(
             defaultOnTimeout = min,
             logContext = "chooseNumber",
         )
+    }
+
+    /**
+     * Forge asks Harmonize for "the power of the creature to tap" as a bare number, then makes
+     * the caster tap a creature of exactly that power. Arena just asks which creature to tap and
+     * lowers the cost by its power, so ask that up front, answer Forge's number with the chosen
+     * creature's power, and hand the same creature to the tap-cost payment that follows.
+     * Cancelling the prompt means no reduction.
+     */
+    private fun chooseHarmonizeTapPower(sa: SpellAbility): Int {
+        harmonizeTap = null
+        if (NonInteractiveScope.active != null) return 0
+        val candidates = CardCollection(player.creaturesInPlay.filter { !it.isTapped })
+        if (candidates.isEmpty()) return 0
+        val tapCost = Cost("tapXType<1/Creature/creature for Harmonize>", false).costParts.first()
+        val tapPayment = TapPaymentPolicy.exact(tapCost, 1, sa)
+        val chosen =
+            targetingCoordinator
+                .chooseCardsViaBridge(
+                    cards = candidates,
+                    min = 1,
+                    max = 1,
+                    message = "Tap a creature to reduce the cost?",
+                    semantic = if (tapPayment != null) PromptSemantic.TapPaymentCost else PromptSemantic.Generic,
+                    candidateRefs = candidates.toCandidateRefs(),
+                    sourceEntityId = sa.hostCard.id.takeIf { it > 0 },
+                    tapPayment = tapPayment?.descriptor,
+                    payCostsPromptSource = tapPayment?.promptSource,
+                    forcePrompt = true,
+                    cancellable = true,
+                ).firstOrNull() ?: return 0
+        harmonizeTap = chosen
+        return chosen.netPower
     }
 
     /**
