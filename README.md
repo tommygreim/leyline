@@ -20,6 +20,29 @@ state into client-facing updates.
 
 [Architecture deep dive →](docs/architecture.md)
 
+## Fork notice
+
+This repository is an independently maintained downstream fork of
+[delebedev/leyline](https://github.com/delebedev/leyline). It retains the
+upstream project's Forge-backed local protocol bridge and periodically merges
+upstream changes.
+
+In addition to upstream, this fork focuses on making complete local native
+client play sessions work in practice. Its fork-specific work includes:
+
+- local account, lobby, matchmaking, and match transports, including
+  authenticated two-player local games and Linux/Proton support;
+- expanded client-state projection and interactive decision handling for
+  casting, payments, targeting, priority, triggers, zones, and the stack;
+- local card metadata and SQLite-backed lookup, current protocol/schema
+  alignment, and draft-model experimentation; and
+- puzzle-backed acceptance coverage for client-visible gameplay flows.
+
+This fork is not maintained by or on behalf of the upstream project. Issues
+specific to these changes belong here; focused, generally useful changes may
+be suitable for contribution to
+[delebedev/leyline](https://github.com/delebedev/leyline).
+
 ## Repository shape
 
 ```text
