@@ -1,0 +1,8 @@
+name: "Rhystic Study"
+grpId: 87063
+titleId: 28962
+abilities:
+  - id: 5871
+    textId: 28964
+    category: 2
+expansionCode: "WOT"

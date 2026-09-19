@@ -314,13 +314,25 @@ class CostPaymentCoordinator(
      *
      * Payer is `[player]` (the controller whose [PlayerController] Forge
      * dispatches `payCostToPreventEffect` on), NOT `sa.activatingPlayer`.
+     *
+     * With [requireAffordable], a cost the payer cannot cover is declined
+     * without a prompt: accepting could only fail, and a failed auto-tap
+     * leaves the lands it reached tapped.
      */
     fun payOptionalManaCost(
         cost: Cost,
         sa: SpellAbility,
         context: String,
+        requireAffordable: Boolean = false,
     ): Boolean {
         val hostCard = sa.hostCard
+        if (requireAffordable) {
+            val part = cost.costParts.firstOrNull { it is CostPartMana } as? CostPartMana
+            if (part != null && !ComputerUtilMana.canPayManaCost(ManaCostBeingPaid(part.mana), sa, player, true)) {
+                log.info("payCostToPreventEffect: {} unaffordable for {} — declining without prompt", cost, hostCard?.name)
+                return false
+            }
+        }
         log.info(
             "payCostToPreventEffect: optional mana cost {} for {} (payer seat={}, context={})",
             cost,

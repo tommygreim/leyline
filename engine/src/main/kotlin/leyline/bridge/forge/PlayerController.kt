@@ -942,8 +942,9 @@ class PlayerController(
         alreadyPaid: Boolean,
         allPayers: FCollectionView<Player>,
     ): Boolean {
-        // Single-part costs route to coordinator helpers; everything else
-        // (echo and multi-part costs) falls through to PCHuman.
+        // Single-part life and mana costs route to coordinator helpers;
+        // everything else (non-mana echo and multi-part costs) falls through
+        // to PCHuman.
         cost.costParts.singleOrNull().let { single ->
             if (single is CostPayLife) {
                 val isEtbLandReplacement =
@@ -958,6 +959,11 @@ class PlayerController(
             }
             if (single is CostPartMana && sa.isKeyword(Keyword.CUMULATIVE_UPKEEP)) {
                 return costPaymentCoordinator.payOptionalManaCost(cost, sa, "cumulative-upkeep")
+            }
+            if (single is CostPartMana) {
+                // Mana Leak-style counters, Rhystic Study, "sacrifice unless you
+                // pay" lands: PCHuman would auto-tap without ever asking.
+                return costPaymentCoordinator.payOptionalManaCost(cost, sa, "unless-cost", requireAffordable = true)
             }
         }
         return super.payCostToPreventEffect(cost, sa, alreadyPaid, allPayers)
