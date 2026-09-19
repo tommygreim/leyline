@@ -2,6 +2,7 @@ package leyline.game.state
 
 import forge.game.zone.ZoneType
 import io.kotest.assertions.assertSoftly
+import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import leyline.bridge.types.ForgeCardId
@@ -141,5 +142,44 @@ class EffectProjectionFactsTest :
                 keyword.staticId shouldBe 0L
                 keyword.affectorForgeCardId shouldBe null
             }
+        }
+
+        test("parameterized keyword grants retain the names that identify their GRE abilities") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Grizzly Bears", human, ZoneType.Battlefield)
+                }
+            val target =
+                board.human
+                    .getZone(ZoneType.Battlefield)
+                    .cards
+                    .single()
+            target.addChangedCardKeywords(
+                listOf(
+                    "Landwalk:Forest",
+                    "Landwalk:Desert",
+                    "Protection:White",
+                    "Hexproof:White",
+                    "Affinity:Artifact",
+                    "TypeCycling:Island:1U:Island",
+                ),
+                null,
+                false,
+                401L,
+                null,
+            )
+
+            board.bridge
+                .materializeEffectProjectionFacts()
+                .keywordEntries
+                .map { it.keyword }
+                .shouldContainExactlyInAnyOrder(
+                    "Forestwalk",
+                    "Landwalk",
+                    "Protection from white",
+                    "Hexproof from white",
+                    "Affinity for artifacts",
+                    "Islandcycling",
+                )
         }
     })
