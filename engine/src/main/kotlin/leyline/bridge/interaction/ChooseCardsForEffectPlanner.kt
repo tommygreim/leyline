@@ -57,15 +57,16 @@ object ChooseCardsForEffectPlanner {
                     sourceIdPolicy = SourceIdPolicy.HostCard,
                 )
 
-            context.sa?.api == ApiType.ChangeZone ->
+            // Every other effect that asks the player to choose cards (ChooseCard, untap up to N,
+            // counters, ...) is a real decision. A Generic plan here resolved silently to exactly
+            // one card, the first, whatever min/max were.
+            else ->
                 ChooseCardsForEffectPlan(
                     semantic = PromptSemantic.SelectNResolution,
                     candidateRefsPolicy = CandidateRefsPolicy.SelectableAndUnfilteredForResolution,
                     sourceIdPolicy = SourceIdPolicy.HostCard,
                     resolutionRouteInput = resolutionInput,
                 )
-
-            else -> ChooseCardsForEffectPlan(semantic = PromptSemantic.Generic)
         }
     }
 }

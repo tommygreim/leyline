@@ -1,0 +1,8 @@
+name: "Duneblast"
+grpId: 58285
+titleId: 45981
+abilities:
+  - id: 21896
+    textId: 45983
+    category: 4
+expansionCode: "KTK"

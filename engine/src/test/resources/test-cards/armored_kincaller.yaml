@@ -1,0 +1,9 @@
+name: "Armored Kincaller"
+grpId: 87328
+titleId: 737702
+abilities:
+  - id: 169648
+    textId: 866438
+    category: 2
+    subCategory: 10
+expansionCode: "LCI"
