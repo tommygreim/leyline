@@ -72,6 +72,18 @@ class KeywordGrpIdsTest :
             }
         }
 
+        test("parameterized GRE ability names resolve") {
+            mapOf(
+                "Forestwalk" to 236,
+                "Protection from white" to 185,
+                "Protection from instant" to 339,
+                "Protection from chosen color" to 184,
+                "Hexproof from white" to 191,
+                "Affinity for artifacts" to 177,
+                "Islandcycling" to 125,
+            ).forEach { (keyword, abilityType) -> KeywordGrpIds.forKeyword(keyword) shouldBe abilityType }
+        }
+
         test("parameter-dependent and unknown names remain unmapped") {
             listOf("Affinity", "Protection", "TypeCycling", "Ward:{2}", "Not a keyword").forEach {
                 KeywordGrpIds.forKeyword(it).shouldBeNull()

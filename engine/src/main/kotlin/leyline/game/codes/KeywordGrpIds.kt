@@ -1,5 +1,9 @@
 package leyline.game.codes
 
+import forge.game.keyword.Keyword
+import forge.game.keyword.KeywordInterface
+import forge.game.keyword.KeywordWithCostAndType
+
 /** GRE AbilityType values used by both static keyword choices and temporary keyword grants. */
 object KeywordGrpIds {
     /**
@@ -12,6 +16,11 @@ object KeywordGrpIds {
         mapOf(
             "Absorb" to 65,
             "Afflict" to 164,
+            "Affinity for artifacts" to 177,
+            "Affinity for auras" to 337,
+            "Affinity for equipment" to 268,
+            "Affinity for goats" to 396,
+            "Affinity for outlaws" to 333,
             "Afterlife" to 173,
             "Aftermath" to 159,
             "Amplify" to 39,
@@ -23,6 +32,7 @@ object KeywordGrpIds {
             "Banding" to 23,
             "Bargain" to 303,
             "Battle cry" to 92,
+            "Basic landcycling" to 123,
             "Bestow" to 335,
             "Blitz" to 240,
             "Bloodthirst" to 55,
@@ -79,6 +89,8 @@ object KeywordGrpIds {
             "Flash" to 7,
             "Flashback" to 35,
             "Flying" to 8,
+            "Forestcycling" to 124,
+            "Forestwalk" to 236,
             "For Mirrodin" to 267,
             "Foretell" to 208,
             "Fortify" to 68,
@@ -91,6 +103,14 @@ object KeywordGrpIds {
             "Haste" to 9,
             "Haunt" to 56,
             "Hexproof" to 10,
+            "Hexproof from activated and triggered abilities" to 343,
+            "Hexproof from black" to 193,
+            "Hexproof from chosen" to 190,
+            "Hexproof from each of its colors" to 403,
+            "Hexproof from green" to 195,
+            "Hexproof from red" to 194,
+            "Hexproof from blue" to 192,
+            "Hexproof from white" to 191,
             "Hideaway" to 76,
             "Horsemanship" to 32,
             "Impending" to 352,
@@ -100,6 +120,8 @@ object KeywordGrpIds {
             "Infect" to 91,
             "Ingest" to 144,
             "Intimidate" to 11,
+            "Islandcycling" to 125,
+            "Islandwalk" to 233,
             "Kicker" to 34,
             "Job select" to 364,
             "Jump-start" to 170,
@@ -117,6 +139,8 @@ object KeywordGrpIds {
             "Mobilize" to 363,
             "Modular" to 44,
             "Morph" to 37,
+            "Mountaincycling" to 126,
+            "Mountainwalk" to 235,
             "Multikicker" to 122,
             "Mutate" to 203,
             "Myriad" to 406,
@@ -131,12 +155,38 @@ object KeywordGrpIds {
             "Partner with" to 395,
             "Persist" to 80,
             "Phasing" to 27,
+            "Plainscycling" to 127,
+            "Plainswalk" to 232,
             "Plot" to 328,
             "Poisonous" to 71,
             "Prototype" to 263,
             "Provoke" to 40,
             "Prowess" to 137,
             "Prowl" to 77,
+            "Protection from black" to 187,
+            "Protection from chosen color" to 184,
+            "Protection from chosen name" to 206,
+            "Protection from chosen type" to 301,
+            "Protection from colorless" to 288,
+            "Protection from colorless or color of choice" to 289,
+            "Protection from demon" to 257,
+            "Protection from demons" to 257,
+            "Protection from devil" to 258,
+            "Protection from devils" to 258,
+            "Protection from dog" to 204,
+            "Protection from dogs" to 204,
+            "Protection from each color" to 367,
+            "Protection from each opponent" to 368,
+            "Protection from everything" to 266,
+            "Protection from green" to 189,
+            "Protection from instant" to 339,
+            "Protection from instants" to 339,
+            "Protection from red" to 188,
+            "Protection from sorcery" to 340,
+            "Protection from sorceries" to 340,
+            "Protection from spells that are one or more colors" to 381,
+            "Protection from blue" to 186,
+            "Protection from white" to 185,
             "Rampage" to 24,
             "Reach" to 13,
             "Read ahead" to 260,
@@ -170,6 +220,9 @@ object KeywordGrpIds {
             "Sunburst" to 45,
             "Surge" to 356,
             "Suspend" to 63,
+            "Slivercycling" to 128,
+            "Swampcycling" to 129,
+            "Swampwalk" to 234,
             "Teamwork" to 412,
             "Tiered" to 365,
             "Toxic" to 264,
@@ -187,6 +240,7 @@ object KeywordGrpIds {
             "Ward" to 211,
             "Warp" to 371,
             "Web-slinging" to 382,
+            "Wizardcycling" to 130,
             "Wither" to 81,
         )
 
@@ -196,6 +250,32 @@ object KeywordGrpIds {
             .also { require(it.size == canonicalIds.size) { "Keyword lookup names must be unique" } }
 
     fun forKeyword(keyword: String): Int? = idsByLookupName[lookupName(keyword)]
+
+    /**
+     * The generic Forge enum name is insufficient for a small set of keyword
+     * families. Preserve their parameter only when GRE has an exact ability
+     * type; all other keyword families retain their stable base display name.
+     */
+    fun projectionName(keyword: KeywordInterface): String =
+        when (keyword.keyword) {
+            Keyword.LANDWALK -> exactOrBaseKeyword(keyword, keyword.title)
+
+            Keyword.HEXPROOF -> exactOrBaseKeyword(keyword, keyword.title)
+
+            Keyword.PROTECTION,
+            Keyword.AFFINITY,
+            -> keyword.title
+
+            Keyword.TYPECYCLING ->
+                (keyword as? KeywordWithCostAndType)?.titleWithoutCost ?: keyword.keyword.toString()
+
+            else -> keyword.keyword.toString()
+        }
+
+    private fun exactOrBaseKeyword(
+        keyword: KeywordInterface,
+        parameterizedName: String,
+    ): String = if (forKeyword(parameterizedName) != null) parameterizedName else keyword.keyword.toString()
 
     /** Forge and GRE differ predictably in capitalization, spaces, and hyphens. */
     private fun lookupName(keyword: String): String =

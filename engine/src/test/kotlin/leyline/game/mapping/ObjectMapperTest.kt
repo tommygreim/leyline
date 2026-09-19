@@ -1,6 +1,7 @@
 package leyline.game.mapping
 
 import forge.game.zone.ZoneType
+import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import leyline.bridge.types.ForgeCardId
 import leyline.game.snapshot.SnapshotCapture
@@ -57,6 +58,39 @@ class ObjectMapperTest :
             val obj = ObjectMapper.buildFromSnapshot(cardSnap, instanceId, zoneId, 1, b.cardProto)
 
             obj.othersideGrpId shouldBe 0
+        }
+
+        test("parameterized keyword grants retain their precise GRE ability types") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Grizzly Bears", human, ZoneType.Battlefield)
+                }
+            val target =
+                board.human
+                    .getZone(ZoneType.Battlefield)
+                    .cards
+                    .single()
+            val targetIid = board.bridge.instanceId(target.id)
+            val gsm =
+                board.snapshotDiff {
+                    target.addChangedCardKeywords(
+                        listOf(
+                            "Landwalk:Forest",
+                            "Landwalk:Desert",
+                            "Protection:White",
+                            "Hexproof:White",
+                            "Affinity:Artifact",
+                            "TypeCycling:Island:1U:Island",
+                        ),
+                        null,
+                        false,
+                        501L,
+                        null,
+                    )
+                }
+            val projected = gsm.gameObjectsList.single { it.instanceId == targetIid }
+
+            projected.uniqueAbilitiesList.map { it.grpId }.sorted() shouldContainExactly listOf(16, 125, 177, 185, 191, 236)
         }
 
         test("buildAbilityObject sets grpId (ability) and objectSourceGrpId (host card) independently") {
