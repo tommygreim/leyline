@@ -54,6 +54,36 @@ internal object ActionManaCosts {
             fallback()
         }
 
+    /**
+     * Harmonize lets the caster tap an untapped creature to reduce the cost by its power.
+     * Forge asks for that amount only once the cast is under way, so the plain payability
+     * probe never sees it and a graveyard Harmonize card looks uncastable whenever the lands
+     * alone fall short.
+     */
+    fun canPayWithHarmonizeReduction(
+        sa: SpellAbility,
+        player: Player,
+    ): Boolean {
+        val reduction =
+            player
+                .getZone(ForgeZoneType.Battlefield)
+                .cards
+                .filter { !it.isTapped && it.isCreature }
+                .maxOfOrNull { it.netPower }
+                ?.takeIf { it > 0 } ?: return false
+        val cost = computeEffectiveCost(sa, player) ?: return false
+        val toPay = ManaCostBeingPaid(cost)
+        toPay.decreaseGenericMana(reduction.coerceAtMost(cost.genericCost))
+        return affordabilityProbe(
+            probe = {
+                preservingPaymentProbeState(sa, player) {
+                    NonInteractiveScope.bestEffort { ComputerUtilMana.canPayManaCost(toPay, sa, player, false) }
+                }
+            },
+            fallback = { false },
+        )
+    }
+
     fun canPayWithPaymentSourceReducer(
         sa: SpellAbility,
         player: Player,

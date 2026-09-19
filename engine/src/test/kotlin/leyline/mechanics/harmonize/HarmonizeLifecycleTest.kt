@@ -57,8 +57,48 @@ private val REDUCE_COST_PUZZLE =
     ailibrary=Mountain;Mountain;Mountain
     """.trimIndent()
 
+// {4}{U} Harmonize with only three lands: castable only if tapping a creature can cover the rest.
+private fun shortOnLandsPuzzle(creature: String?) =
+    """
+    [metadata]
+    Name:Harmonize availability
+    Goal:Survive
+    Turns:3
+    Difficulty:Easy
+
+    [state]
+    ActivePlayer=Human
+    ActivePhase=Main1
+    HumanLife=20
+    AILife=20
+
+    humangraveyard=Winternight Stories
+    humanbattlefield=Island;Island;Island${creature?.let { ";$it" }.orEmpty()}
+    humanlibrary=Plains;Plains;Plains
+    ailibrary=Mountain;Mountain;Mountain
+    """.trimIndent()
+
+private fun leyline.tooling.headless.MatchFlowHarness.harmonizeOffered(): Boolean {
+    val iid = bridge.instanceId(human.getZone(ZoneType.Graveyard).cards.single { it.name == "Winternight Stories" })
+    return allMessages
+        .last { it.hasActionsAvailableReq() }
+        .actionsAvailableReq.actionsList
+        .any { it.actionType == wotc.mtgo.gre.external.messaging.Messages.ActionType.Cast && it.instanceId == iid }
+}
+
 class HarmonizeLifecycleTest :
     SessionTest({
+        session(
+            "Harmonize is offered from the graveyard when a creature's power covers the shortfall",
+            puzzle = shortOnLandsPuzzle("Grizzly Bears"),
+        ) {
+            harmonizeOffered() shouldBe true
+        }
+
+        session("Harmonize is not offered when neither lands nor creatures can pay", puzzle = shortOnLandsPuzzle(null)) {
+            harmonizeOffered() shouldBe false
+        }
+
         session("Winternight Stories casts from graveyard with Harmonize", puzzle = PUZZLE) {
             val cardGrpId = bridge.cardRepository.findGrpIdByName("Winternight Stories")!!
             val harmonizeAbilityGrpId = bridge.cardRepository.findKeywordAbilityGrpId(cardGrpId, KeywordAbilityIds.HARMONIZE)!!

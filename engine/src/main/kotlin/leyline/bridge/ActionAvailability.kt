@@ -40,7 +40,8 @@ internal object ActionAvailability {
         return if (convoke || improvise) {
             ActionManaCosts.canPayWithPaymentSourceReducer(sa, player, artifacts = improvise, creatures = convoke)
         } else {
-            ActionManaCosts.canPayManaCost(sa, player)
+            ActionManaCosts.canPayManaCost(sa, player) ||
+                (sa.alternativeCost?.name == "Harmonize" && ActionManaCosts.canPayWithHarmonizeReduction(sa, player))
         }
     }
 }
