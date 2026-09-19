@@ -143,6 +143,45 @@ class StackTargetingInteractionTest :
         }
 
         session(
+            "Aether Gust exposes both its stack and battlefield targets",
+            fullControl = true,
+            puzzle =
+                """
+                ActivePlayer=Human
+                ActivePhase=Main1
+                HumanLife=20
+                AILife=20
+
+                humanhand=Giant Growth;Aether Gust
+                humanbattlefield=Forest;Island;Island;Grizzly Bears
+                humanlibrary=Forest;Forest;Forest
+                ailibrary=Plains;Plains;Plains
+                """.trimIndent(),
+        ) {
+            val bearIid = human.battlefield.iid("Grizzly Bears")
+            castSpellByName("Giant Growth").shouldBeTrue()
+            selectTargets(listOf(bearIid))
+
+            val promptStart = messageSnapshot()
+            castSpellByName("Aether Gust").shouldBeTrue()
+            val targetIds =
+                messagesSince(promptStart)
+                    .last { it.hasSelectTargetsReq() }
+                    .selectTargetsReq
+                    .targetsList
+                    .flatMap { it.targetsList }
+                    .map { it.targetInstanceId }
+            val giantGrowthTarget = targetIds.single { cardByIid(it)?.name == "Giant Growth" }
+            val bearTarget = targetIds.single { cardByIid(it)?.name == "Grizzly Bears" }
+
+            assertSoftly {
+                cardByIid(giantGrowthTarget)?.name shouldBe "Giant Growth"
+                bearTarget shouldBe bearIid
+            }
+            selectTargets(listOf(bearTarget))
+        }
+
+        session(
             "Make Disappear without Casualty counters the only stack spell",
             fullControl = true,
             puzzle = """

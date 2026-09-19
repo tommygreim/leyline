@@ -6,6 +6,7 @@ import forge.game.spellability.SpellAbility
 import leyline.bridge.handoff.PromptRequest
 import leyline.bridge.handoff.TargetingCandidateValue
 import leyline.bridge.handoff.TargetingWindowValue
+import leyline.bridge.handoff.TargetingZone
 import leyline.bridge.types.AbilityKeywordFamily
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.PromptCandidateKind
@@ -72,7 +73,7 @@ internal class TargetingWindowCapture(
                                 TargetingCandidateValue.Card(
                                     ref.index,
                                     ForgeCardId(ref.entityId),
-                                    zoneId(ref.zone, cardOwnerSeat(ForgeCardId(ref.entityId))),
+                                    targetZone(ref.zone),
                                     hasExistingRole = hasExistingRole(ForgeCardId(ref.entityId)),
                                 )
                             PromptCandidateKind.Player ->
@@ -216,11 +217,21 @@ internal class TargetingWindowCapture(
 
     private fun candidateSourceZoneId(request: PromptRequest): Int =
         if (request.targetingCandidates.isNotEmpty()) {
-            ZoneIds.STACK
+            request.targetingCandidates
+                .map {
+                    when (it) {
+                        is TargetingCandidateValue.Card -> targetZoneId(it)
+                        is TargetingCandidateValue.Player -> 0
+                        is TargetingCandidateValue.StackObject -> ZoneIds.STACK
+                    }
+                }.toSet()
+                .singleOrNull()
+                ?.takeIf { it != 0 }
+                ?: 0
         } else {
             request.candidateRefs
                 .firstOrNull { it.kind == PromptCandidateKind.Card && it.zone != null }
-                ?.let { zoneId(it.zone, cardOwnerSeat(ForgeCardId(it.entityId))) }
+                ?.let { targetZoneId(targetZone(it.zone), cardOwnerSeat(ForgeCardId(it.entityId))) }
                 ?: 0
         }
 
@@ -239,17 +250,31 @@ internal class TargetingWindowCapture(
 
     private fun playerSeat(entityId: Int): SeatId? = listOf(SeatId(1), SeatId(2)).firstOrNull { owner.bridge.getPlayer(it)?.id == entityId }
 
-    private fun zoneId(
-        zone: String?,
+    private fun targetZone(zone: String?): TargetingZone =
+        when (zone) {
+            "Battlefield" -> TargetingZone.Battlefield
+            "Exile" -> TargetingZone.Exile
+            "Stack" -> TargetingZone.Stack
+            "Graveyard" -> TargetingZone.Graveyard
+            "Hand" -> TargetingZone.Hand
+            "Library" -> TargetingZone.Library
+            else -> TargetingZone.Unknown
+        }
+
+    private fun targetZoneId(candidate: TargetingCandidateValue.Card): Int =
+        targetZoneId(candidate.targetZone, cardOwnerSeat(candidate.forgeCardId))
+
+    private fun targetZoneId(
+        zone: TargetingZone,
         ownerSeat: SeatId,
     ): Int =
         when (zone) {
-            "Battlefield" -> ZoneIds.BATTLEFIELD
-            "Exile" -> ZoneIds.EXILE
-            "Stack" -> ZoneIds.STACK
-            "Graveyard" -> ZoneIds.graveyardOf(ownerSeat)
-            "Hand" -> ZoneIds.handOf(ownerSeat)
-            "Library" -> ZoneIds.libraryOf(ownerSeat)
-            else -> 0
+            TargetingZone.Battlefield -> ZoneIds.BATTLEFIELD
+            TargetingZone.Exile -> ZoneIds.EXILE
+            TargetingZone.Stack -> ZoneIds.STACK
+            TargetingZone.Graveyard -> ZoneIds.graveyardOf(ownerSeat)
+            TargetingZone.Hand -> ZoneIds.handOf(ownerSeat)
+            TargetingZone.Library -> ZoneIds.libraryOf(ownerSeat)
+            TargetingZone.Unknown -> 0
         }
 }

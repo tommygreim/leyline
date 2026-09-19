@@ -12,7 +12,7 @@ sealed interface TargetingCandidateValue {
     data class Card(
         override val optionIndex: Int,
         val forgeCardId: ForgeCardId,
-        val zoneId: Int,
+        val targetZone: TargetingZone,
         /** True when this candidate already has a Role-type Aura attached — the
          *  client highlights it distinctly (`HighlightType.ReplaceRole`) since
          *  targeting it will replace the existing Role (CR 702.166). */
@@ -35,6 +35,17 @@ sealed interface TargetingCandidateValue {
         val isTrigger: Boolean,
         val abilityIdentity: ResolvedAbilityIdentity? = null,
     ) : TargetingCandidateValue
+}
+
+/** Forge-zone shape of a card target, kept protocol-neutral until materialization. */
+enum class TargetingZone {
+    Battlefield,
+    Exile,
+    Stack,
+    Graveyard,
+    Hand,
+    Library,
+    Unknown,
 }
 
 /** Projection-ready value for one route-bound SelectTargets window. */
