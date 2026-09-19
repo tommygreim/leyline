@@ -1,6 +1,7 @@
 package leyline.bridge.forge
 
 import forge.LobbyPlayer
+import forge.ai.ComputerUtilCost
 import forge.ai.LobbyPlayerAi
 import forge.card.ColorSet
 import forge.card.GamePieceType
@@ -1479,8 +1480,9 @@ class PlayerController(
 
     // -- Seam 5: chooseNumberForKeywordCost ----------------------------------
     // PCHuman uses InputConfirm.confirm() when max==1 (desktop-only, hangs on
-    // web) and getGui().getInteger() for max>1 (bridged, works fine).
-    // Override only the max==1 path to route through the bridge confirm prompt.
+    // web) and getGui().getInteger() for max>1. The ClientGuiGame generic
+    // integer path has no routed wire shape, so both forms must stay on
+    // coordinator-owned interactions.
 
     override fun chooseNumberForKeywordCost(
         sa: SpellAbility,
@@ -1493,9 +1495,38 @@ class PlayerController(
             max <= 0 -> 0
             keyword.keyword == Keyword.HARMONIZE && max == 1 -> if (harmonizeTap != null) 1 else 0
             max == 1 -> costPaymentCoordinator.chooseKeywordCostBinary(prompt, keyword.keyword?.toString())
-            // max > 1: getGui().getInteger() is bridged through ClientGuiGame, safe to inherit.
-            else -> super.chooseNumberForKeywordCost(sa, cost, keyword, prompt, max)
+            else ->
+                numericInputGate.await(
+                    sourceCard = sa.hostCard,
+                    min = 0,
+                    max = maxPayableKeywordCostCopies(sa, cost, max),
+                    defaultOnTimeout = 0,
+                    logContext = "chooseNumberForKeywordCost(${keyword.keyword})",
+                )
         }
+
+    /**
+     * Forge deliberately passes [Int.MAX_VALUE] for repeatable keyword costs
+     * (Replicate, Multikicker, and Squad), expecting its desktop integer picker
+     * to let a player stop at a payable amount. Arena's numeric request must
+     * declare a real upper bound, so mirror Forge AI's cumulative affordability
+     * check before materializing it.
+     */
+    private fun maxPayableKeywordCostCopies(
+        sa: SpellAbility,
+        repeatedCost: Cost,
+        requestedMax: Int,
+    ): Int {
+        val totalCost = sa.payCosts.copy()
+        var copies = 0
+        while (copies < requestedMax) {
+            totalCost.add(repeatedCost)
+            val candidate = sa.copyWithDefinedCost(totalCost)
+            if (!NonInteractiveScope.bestEffort { ComputerUtilCost.canPayCost(candidate, player, sa.isTrigger) }) break
+            copies++
+        }
+        return copies
+    }
 
     override fun chooseOptionalCosts(
         chosenSa: SpellAbility,
