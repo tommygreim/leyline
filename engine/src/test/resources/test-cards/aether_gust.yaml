@@ -1,0 +1,8 @@
+name: "Aether Gust"
+grpId: 69827
+titleId: 351738
+abilities:
+  - id: 133472
+    textId: 896703
+    category: 4
+expansionCode: "M20"

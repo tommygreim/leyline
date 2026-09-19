@@ -912,8 +912,8 @@ data class PromptRequest(
     val allowRepeat: Boolean = false,
     val defaultIndex: Int = 0,
     val candidateRefs: List<PromptCandidateRefDto> = emptyList(),
-    /** Exact stack objects provided by Forge's stack-target callback. */
-    val targetingCandidates: List<TargetingCandidateValue.StackObject> = emptyList(),
+    /** Exact target identities provided by Forge's stack-capable target callback. */
+    val targetingCandidates: List<TargetingCandidateValue> = emptyList(),
     /** Original callback option index for Forge's optional finish-targeting sentinel. */
     val targetingFinishOptionIndex: Int? = null,
     /** Sole route authority; data-class copies used for re-prompts retain this value. */

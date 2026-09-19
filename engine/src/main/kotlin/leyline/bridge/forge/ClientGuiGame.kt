@@ -59,13 +59,13 @@ class ClientGuiGame(
     private val currentStackTargetPromptId: () -> Int? = { null },
     private val playerSeatOf: (Player) -> Int? = { null },
     private val playerViewSeatOf: (PlayerView) -> Int? = { null },
-    private val stackTargetCandidate: (Int, Any?) -> TargetingCandidateValue.StackObject? = { _, _ -> null },
+    private val stackTargetCandidate: (Int, Any?) -> TargetingCandidateValue? = { _, _ -> null },
     private val currentDividedAllocationAbility: () -> SpellAbility? = { null },
     private val beforeDividedAllocation: (SpellAbility) -> List<DistributionTargetRef> = { emptyList() },
     private val currentSimultaneousAbilities: () -> List<SpellAbility> = { emptyList() },
 ) : IGuiGame {
     private data class StackTargetOptionSet(
-        val candidates: List<TargetingCandidateValue.StackObject>,
+        val candidates: List<TargetingCandidateValue>,
         val finishOptionIndex: Int?,
     )
 
@@ -494,7 +494,7 @@ class ClientGuiGame(
     }
 
     internal fun stackTargetCandidates(optionList: List<*>): List<TargetingCandidateValue.StackObject> =
-        stackTargetOptions(optionList).candidates
+        stackTargetOptions(optionList).candidates.filterIsInstance<TargetingCandidateValue.StackObject>()
 
     /**
      * Index of the engine's "finish targeting" sentinel, if it offered one.
@@ -523,20 +523,26 @@ class ClientGuiGame(
     private fun stackTargetOptions(optionList: List<*>): StackTargetOptionSet {
         if (!stackTargetingActive()) return StackTargetOptionSet(emptyList(), finishTargetingIndex(optionList))
         val candidates =
-            optionList.mapIndexed { index, option ->
-                index to if (option == FINISH_TARGETING) null else stackTargetCandidate(index, option)
+            optionList.mapIndexedNotNull { index, option ->
+                if (option == FINISH_TARGETING || (option is String && option.isZoneCaption())) {
+                    null
+                } else {
+                    stackTargetCandidate(index, option)
+                }
             }
-        val expectedCount = optionList.count { it != FINISH_TARGETING }
-        val resolvedCount = candidates.count { it.second != null }
-        if (resolvedCount != expectedCount) {
+        val expectedCount =
+            optionList.count { option ->
+                option != FINISH_TARGETING && (option !is String || !option.isZoneCaption())
+            }
+        if (candidates.size != expectedCount) {
             DevCheck.fail {
-                "Stack-target option lacks exact engine identity: resolved=$resolvedCount expected=$expectedCount"
+                "Stack-target option lacks exact engine identity: resolved=${candidates.size} expected=$expectedCount"
             }
             error("Stack-target option lacks exact engine identity")
         }
         return StackTargetOptionSet(
-            candidates = candidates.mapNotNull { it.second },
-            finishOptionIndex = candidates.firstOrNull { optionList[it.first] == FINISH_TARGETING }?.first,
+            candidates = candidates,
+            finishOptionIndex = finishTargetingIndex(optionList),
         )
     }
 

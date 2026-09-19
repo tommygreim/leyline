@@ -7,6 +7,7 @@ import io.kotest.matchers.shouldBe
 import leyline.UnitTag
 import leyline.bridge.handoff.TargetingCandidateValue
 import leyline.bridge.handoff.TargetingWindowValue
+import leyline.bridge.handoff.TargetingZone
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.SeatId
 import leyline.game.mapping.FrameIdResolver
@@ -125,11 +126,15 @@ class TargetingWindowMaterializerTest :
                     chooserSeatId = SeatId(1),
                     candidates =
                         listOf(
-                            TargetingCandidateValue.Card(optionIndex = 0, forgeCardId = plainCardId, zoneId = 28),
+                            TargetingCandidateValue.Card(
+                                optionIndex = 0,
+                                forgeCardId = plainCardId,
+                                targetZone = TargetingZone.Battlefield,
+                            ),
                             TargetingCandidateValue.Card(
                                 optionIndex = 1,
                                 forgeCardId = roleCardId,
-                                zoneId = 28,
+                                targetZone = TargetingZone.Battlefield,
                                 hasExistingRole = true,
                             ),
                         ),

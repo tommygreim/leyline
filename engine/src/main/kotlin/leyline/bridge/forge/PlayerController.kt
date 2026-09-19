@@ -63,6 +63,7 @@ import leyline.bridge.coord.PriorityPolicyRuntime
 import leyline.bridge.coord.SpellExecutor
 import leyline.bridge.coord.StaticChoiceCoordinator
 import leyline.bridge.coord.TargetingCoordinator
+import leyline.bridge.findCard
 import leyline.bridge.handoff.BlockingInteraction
 import leyline.bridge.handoff.BlockingInteractionRuntime
 import leyline.bridge.handoff.CommanderReturnPromptContext
@@ -79,6 +80,7 @@ import leyline.bridge.handoff.PromptSemantic
 import leyline.bridge.handoff.PromptSideEffect
 import leyline.bridge.handoff.RuntimeHorizonMode
 import leyline.bridge.handoff.TargetingCandidateValue
+import leyline.bridge.handoff.TargetingZone
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.Seating
 import leyline.bridge.types.StaticChoiceIds
@@ -278,7 +280,7 @@ class PlayerController(
                             seating.seatOf(it.id, it.lobbyPlayer is LobbyPlayerAi).value
                         }
                 },
-                stackTargetCandidate = ::stackTargetCandidate,
+                stackTargetCandidate = ::targetingCandidate,
                 currentDividedAllocationAbility = { activeDividedAllocationAbility },
                 beforeDividedAllocation = targetingCoordinator::recordCompletedTargetSpec,
                 currentSimultaneousAbilities = { simultaneousAbilities },
@@ -1067,7 +1069,7 @@ class PlayerController(
         val previousStackTargetingAbility = activeStackTargetingAbility
         activeStackTargetingAbility =
             currentAbility
-                .takeIf { it.getTargetRestrictions()?.getZone()?.singleOrNull() == ZoneType.Stack }
+                .takeIf { it.getTargetRestrictions()?.getZone()?.contains(ZoneType.Stack) == true }
         val previousDividedAllocationAbility = activeDividedAllocationAbility
         activeDividedAllocationAbility = currentAbility
         val chosen =
@@ -1121,6 +1123,51 @@ class PlayerController(
         )
     }
 
+    /**
+     * Maps every selectable member of a target list with a Stack zone into the
+     * exact protocol identity that the targeting runtime materializes. Forge
+     * presents ordinary cards alongside stack objects for effects such as
+     * "target spell or permanent"; both must therefore use one target window.
+     */
+    internal fun targetingCandidate(
+        optionIndex: Int,
+        option: Any?,
+    ): TargetingCandidateValue? =
+        stackTargetCandidate(optionIndex, option)
+            ?: when (option) {
+                is CardView ->
+                    findCard(game, ForgeCardId(option.id))?.let { card ->
+                        TargetingCandidateValue.Card(
+                            optionIndex = optionIndex,
+                            forgeCardId = ForgeCardId(card.id),
+                            targetZone = targetZone(card),
+                            hasExistingRole = card.attachedCards.any { it.type.hasSubtype("Role") },
+                        )
+                    }
+                is PlayerView ->
+                    game.players
+                        .firstOrNull { it.id == option.id }
+                        ?.let { target ->
+                            TargetingCandidateValue.Player(
+                                optionIndex = optionIndex,
+                                seatId = seating.seatOf(target.id, target.lobbyPlayer is LobbyPlayerAi),
+                            )
+                        }
+                else -> null
+            }
+
+    @Suppress("ElseCaseInsteadOfExhaustiveWhen") // Unknown Forge zones are not targetable protocol zones.
+    private fun targetZone(card: Card): TargetingZone =
+        when (card.zone?.zoneType) {
+            ZoneType.Battlefield -> TargetingZone.Battlefield
+            ZoneType.Exile -> TargetingZone.Exile
+            ZoneType.Stack -> TargetingZone.Stack
+            ZoneType.Graveyard -> TargetingZone.Graveyard
+            ZoneType.Hand -> TargetingZone.Hand
+            ZoneType.Library -> TargetingZone.Library
+            else -> TargetingZone.Unknown
+        }
+
     private fun targetingSourceCardId(ability: SpellAbility): Int? {
         val host = ability.hostCard ?: return null
         return if (ability.isSpell && host.gamePieceType == GamePieceType.COPIED_SPELL) host.copiedPermanent?.id ?: host.id else host.id
@@ -1134,7 +1181,7 @@ class PlayerController(
         val previousStackTargetingAbility = activeStackTargetingAbility
         activeStackTargetingAbility =
             ability
-                .takeIf { it.getTargetRestrictions()?.getZone()?.singleOrNull() == ZoneType.Stack }
+                .takeIf { it.getTargetRestrictions()?.getZone()?.contains(ZoneType.Stack) == true }
         val previousDividedAllocationAbility = activeDividedAllocationAbility
         activeDividedAllocationAbility = ability
         val selected =

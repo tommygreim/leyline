@@ -15,6 +15,7 @@ import io.kotest.matchers.shouldBe
 import leyline.bridge.handoff.PromptSideEffect
 import leyline.bridge.handoff.TargetingCandidateValue
 import leyline.bridge.handoff.TargetingWindowValue
+import leyline.bridge.handoff.TargetingZone
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.SeatId
 import leyline.game.GamePlayback
@@ -86,7 +87,7 @@ class BundleBuilderTest :
                 minTargets = 1,
                 maxTargets = 1,
                 chooserSeatId = SeatId(1),
-                candidates = listOf(TargetingCandidateValue.Card(0, ForgeCardId(999), ZoneIds.BATTLEFIELD)),
+                candidates = listOf(TargetingCandidateValue.Card(0, ForgeCardId(999), TargetingZone.Battlefield)),
                 isTriggeredAbility = false,
                 forgeAbilityId = 0,
             )
