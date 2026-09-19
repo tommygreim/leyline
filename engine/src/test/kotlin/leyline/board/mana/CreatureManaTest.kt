@@ -3,6 +3,7 @@ package leyline.board.mana
 import forge.game.zone.ZoneType
 import io.kotest.assertions.assertSoftly
 import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
@@ -82,5 +83,60 @@ class CreatureManaTest :
                     .flatMap { it.manaPaymentOption.manaList }
                     .map { it.color } shouldBe listOf(ManaColor.AnyColor, ManaColor.Green_afc9)
             }
+        }
+
+        test("Mox Amber exposes the legendary permanent's live color for manual mana") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Mox Amber", human, ZoneType.Battlefield)
+                    addCard("Ragavan, Nimble Pilferer", human, ZoneType.Battlefield)
+                }
+
+            val mox =
+                board.human
+                    .getZone(ZoneType.Battlefield)
+                    .cards
+                    .single { it.name == "Mox Amber" }
+            val action =
+                ActionMapper
+                    .buildFromSnapshot(1, GsmSnapshot.capture(board.game, board.bridge, "test", 0), board.bridge)
+                    .ofType(ActionType.ActivateMana)
+                    .single { it.instanceId == board.instanceId(mox.id) }
+
+            action.manaSelectionsList
+                .single()
+                .optionsList
+                .map { it.selectedColor } shouldBe listOf(ManaColor.Red_afc9)
+        }
+
+        test("Reflecting Pool exposes the live colors its lands can produce for manual mana") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Reflecting Pool", human, ZoneType.Battlefield)
+                    addCard("Breeding Pool", human, ZoneType.Battlefield)
+                    addCard("Stomping Ground", human, ZoneType.Battlefield)
+                    addCard("Steam Vents", human, ZoneType.Battlefield)
+                }
+
+            val pool =
+                board.human
+                    .getZone(ZoneType.Battlefield)
+                    .cards
+                    .single { it.name == "Reflecting Pool" }
+            val action =
+                ActionMapper
+                    .buildFromSnapshot(1, GsmSnapshot.capture(board.game, board.bridge, "test", 0), board.bridge)
+                    .ofType(ActionType.ActivateMana)
+                    .single { it.instanceId == board.instanceId(pool.id) }
+
+            action.manaSelectionsList
+                .single()
+                .optionsList
+                .map { it.selectedColor }
+                .shouldContainExactlyInAnyOrder(
+                    ManaColor.Green_afc9,
+                    ManaColor.Blue_afc9,
+                    ManaColor.Red_afc9,
+                )
         }
     })

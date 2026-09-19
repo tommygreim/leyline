@@ -786,6 +786,7 @@ class AnnotationBuilderTest :
                 CounterTypes.counterTypeId("STUN") shouldBe 172
                 CounterTypes.counterTypeId("POISON") shouldBe 3
                 CounterTypes.counterTypeId("LORE") shouldBe 108
+                CounterTypes.counterTypeId("PLAN") shouldBe 211
                 // Unknown falls back to 0
                 CounterTypes.counterTypeId("NONEXISTENT") shouldBe 0
             }

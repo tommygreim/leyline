@@ -3,6 +3,7 @@ package leyline.game.snapshot
 import forge.card.MagicColor
 import forge.game.card.Card
 import forge.game.player.Player
+import leyline.bridge.manaProductionTokens
 import leyline.bridge.types.ManaColorMapping
 import leyline.game.data.KeywordAbilityIds
 import leyline.game.state.GameBridge
@@ -76,9 +77,7 @@ internal object ManaSnapshotCapture {
         return card.manaAbilities
             .filter { sa -> sa.restrictions.checkOtherRestrictions(card, sa, card.controller) }
             .flatMap { sa ->
-                val mana = sa.manaPart ?: return@flatMap emptyList()
-                val produced = if (mana.isComboMana) mana.getComboColors(sa) else mana.origProduced
-                produced.split(" ").mapNotNull { ManaColorMapping.fromProduced(it)?.number }
+                manaProductionTokens(sa).mapNotNull { ManaColorMapping.fromProduced(it)?.number }
             }.distinct()
     }
 }

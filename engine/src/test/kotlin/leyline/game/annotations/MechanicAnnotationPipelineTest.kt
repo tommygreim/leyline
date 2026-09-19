@@ -108,6 +108,20 @@ class MechanicAnnotationPipelineTest :
             }
         }
 
+        test("Plan counter retains authoritative persistent state") {
+            val events =
+                listOf(
+                    GameEvent.CountersChanged(cardId = ForgeCardId(42), counterType = "PLAN", oldCount = 0, newCount = 1),
+                )
+            val result = MechanicAnnotations.mechanicAnnotations(events, idResolver = ::testResolver)
+
+            assertSoftly {
+                result.transient.single().detailInt("counter_type") shouldBe 211
+                result.persistent.single().detailInt("counter_type") shouldBe 211
+                result.persistent.single().detailInt("count") shouldBe 1
+            }
+        }
+
         test("counterUnchangedSkipped") {
             val events =
                 listOf(

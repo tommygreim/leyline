@@ -10,6 +10,7 @@ import leyline.bridge.ActionCostParts
 import leyline.bridge.ActionManaCosts
 import leyline.bridge.getNonManaActivatedAbilities
 import leyline.bridge.getPlayableManaAbilities
+import leyline.bridge.manaProductionTokens
 import leyline.game.data.BasicLandAbilities
 import leyline.game.data.CardData
 import leyline.game.state.AbilityRegistry
@@ -354,9 +355,6 @@ internal object ActivatedActionEmitter {
             else -> null
         }
 
-    fun producedManaColors(sa: forge.game.spellability.SpellAbility): List<ManaColor> {
-        val mana = sa.manaPart ?: return emptyList()
-        val produced = if (mana.isComboMana) mana.getComboColors(sa) else mana.origProduced
-        return produced.split(" ").mapNotNull { ActionManaCosts.producedToManaColor(it) }.distinct()
-    }
+    fun producedManaColors(sa: forge.game.spellability.SpellAbility): List<ManaColor> =
+        manaProductionTokens(sa).mapNotNull(ActionManaCosts::producedToManaColor).distinct()
 }
