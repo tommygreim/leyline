@@ -850,6 +850,12 @@ class PlayerController(
         return staticChoiceCoordinator.chooseColor(message, sa, colors)
     }
 
+    override fun chooseColorAllowColorless(
+        message: String,
+        c: Card,
+        colors: ColorSet,
+    ): Byte = staticChoiceCoordinator.chooseColorAllowColorless(message, c, colors)
+
     override fun chooseColors(
         message: String,
         sa: SpellAbility?,
