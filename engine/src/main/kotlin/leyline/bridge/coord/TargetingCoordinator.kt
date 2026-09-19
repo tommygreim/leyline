@@ -23,6 +23,7 @@ import leyline.bridge.handoff.PromptRequest
 import leyline.bridge.handoff.PromptRouteResolver
 import leyline.bridge.handoff.PromptSemantic
 import leyline.bridge.handoff.PromptSideEffect
+import leyline.bridge.handoff.ResolutionAbilityShape
 import leyline.bridge.handoff.ResolutionRouteInput
 import leyline.bridge.handoff.ResolvedPromptRoute
 import leyline.bridge.handoff.SearchSourceValue
@@ -37,6 +38,7 @@ import leyline.bridge.interaction.ChooseSingleEntityRoutePolicy
 import leyline.bridge.interaction.GroupedSearchClassifier
 import leyline.bridge.interaction.UnclassifiedEntityChoicePolicy
 import leyline.bridge.interaction.candidateRefs
+import leyline.bridge.interaction.resolutionRouteInput
 import leyline.bridge.interaction.shouldAutoResolve
 import leyline.bridge.interaction.shouldReturnAll
 import leyline.bridge.interaction.sourceEntityId
@@ -416,7 +418,20 @@ class TargetingCoordinator(
         min: Int,
         max: Int,
         valid: CardCollectionView,
-    ): CardCollectionView = chooseCardsViaBridge(valid, min, max.coerceAtMost(valid.size), "Choose cards to reveal")
+    ): CardCollectionView {
+        val refs = buildCandidateRefs(valid)
+        return chooseCardsViaBridge(
+            valid,
+            min,
+            max.coerceAtMost(valid.size),
+            "Choose cards to reveal",
+            semantic = PromptSemantic.SelectNResolution,
+            candidateRefs = refs,
+            unfilteredRefs = refs,
+            resolutionRouteInput =
+                resolutionRouteInput(refs, valid.size, ResolutionAbilityShape.Other, allCandidatesProjectable(valid)),
+        )
+    }
 
     // -- Discard / sacrifice ---------------------------------------------
 
