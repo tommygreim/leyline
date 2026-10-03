@@ -1,0 +1,6 @@
+name: "Blightstep Pathway"
+grpId: 991001
+titleId: 0
+expansionCode: "KHM"
+linkedFaces:
+  - 991002

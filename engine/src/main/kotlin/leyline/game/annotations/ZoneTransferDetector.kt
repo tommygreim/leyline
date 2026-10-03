@@ -4,6 +4,7 @@ import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.GrpId
 import leyline.bridge.types.InstanceId
 import leyline.game.data.KeywordAbilityIds
+import leyline.game.event.DestructionCause
 import leyline.game.event.GameEvent
 import leyline.game.event.Zone
 import leyline.game.event.ZoneMove
@@ -60,6 +61,8 @@ data class AppliedTransfer(
     val openingHandAbilityInstanceId: Int = 0,
     val openingHandAbilityGrpId: Int = 0,
     val openingHandSeatId: Int = 0,
+    /** A cast copy with no previously published source object needs a creation event. */
+    val createdOnStack: Boolean = false,
 )
 
 /** A triggered or activated ability that just appeared on the stack (no previousZone entry).
@@ -216,6 +219,15 @@ object ZoneTransferDetector {
             val obj = patchedObjects[i]
             val prevZone = previousZones[obj.instanceId]
             if (prevZone != null && prevZone != obj.zoneId) {
+                // Phasing does not move a Forge Card between engine zones.  The
+                // snapshot projection exposes that state transition through
+                // Arena's dedicated PhasedOut zone, but the client consumes the
+                // PhasedOut/PhasedIn annotation (and keeps the card instance id)
+                // rather than a normal ZoneTransfer/reallocation.
+                if (prevZone == ZoneIds.PHASED_OUT || obj.zoneId == ZoneIds.PHASED_OUT) {
+                    zoneRecordings.add(obj.instanceId to obj.zoneId)
+                    continue
+                }
                 if (prevZone == ZoneIds.STACK && obj.zoneId == ZoneIds.SUPPRESSED) {
                     zoneRecordings.add(obj.instanceId to obj.zoneId)
                     continue
@@ -254,6 +266,7 @@ object ZoneTransferDetector {
                     } else if (prevZone == ZoneIds.STACK && obj.zoneId != ZoneIds.EXILE && forgeCardId != null) {
                         val pendingResolution = pendingSpellResolutionLookup(forgeCardId)
                         when {
+                            ledgerIntent?.move?.cause?.api == "Counter" -> TransferCategory.Countered
                             pendingResolution?.hasFizzled == true -> TransferCategory.Countered
                             pendingResolution != null -> TransferCategory.Resolve
                             else ->
@@ -502,6 +515,22 @@ object ZoneTransferDetector {
             manaAbilityGrpIdResolver,
         )
 
+        // Post-pass: tokens destroyed by Forge can disappear from the snapshot
+        // without a BF→GY GameObjectInfo/ZoneMove pair.  Keep the TokenDeleted
+        // mechanic annotation, but also synthesize the ordinary destroy handoff
+        // first so the client can play its destroy transfer/effect.
+        detectDisappearedDestroyedTokens(
+            events,
+            previousZones,
+            patchedObjects,
+            patchedZones,
+            transfers,
+            retiredIds,
+            zoneRecordings,
+            forgeIdLookup,
+            idAllocator,
+        )
+
         // Post-pass: detect exile-return transforms (saga final chapter,
         // Fable of the Mirror-Breaker). Forge fires paired ChangeZone events
         // (BF→Exile, Exile→BF) during an atomic resolve. Net snapshot shows
@@ -601,8 +630,19 @@ object ZoneTransferDetector {
             }
         }
 
+        val publishedTransfers =
+            transfers.map { transfer ->
+                if (transfer.category == TransferCategory.CastSpell &&
+                    transfer.origId !in previousZones &&
+                    patchedObjects.any { it.instanceId == transfer.newId && it.isCopy }
+                ) {
+                    transfer.copy(createdOnStack = true)
+                } else {
+                    transfer
+                }
+            }
         return TransferResult(
-            transfers,
+            publishedTransfers,
             patchedObjects,
             patchedZones,
             retiredIds,
@@ -1166,6 +1206,7 @@ object ZoneTransferDetector {
         pendingResolution: GameEvent.SpellResolved?,
     ): TransferCategory =
         when {
+            ledgerIntent?.move?.cause?.api == "Counter" -> TransferCategory.Countered
             pendingResolution?.hasFizzled == true -> TransferCategory.Countered
             pendingResolution != null -> TransferCategory.Resolve
             else ->
@@ -1636,6 +1677,69 @@ object ZoneTransferDetector {
             val (recIid, recZone) = handoff.zoneAssignment
             zoneRecordings.add(recIid.value to recZone)
             log.debug("disappeared token: iid {} → {} category=Sacrifice manaPayments={}", origId, newId, manaPayments.size)
+        }
+    }
+
+    @Suppress("LongParameterList")
+    private fun detectDisappearedDestroyedTokens(
+        events: List<GameEvent>,
+        previousZones: Map<Int, Int>,
+        patchedObjects: MutableList<GameObjectInfo>,
+        patchedZones: MutableList<ZoneInfo>,
+        transfers: MutableList<AppliedTransfer>,
+        retiredIds: MutableList<Int>,
+        zoneRecordings: MutableList<Pair<Int, Int>>,
+        forgeIdLookup: (InstanceId) -> ForgeCardId?,
+        idAllocator: (ForgeCardId) -> InstanceIdRegistry.IdReallocation,
+    ) {
+        val currentInstanceIds = patchedObjects.map { it.instanceId }.toSet()
+        val tokenDestroyedEvents = events.filterIsInstance<GameEvent.TokenDestroyed>()
+        if (tokenDestroyedEvents.isEmpty()) return
+
+        // A token may still have a regular zone transfer when Forge includes the
+        // destination object.  Only synthesize the missing-snapshot case; this
+        // keeps the pass idempotent with the main diff loop.
+        val processedIds =
+            transfers
+                .flatMap { listOf(it.origId, it.newId) }
+                .toSet()
+        for ((instanceId, zoneId) in previousZones) {
+            if (zoneId != ZoneIds.BATTLEFIELD || instanceId in currentInstanceIds || instanceId in processedIds) continue
+
+            val forgeCardId = forgeIdLookup(InstanceId(instanceId)) ?: continue
+            val tokenEvent = tokenDestroyedEvents.firstOrNull { it.cardId == forgeCardId } ?: continue
+            val destruction =
+                events
+                    .filterIsInstance<GameEvent.CardDestroyed>()
+                    .firstOrNull { it.cardId == forgeCardId }
+                    ?.destruction
+            val destinationZone = ZoneIds.graveyardOf(tokenEvent.seatId)
+            val handoff = ZoneHandoff.fromRealloc(idAllocator(forgeCardId), destinationZone)
+            val origId = handoff.realloc.old.value
+            val newId = handoff.realloc.new.value
+
+            handoff.limboRetirement?.let { limbo ->
+                retiredIds.add(limbo.value)
+                appendToZone(patchedZones, ZoneIds.LIMBO, limbo.value)
+            }
+            removeFromZone(patchedZones, ZoneIds.BATTLEFIELD, origId)
+            transfers.add(
+                AppliedTransfer(
+                    origId = origId,
+                    newId = newId,
+                    category = destruction?.let(TransferCategoryResolver::destructionCategory) ?: TransferCategory.Destroy,
+                    srcZoneId = ZoneIds.BATTLEFIELD,
+                    destZoneId = destinationZone,
+                    forgeCardId = forgeCardId,
+                    grpId = 0,
+                    ownerSeatId = tokenEvent.seatId.value,
+                ),
+            )
+            // The token is deleted after the transfer; do not expose a token in
+            // the graveyard snapshot, but retain its destination for projection
+            // identity/zone bookkeeping just as disappeared sacrifices do.
+            zoneRecordings.add(newId to destinationZone)
+            log.debug("disappeared token destroy: iid {} → {} category={}", origId, newId, destruction ?: DestructionCause.Effect)
         }
     }
 

@@ -1,0 +1,11 @@
+name: "Overlord of the Boilerbilges"
+grpId: 92230
+titleId: 812781
+abilities:
+  - id: 174439
+    textId: 812782
+    category: 3
+  - id: 174440
+    textId: 972339
+    category: 2
+expansionCode: "DSK"

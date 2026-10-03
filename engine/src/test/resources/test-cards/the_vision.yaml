@@ -1,0 +1,25 @@
+name: "The Vision"
+grpId: 105151
+titleId: 1119064
+abilities:
+  - id: 8
+    textId: 46
+    category: 3
+  - id: 15
+    textId: 137
+    category: 3
+  - id: 206511
+    textId: 1119075
+    category: 2
+    modalChildren: [206508, 206509, 206510]
+hiddenAbilities:
+  - id: 206508
+    textId: 1119066
+    category: 7
+  - id: 206509
+    textId: 1119069
+    category: 7
+  - id: 206510
+    textId: 1119072
+    category: 7
+expansionCode: "MSH"

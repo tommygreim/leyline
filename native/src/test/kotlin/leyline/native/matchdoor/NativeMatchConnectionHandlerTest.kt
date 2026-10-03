@@ -4,7 +4,9 @@ import com.google.protobuf.ByteString
 import io.kotest.assertions.assertSoftly
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import io.netty.channel.embedded.EmbeddedChannel
+import io.netty.util.concurrent.DefaultEventExecutorGroup
 import leyline.config.EngineSettings
 import leyline.config.RuntimeMatchConfigRegistry
 import leyline.domain.DeckCard
@@ -15,7 +17,9 @@ import leyline.game.data.CardData
 import leyline.game.data.CardRepository
 import leyline.game.generator.PuzzleLibrary
 import leyline.match.MatchConnection
+import leyline.match.MatchConnectionPort
 import leyline.match.MatchRegistry
+import leyline.match.MatchSeatAssignment
 import leyline.native.NativeTag
 import leyline.native.account.AccountStore
 import leyline.native.account.LocalAccountAuthenticator
@@ -24,6 +28,9 @@ import leyline.native.matchmaking.LocalPairingService
 import org.jetbrains.exposed.v1.jdbc.Database
 import wotc.mtgo.gre.external.messaging.Messages.*
 import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class NativeMatchConnectionHandlerTest :
     FunSpec({
@@ -205,6 +212,67 @@ class NativeMatchConnectionHandlerTest :
                 duplicate.isActive shouldBe false
                 familiar.isActive shouldBe false
                 pairing.claim("room", PlayerId("bob"), 2, false, "valid-b").seatId.value shouldBe 2
+            }
+        }
+
+        test("offloaded match handler keeps inbound and close lifecycle ordered off the I/O loop") {
+            val handlers = DefaultEventExecutorGroup(1)
+            val entered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            val completed = CountDownLatch(3)
+            val events = CopyOnWriteArrayList<String>()
+            var handlerThread: Thread? = null
+            val fake =
+                object : MatchConnectionPort {
+                    override fun opened() = Unit
+
+                    override fun receive(msg: ClientToMatchServiceMessage) {
+                        handlerThread = Thread.currentThread()
+                        events.add("receive:${msg.requestId}")
+                        completed.countDown()
+                        if (msg.requestId == 1) {
+                            entered.countDown()
+                            check(release.await(3, TimeUnit.SECONDS))
+                        }
+                    }
+
+                    override fun assignSeat(assignment: MatchSeatAssignment) = Unit
+
+                    override fun disconnected() {
+                        events.add("disconnected")
+                        completed.countDown()
+                    }
+
+                    override fun failed(cause: Throwable) {
+                        events.add("failed")
+                        completed.countDown()
+                    }
+                }
+            val channel = EmbeddedChannel()
+            channel.pipeline().addLast(
+                handlers,
+                "handler",
+                NativeMatchConnectionHandler({ _, _ -> fake }),
+            )
+            val first = ClientToMatchServiceMessage.newBuilder().setRequestId(1).build()
+            val second = ClientToMatchServiceMessage.newBuilder().setRequestId(2).build()
+
+            try {
+                channel.pipeline().context("handler").executor() shouldNotBe channel.eventLoop()
+                channel.writeInbound(first)
+                entered.await(3, TimeUnit.SECONDS) shouldBe true
+                channel.writeInbound(second)
+                events shouldBe listOf("receive:1")
+
+                channel.close()
+                release.countDown()
+                completed.await(3, TimeUnit.SECONDS) shouldBe true
+                events shouldBe listOf("receive:1", "receive:2", "disconnected")
+                handlerThread shouldNotBe Thread.currentThread()
+            } finally {
+                release.countDown()
+                channel.finishAndReleaseAll()
+                handlers.shutdownGracefully().syncUninterruptibly()
             }
         }
     })

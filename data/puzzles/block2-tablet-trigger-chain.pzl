@@ -1,0 +1,17 @@
+[metadata]
+Name:Block 2 Tablet trigger chain
+Goal:Survive
+Turns:5
+Difficulty:Easy
+Description:Cast Tablet with The Vision and Death to Our Enemies in play. Choose Technopathy, then observe the draw, Treasure, plan counter, and mill without advancing the phase.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanhand=Tablet of Discovery;Lightning Bolt
+humanbattlefield=The Vision;Death to Our Enemies;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+humanlibrary=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+aibattlefield=Grizzly Bears
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

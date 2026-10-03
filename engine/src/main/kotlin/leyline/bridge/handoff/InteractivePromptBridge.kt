@@ -61,6 +61,18 @@ class InteractivePromptBridge(
     @Volatile
     var cardGrpIdResolver: ((Card) -> Int)? = null
 
+    /** Resolves a Forge card name to Arena's `StaticList.CardNames` title id. */
+    @Volatile
+    var cardTitleIdResolver: ((String) -> Int?)? = null
+
+    /** Resolves a batch of Forge card names to Arena CardNames title IDs. */
+    @Volatile
+    var cardTitleIdsResolver: ((Iterable<String>) -> Map<String, Int>)? = null
+
+    /** Resolves a Forge card name to Arena's dungeon CardGrpId selector value. */
+    @Volatile
+    var cardGrpIdByNameResolver: ((String) -> Int?)? = null
+
     @Volatile
     var triggerStackAbilityInstanceIdResolver: ((Int) -> Int?)? = null
 
@@ -749,6 +761,14 @@ class InteractivePromptBridge(
 
     fun resolveCardGrpId(card: Card): Int = cardGrpIdResolver?.invoke(card) ?: 0
 
+    fun resolveCardTitleId(name: String): Int? = cardTitleIdResolver?.invoke(name)
+
+    fun resolveCardTitleIds(names: Iterable<String>): Map<String, Int> =
+        cardTitleIdsResolver?.invoke(names)
+            ?: names.distinct().mapNotNull { name -> resolveCardTitleId(name)?.let { name to it } }.toMap()
+
+    fun resolveCardGrpIdByName(name: String): Int? = cardGrpIdByNameResolver?.invoke(name)
+
     fun resolveTriggerStackAbilityInstanceId(abilityId: Int): Int? = triggerStackAbilityInstanceIdResolver?.invoke(abilityId)
 
     fun resolveTriggerStackAbilitySourceInstanceId(abilityId: Int): Int? = triggerStackAbilitySourceInstanceIdResolver?.invoke(abilityId)
@@ -770,6 +790,9 @@ enum class PromptSemantic {
 
     /** Resolution-time discard choice, including optional rummage effects. */
     SelectNDiscardEffect,
+
+    /** Optional creature-discard branch before a mandatory multi-card discard. */
+    SelectNDiscardCreatureOptional,
     Search,
     GroupedSearch,
 
@@ -856,6 +879,9 @@ enum class PromptSemantic {
     /** Ninjutsu's "return an unblocked attacker" activation cost. */
     ReturnUnblockedAttackerCost,
 
+    /** Web-slinging's additional cost: return a tapped creature you control. */
+    ReturnTappedCreatureCost,
+
     /** Convoke's tap-creature cost payment. */
     ConvokeCost,
 
@@ -874,20 +900,39 @@ enum class PromptSemantic {
     /** Static enum choice: choose one or more colors via `StaticList_Colors`. */
     StaticColorChoice,
 
+    /** Static enum choice: choose mana produced by an ability via `StaticList_ManaColors`. */
+    StaticManaColorChoice,
+
+    /** Static enum choice: choose a basic land type via `StaticList_BasicLandTypes`. */
+    StaticBasicLandTypeChoice,
+
     /** Static enum choice: choose a card color, including Colorless, via `StaticList_CardColors`. */
     StaticCardColorChoice,
 
     /** Static enum choice: choose a subtype via `StaticList_SubTypes`. */
     StaticSubtypeChoice,
 
+    /** Static enum choice: choose a counter type via `StaticList_CounterTypes`. */
+    StaticCounterTypeChoice,
+
     /** Static enum choice: choose odd or even via `StaticList_Parities`. */
     StaticParityChoice,
+    StaticBinaryChoice,
 
     /** Static enum choice: choose a keyword via `StaticList_Keywords`. */
     StaticKeywordChoice,
 
     /** Static enum choice: choose a card type via `StaticList_CardTypes`. */
     StaticCardTypeChoice,
+
+    /** Name a card through Arena's searchable `StaticList_CardNames` selector. */
+    StaticCardNameChoice,
+
+    /** Choose a dungeon card through Arena's dedicated dungeon SelectN workflow. */
+    StaticDungeonChoice,
+
+    /** Choose a next dungeon room through Arena's AbilityGrpId SelectN workflow. */
+    StaticDungeonRoomChoice,
 }
 
 /**
@@ -951,6 +996,8 @@ data class PromptRequest(
     val staticList: StaticList? = null,
     /** Per-option static enum values frozen into coordinator-owned StaticChoice windows. */
     val staticOptionIds: List<Int> = emptyList(),
+    val protocolPromptId: Int? = null,
+    val promptParameterIds: List<Int> = emptyList(),
     /** Waterbend mana component carried into its PayCostsReq payment envelope. */
     val waterbendManaCost: List<Pair<wotc.mtgo.gre.external.messaging.Messages.ManaColor, Int>> = emptyList(),
     /** Non-localized cost string for Waterbend's PayCostsReq prompt parameter. */

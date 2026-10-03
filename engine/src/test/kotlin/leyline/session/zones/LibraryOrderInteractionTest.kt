@@ -8,6 +8,7 @@ import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import leyline.game.mapping.PromptIds
+import leyline.game.mapping.ZoneIds
 import leyline.testkit.SessionTest
 import leyline.testkit.after
 import leyline.testkit.annotation
@@ -238,6 +239,14 @@ class LibraryOrderInteractionTest :
 
             // Grizzly Bears moved to bottom — library top is now Forest
             human.library should haveOnTop("Forest")
+            val bearIid = human.library.iid("Grizzly Bears")
+            val remembered =
+                allMessages
+                    .flatMap { msg ->
+                        if (msg.hasGameStateMessage()) msg.gameStateMessage.gameObjectsList else emptyList()
+                    }.last { it.instanceId == bearIid && it.zoneId == ZoneIds.P1_LIBRARY }
+            remembered.visibility shouldBe Visibility.Private
+            remembered.viewersList shouldBe listOf(HUMAN_SEAT)
         }
 
         session(

@@ -2,6 +2,7 @@ package leyline.game.bundle
 
 import forge.game.Game
 import leyline.game.event.FrameEventLog
+import leyline.game.mapping.ActionMapper
 import leyline.game.mapping.CapturedStateFrame
 import leyline.game.mapping.StateFrameInput
 import leyline.game.mapping.StateProjectionEnvironment
@@ -105,10 +106,13 @@ internal class StateFrameInputCapture(
         effectFactsOverride: EffectProjectionFacts? = null,
     ): Observation {
         val priorProjection = priorProjectionOverride ?: bridge.projectionStateSnapshot()
-        val (snapshot, projectionBaseline) =
+        val (captured, projectionBaseline) =
             bridge.editProjection(priorProjection) {
-                GsmSnapshot.capture(game, bridge, matchId, gameStateId)
+                val snapshot = GsmSnapshot.capture(game, bridge, matchId, gameStateId)
+                val actions = ActionMapper.captureZoneCastDisplayInfos(snapshot, bridge)
+                snapshot to actions
             }
+        val (snapshot, zoneCastActions) = captured
         val closedEvents =
             when (events) {
                 Events.CloseBundleFrame -> bridge.closeBundleFrame(viewingSeatId)
@@ -138,6 +142,7 @@ internal class StateFrameInputCapture(
                     mechanicSourceFacts = mechanicSourceFacts,
                     abilityExhaustionFacts = abilityExhaustionFacts,
                     persistentFeedFacts = persistentFeedFacts,
+                    zoneCastActions = zoneCastActions,
                 ),
             priorProjection = projectionBaseline.copy(revision = priorProjection.revision),
             closesPlaybackFrame = events is Events.CloseBundleFrame,

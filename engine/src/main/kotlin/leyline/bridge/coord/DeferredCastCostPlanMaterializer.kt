@@ -53,14 +53,21 @@ internal object DeferredCastCostPlanMaterializer {
         val hybrid =
             if (offer.action.alternativeGrpId == 0) {
                 val effectiveCost = ActionMapper.computeEffectiveCost(ability, player)
-                val paymentColors = effectiveCost?.hybridOrTwoGenericColors().orEmpty()
-                if (effectiveCost != null && paymentColors.isNotEmpty()) {
+                val paymentPips = effectiveCost?.manaTypePips().orEmpty()
+                val paymentColors = paymentPips.map { it.colors.first() }
+                if (effectiveCost != null && paymentPips.isNotEmpty()) {
                     val baseCost = ability.payCosts?.totalMana
-                    val promptCost = baseCost?.takeIf { it.hybridOrTwoGenericColors().size == paymentColors.size } ?: effectiveCost
+                    val promptPips = baseCost?.manaTypePips()
+                    val promptCost = baseCost?.takeIf { promptPips?.size == paymentPips.size } ?: effectiveCost
+                    val selectedPromptPips = promptCost.manaTypePips()
                     DeferredCastCostPlan.hybrid(
-                        promptCost.hybridOrTwoGenericColors(),
+                        selectedPromptPips.map { it.colors.first() },
                         paymentColors,
                         promptCost.toManaRequirementSpecs(),
+                        selectedPromptPips.map { it.alternative },
+                        paymentPips.map { it.alternative },
+                        selectedPromptPips.map { it.colors },
+                        paymentPips.map { it.colors },
                     )
                 } else {
                     null
@@ -79,7 +86,12 @@ internal object DeferredCastCostPlanMaterializer {
                     optionalCosts.mapIndexed { index, cost ->
                         val type = optionalCostType(cost.type)
                         val abilityGrpId =
-                            if (cost.type == OptionalCost.Bargain || cost.type == OptionalCost.Teamwork) {
+                            if (cost.type == OptionalCost.Kicker1 || cost.type == OptionalCost.Kicker2) {
+                                card
+                                    .findKeywordSlot("Kicker", keywordCount)
+                                    ?.let { cardData?.abilityIds?.getOrNull(it)?.first }
+                                    ?: 0
+                            } else if (cost.type == OptionalCost.Bargain || cost.type == OptionalCost.Teamwork) {
                                 card
                                     .findKeywordSlot(cost.type.name, keywordCount)
                                     ?.let { cardData?.abilityIds?.getOrNull(it)?.first }
@@ -87,7 +99,9 @@ internal object DeferredCastCostPlanMaterializer {
                             } else {
                                 cardData?.abilityIds?.getOrNull(keywordCount + index)?.first ?: 0
                             }
-                        DeferredCastCostPlan.OptionalCostEntry(type, abilityGrpId, null)
+                        val withCost = GameActionUtil.addOptionalCosts(ability, listOf(cost))
+                        val displayedCost = withCost.payCosts?.totalMana?.let(ActionMapper::forgeManaCostToPairs)
+                        DeferredCastCostPlan.OptionalCostEntry(type, abilityGrpId, null, displayedCost)
                     } +
                         keywordCosts.map { name ->
                             val slot = card.findKeywordSlot(name, keywordCount)
@@ -219,14 +233,25 @@ internal object DeferredCastCostPlanMaterializer {
             ?: true
     }
 
-    private fun ManaCost.hybridOrTwoGenericColors(): List<ManaColor> = mapNotNull(ManaColorMapping::fromOrTwoGenericShard)
+    private data class ManaTypePip(
+        val alternative: ManaColor,
+        val colors: List<ManaColor>,
+    )
+
+    private fun ManaCost.manaTypePips(): List<ManaTypePip> =
+        mapNotNull { shard ->
+            val alternative = ManaColorMapping.manaTypeAlternative(shard) ?: return@mapNotNull null
+            val colors = ManaColorMapping.paymentColors(shard)
+            if (colors.isEmpty()) return@mapNotNull null
+            ManaTypePip(alternative, colors)
+        }
 
     private fun ManaCost.toManaRequirementSpecs(): List<ManaRequirementSpec> =
         buildList {
             for (shard in this@toManaRequirementSpecs) {
-                val hybrid = ManaColorMapping.fromOrTwoGenericShard(shard)
-                val color = hybrid ?: ManaColorMapping.fromShard(shard) ?: continue
-                add(ManaRequirementSpec.frozen(if (hybrid == null) listOf(color) else listOf(ManaColor.TwoGeneric, color)))
+                val colors = ManaColorMapping.requirementColors(shard)
+                if (colors.isEmpty()) continue
+                add(ManaRequirementSpec.frozen(colors))
             }
             if (genericCost > 0) add(ManaRequirementSpec.frozen(listOf(ManaColor.Generic), genericCost))
         }

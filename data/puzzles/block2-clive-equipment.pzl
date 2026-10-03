@@ -1,0 +1,17 @@
+[metadata]
+Name:Block 2 Clive transform and equipment
+Goal:Survive
+Turns:5
+Difficulty:Easy
+Description:Equip Clive with Mjolnir, transform him, fight the opposing Bears, and re-equip Ifrit. Observe return timing and paired card style; advance two turns to return to Clive.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanhand=Lightning Bolt;Abrade;Mountain;Mjölnir, Hammer of Thor
+humanbattlefield=Clive, Ifrit's Dominant;Mjölnir, Hammer of Thor;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+humanlibrary=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+aibattlefield=Grizzly Bears
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

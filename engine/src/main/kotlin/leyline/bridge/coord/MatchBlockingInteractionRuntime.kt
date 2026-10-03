@@ -13,6 +13,7 @@ import leyline.game.PendingPromptCut
 import leyline.game.bundle.BlockingInteractionMaterializer
 import leyline.game.bundle.BundleBuilder
 import leyline.game.bundle.LogicalSequencePlanner
+import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutionException
@@ -34,6 +35,10 @@ internal class MatchBlockingInteractionRuntime(
     private sealed interface Answer {
         data class Optional(
             val accepted: Boolean,
+        ) : Answer
+
+        data class TopOrBottom(
+            val putOnTop: Boolean,
         ) : Answer
 
         data class Numeric(
@@ -103,6 +108,24 @@ internal class MatchBlockingInteractionRuntime(
             }
         return try {
             (await(pending, timeoutMs ?: 45_000L) as Answer.Optional).accepted
+        } catch (_: TimeoutException) {
+            defaultOnTimeout
+        } finally {
+            clear(pending)
+        }
+    }
+
+    override fun awaitTopOrBottom(
+        interaction: BlockingInteraction.TopOrBottom,
+        timeoutMs: Long?,
+        defaultOnTimeout: Boolean,
+    ): Boolean {
+        val pending =
+            publish(interaction) { feed, _, planner ->
+                feed.builder.topOrBottomInteractionBundle(planner, interaction)
+            }
+        return try {
+            (await(pending, timeoutMs) as Answer.TopOrBottom).putOnTop
         } catch (_: TimeoutException) {
             defaultOnTimeout
         } finally {
@@ -217,16 +240,28 @@ internal class MatchBlockingInteractionRuntime(
             pending.future.complete(Answer.Optional(accepted))
         }
 
+    fun submitTopOrBottom(
+        interactionId: String,
+        gameStateId: Int,
+        putOnTop: Boolean,
+    ): Boolean =
+        synchronized(owner.feedLock) {
+            val pending = matching(interactionId, gameStateId) ?: return false
+            if (pending.published.interaction !is BlockingInteraction.TopOrBottom) return false
+            pending.future.complete(Answer.TopOrBottom(putOnTop))
+        }
+
     fun submitNumeric(
         interactionId: String,
         gameStateId: Int,
         value: Int,
     ): Boolean = complete(interactionId, gameStateId, Answer.Numeric(value))
 
-    /** Admit the numeric child response used by Arena's dedicated Replicate workflow. */
-    fun submitReplicate(
+    /** Admit a numeric child response used by Arena's typed casting-time workflow. */
+    fun submitCastingTimeOption(
         gameStateId: Int,
         ctoId: Int,
+        type: CastingTimeOptionType,
         value: Int,
     ): Boolean =
         synchronized(owner.feedLock) {
@@ -234,7 +269,7 @@ internal class MatchBlockingInteractionRuntime(
             val numeric = pending.published.interaction as? BlockingInteraction.Numeric ?: return@synchronized false
             if (pending.future.isDone ||
                 pending.published.gameStateId != gameStateId ||
-                numeric.presentation != BlockingInteraction.NumericPresentation.Replicate ||
+                numeric.presentation.castingTimeOptionType != type ||
                 ctoId != REPLICATE_CTO_ID ||
                 value !in numeric.min..numeric.max
             ) {
@@ -242,6 +277,32 @@ internal class MatchBlockingInteractionRuntime(
             }
             pending.future.complete(Answer.Numeric(value))
         }
+
+    /** Arena's Replicate workflow submits Done, not a numeric zero, for no copies. */
+    fun submitReplicateDone(
+        gameStateId: Int,
+        ctoId: Int,
+    ): Boolean =
+        synchronized(owner.feedLock) {
+            val pending = window ?: return@synchronized false
+            val numeric = pending.published.interaction as? BlockingInteraction.Numeric ?: return@synchronized false
+            if (pending.future.isDone ||
+                pending.published.gameStateId != gameStateId ||
+                numeric.presentation != BlockingInteraction.NumericPresentation.Replicate ||
+                ctoId != 0 ||
+                0 !in numeric.min..numeric.max
+            ) {
+                return@synchronized false
+            }
+            pending.future.complete(Answer.Numeric(0))
+        }
+
+    /** Backwards-compatible convenience for callers that only admit Replicate. */
+    fun submitReplicate(
+        gameStateId: Int,
+        ctoId: Int,
+        value: Int,
+    ): Boolean = submitCastingTimeOption(gameStateId, ctoId, CastingTimeOptionType.Replicate, value)
 
     fun submitDamageCommand(
         interactionId: String,
@@ -251,12 +312,20 @@ internal class MatchBlockingInteractionRuntime(
         synchronized(owner.feedLock) {
             val pending = matching(interactionId, gameStateId) ?: return false
             if (pending.damageAssigners.isEmpty()) return false
-            if (commands.map { it.attackerInstanceId } != pending.damageAssigners.map { it.attackerInstanceId }) return false
+            val commandsByAttacker = commands.associateBy { it.attackerInstanceId }
+            if (commandsByAttacker.size != commands.size ||
+                commandsByAttacker.keys != pending.damageAssigners.map { it.attackerInstanceId }.toSet()
+            ) {
+                return false
+            }
             val assignments =
-                commands.zip(pending.damageAssigners).map { (command, published) ->
+                pending.damageAssigners.map { published ->
+                    val command = commandsByAttacker.getValue(published.attackerInstanceId)
                     if (command.totalDamage != 0 && command.totalDamage != published.totalDamage) return false
-                    if (command.assignments.map { it.targetInstanceId } != published.slots.map { it.instanceId }) return false
-                    val amounts = command.assignments.map { it.assignedDamage }
+                    val rows = command.assignments.associateBy { it.targetInstanceId }
+                    if (rows.size != command.assignments.size || rows.keys != published.slots.map { it.instanceId }.toSet()) return false
+                    // Arena returns rows in its visual order, not necessarily request order.
+                    val amounts = published.slots.map { rows.getValue(it.instanceId).assignedDamage }
                     if (amounts.any { it < 0 }) return false
                     if (amounts.sumOf(Int::toLong) != published.totalDamage.toLong()) return false
                     if (published.slots.zip(amounts).any { (slot, amount) -> slot.maxDamage > 0 && amount > slot.maxDamage }) {
@@ -320,20 +389,33 @@ internal class MatchBlockingInteractionRuntime(
                 val prepared =
                     try {
                         viewerPrepared =
-                            (interaction as? BlockingInteraction.Optional)
-                                ?.takeIf {
-                                    it.commanderReturn != null ||
-                                        it.forceSnapshotBeforePrompt ||
-                                        it.etbPayLifeReplacement
-                                }?.let { optional ->
-                                    feed.builder.optionalInteractionBundle(
-                                        game,
-                                        planner,
-                                        optional,
-                                        owner.viewerRoutes(runtimeSeat),
-                                        sourceCard,
-                                    )
-                                }
+                            when (interaction) {
+                                is BlockingInteraction.Optional ->
+                                    interaction
+                                        .takeIf {
+                                            it.commanderReturn != null ||
+                                                it.forceSnapshotBeforePrompt ||
+                                                it.etbPayLifeReplacement
+                                        }?.let { optional ->
+                                            feed.builder.optionalInteractionBundle(
+                                                game,
+                                                planner,
+                                                optional,
+                                                owner.viewerRoutes(runtimeSeat),
+                                                sourceCard,
+                                            )
+                                        }
+                                is BlockingInteraction.Numeric ->
+                                    interaction.sourceId?.let {
+                                        feed.builder.numericInteractionBundle(
+                                            game,
+                                            planner,
+                                            interaction,
+                                            owner.viewerRoutes(runtimeSeat),
+                                        )
+                                    }
+                                else -> null
+                            }
                         (viewerPrepared?.player ?: build(feed, game, planner)).also { afterMaterialization?.invoke() }
                     } catch (ex: Exception) {
                         owner.fail(ex)
@@ -426,10 +508,10 @@ internal class MatchBlockingInteractionRuntime(
 
     private fun await(
         pending: Window,
-        timeoutMs: Long,
+        timeoutMs: Long?,
     ): Answer =
         try {
-            pending.future.get(timeoutMs, TimeUnit.MILLISECONDS)
+            if (timeoutMs == null) pending.future.get() else pending.future.get(timeoutMs, TimeUnit.MILLISECONDS)
         } catch (timeout: TimeoutException) {
             beforeTimeoutClaim?.invoke()
             synchronized(owner.feedLock) {

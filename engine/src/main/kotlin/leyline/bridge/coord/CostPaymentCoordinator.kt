@@ -159,6 +159,45 @@ class CostPaymentCoordinator(
         if (player.controller is PlayerControllerAi) {
             return ComputerUtilMana.payManaCost(toPay, ability, player, effect)
         }
+        // ComputerUtilMana's AI payment path calls AiCostDecision directly,
+        // bypassing PlayerController.confirmPayment. Preflight its dry-run
+        // source plan before any sacrifice, discard, exile, or life-payment
+        // mana ability can mutate the game. Ordinary tap-only sources keep
+        // the existing automatic payment behavior.
+        val riskySource =
+            ManaActivationConfirmation.selectedRiskySource(
+                toPay = toPay,
+                ability = ability,
+                player = player,
+                effect = effect,
+            )
+        if (riskySource != null) {
+            val accepted =
+                optionalActionGate.await(
+                    hostCard = riskySource,
+                    defaultOnTimeout = false,
+                    logContext = "automaticManaActivation",
+                    // The confirmation is for the exact unpaid mana that the
+                    // selected irreversible source will provide.  Supplying
+                    // the cost routes OptionalActionMessage through Arena's
+                    // PayCosts renderer instead of the generic "Choose
+                    // options" prompt, while retaining the source card id.
+                    costText =
+                        toPay
+                            .toManaCost()
+                            .toColorCounts()
+                            .let { ManaCostText.clientText(it) }
+                            .takeIf { it.isNotEmpty() },
+                )
+            if (!accepted) {
+                log.info(
+                    "applyManaToCost: declined irreversible source {} for {}",
+                    riskySource.name,
+                    ability.hostCard?.name,
+                )
+                return false
+            }
+        }
         // GameBridge keeps the bridged controller at Long.MAX_VALUE - 1, so
         // Forge's timestamp-based runWithController cannot put an AI controller
         // above it. ComputerUtilMana requires that controller while it pays the
@@ -181,35 +220,32 @@ class CostPaymentCoordinator(
         ability: SpellAbility,
     ) {
         val choices = bridge.journal.consumeHybridManaStash() ?: return
-        val hybridShards = toPay.getUnpaidShards().filter { it.isOr2Generic }
+        val hybridShards =
+            toPay.getUnpaidShards().filter {
+                it.isOr2Generic || it.isPhyrexian() || ManaColorMapping.standardHybridColors(it).size > 1
+            }
         if (hybridShards.isEmpty()) return
 
         for ((index, shard) in hybridShards.withIndex()) {
-            val coloredChoice = colorForTwoGenericShard(shard) ?: continue
+            val coloredChoices = ManaColorMapping.paymentColors(shard)
+            val coloredChoice = coloredChoices.firstOrNull() ?: continue
             val choice = choices.getOrNull(index) ?: coloredChoice
             toPay.decreaseShard(shard, 1)
-            if (choice == ManaColor.TwoGeneric) {
+            if (shard.isPhyrexian() && choice == ManaColor.Phyrexian_afc9) {
+                ability.setSpendPhyrexianMana(true)
+                player.payLife(2, ability, false)
+                continue
+            }
+            if (shard.isOr2Generic && choice == ManaColor.TwoGeneric) {
                 toPay.increaseGenericMana(2)
                 continue
             }
-            val replacement = monoColorShard(choice.takeIf { it == coloredChoice } ?: coloredChoice)
+            val replacement = monoColorShard(choice.takeIf { it in coloredChoices } ?: coloredChoice)
             if (replacement != null) {
                 toPay.increaseShard(replacement, 1)
             }
         }
         log.info("applyManaToCost: applied hybrid mana choices {} for {}", choices, ability.hostCard?.name)
-    }
-
-    private fun colorForTwoGenericShard(shard: ManaCostShard): ManaColor? {
-        if (!shard.isOr2Generic || !shard.isMonoColor) return null
-        return when {
-            shard.isWhite -> ManaColor.White_afc9
-            shard.isBlue -> ManaColor.Blue_afc9
-            shard.isBlack -> ManaColor.Black_afc9
-            shard.isRed -> ManaColor.Red_afc9
-            shard.isGreen -> ManaColor.Green_afc9
-            else -> null
-        }
     }
 
     private fun monoColorShard(color: ManaColor): ManaCostShard? =

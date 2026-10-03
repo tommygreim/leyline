@@ -66,6 +66,7 @@ class OptionalActionGate(
         freeCast: BlockingInteraction.FreeCast? = null,
         etbPayLifeReplacement: Boolean = false,
         mechanicType: CardMechanicType? = null,
+        recipientCards: List<Card> = emptyList(),
         costText: String? = null,
     ): Boolean {
         if (hostCard == null) return true
@@ -78,10 +79,30 @@ class OptionalActionGate(
                 freeCast = freeCast,
                 etbPayLifeReplacement = etbPayLifeReplacement,
                 mechanicType = mechanicType,
+                recipientIds = recipientCards.map { ForgeCardId(it.id) },
                 costText = costText,
             ),
             sourceCard = hostCard,
             timeoutMs = actionBridge?.getTimeoutMs(),
+            defaultOnTimeout = defaultOnTimeout,
+        )
+    }
+
+    /** Publish Arena's typed top/bottom library-placement workflow. */
+    fun awaitTopOrBottom(
+        sourceCard: Card?,
+        recipientCard: Card?,
+        defaultOnTimeout: Boolean,
+    ): Boolean {
+        if (sourceCard == null || recipientCard == null) return defaultOnTimeout
+        return interactionRuntime.awaitTopOrBottom(
+            BlockingInteraction.TopOrBottom(
+                sourceId = ForgeCardId(sourceCard.id),
+                recipientId = ForgeCardId(recipientCard.id),
+            ),
+            // This modal has no client timeout/close message. Do not resolve the
+            // effect behind it while the player is still arranging the card.
+            timeoutMs = null,
             defaultOnTimeout = defaultOnTimeout,
         )
     }

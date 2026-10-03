@@ -73,6 +73,51 @@ class MatchBlockingInteractionTimeoutTest :
             check(returned.await(3, TimeUnit.SECONDS))
         }
 
+        test("unbounded library-placement window accepts a choice and releases on shutdown") {
+            val board = startPuzzleAtMain1(puzzle)
+            val source = checkNotNull(numeric(board).sourceId)
+            val interaction = BlockingInteraction.TopOrBottom(source, source)
+            val returned = AtomicReference<Boolean>()
+            val failed = AtomicReference<Throwable>()
+            val engine =
+                Thread {
+                    runCatching { board.bridge.cutCoordinator.awaitTopOrBottom(interaction, null, false) }
+                        .onSuccess(returned::set)
+                        .onFailure(failed::set)
+                }.also { it.start() }
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (board.bridge.cutCoordinator.currentBlockingInteraction() == null &&
+                failed.get() == null &&
+                System.nanoTime() < deadline
+            ) {
+                Thread.onSpinWait()
+            }
+            val pending = checkNotNull(board.bridge.cutCoordinator.currentBlockingInteraction())
+            board.bridge.cutCoordinator.interactions
+                .submitTopOrBottom(pending.interactionId, pending.gameStateId, true) shouldBe true
+            engine.join(3_000)
+            returned.get() shouldBe true
+            failed.get() shouldBe null
+
+            val stopped = CountDownLatch(1)
+            val secondEngine =
+                Thread {
+                    runCatching { board.bridge.cutCoordinator.awaitTopOrBottom(interaction, null, false) }
+                        .onFailure { stopped.countDown() }
+                }.also { it.start() }
+            val secondDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (board.bridge.cutCoordinator.currentBlockingInteraction() == null &&
+                System.nanoTime() < secondDeadline
+            ) {
+                Thread.onSpinWait()
+            }
+            checkNotNull(board.bridge.cutCoordinator.currentBlockingInteraction())
+            board.bridge.cutCoordinator.shutdown()
+            check(stopped.await(3, TimeUnit.SECONDS))
+            secondEngine.join(3_000)
+            secondEngine.isAlive shouldBe false
+        }
+
         test("timed-out blocking window rejects a late answer without output or state change") {
             val board = startPuzzleAtMain1(puzzle)
             board.bridge.cutCoordinator.drain(SeatId(1))

@@ -65,6 +65,7 @@ enum class AltCostKind(
     HARMONIZE(KeywordAbilityIds.HARMONIZE),
     WARP(KeywordAbilityIds.WARP),
     SNEAK(KeywordAbilityIds.SNEAK),
+    WEB_SLINGING(KeywordAbilityIds.WEB_SLINGING),
     DISGUISE(KeywordAbilityIds.DISGUISE),
     PARADIGM(KeywordAbilityIds.PARADIGM),
     AIRBEND(KeywordAbilityIds.AIRBEND),
@@ -303,6 +304,11 @@ object CastRails {
             HandWithAltCost(
                 kind = AltCostKind.SNEAK,
                 saPredicate = { it.alternativeCost == AlternativeCost.Sneak },
+                lookupMode = LookupMode.CostAware,
+            ),
+            HandWithAltCost(
+                kind = AltCostKind.WEB_SLINGING,
+                saPredicate = { it.alternativeCost == AlternativeCost.WebSlinging },
                 lookupMode = LookupMode.CostAware,
             ),
             HandWithAltCost(

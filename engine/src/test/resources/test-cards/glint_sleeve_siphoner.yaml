@@ -1,0 +1,14 @@
+# Synthetic card and trigger identities for split-trigger/energy tests.
+name: "Glint-Sleeve Siphoner"
+grpId: 900005
+titleId: 900005
+abilities:
+  - id: 142
+    textId: 102
+    category: 3
+  - id: 900105
+    textId: 900105
+    category: 2
+  - id: 900106
+    textId: 900106
+    category: 2

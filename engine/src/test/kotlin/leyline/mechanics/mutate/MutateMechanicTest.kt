@@ -24,6 +24,8 @@ import leyline.testkit.humanPlayer
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.AllowCancel
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
+import wotc.mtgo.gre.external.messaging.Messages.CardMechanicType
+import wotc.mtgo.gre.external.messaging.Messages.GREMessageType
 
 private const val MUTATE_CARD = "Insatiable Hemophage"
 private const val TARGET_CREATURE = "Runeclaw Bear"
@@ -72,7 +74,7 @@ class MutateLifecycleTest :
             puzzle = MUTATE_PUZZLE,
         ) {
             val prompt = castMutateAndSelectTarget()
-            val result = resolveMutate(choiceIid = prompt.targetIid)
+            val result = resolveMutate(putOnTop = false)
 
             assertMutateMerge(
                 prompt = prompt,
@@ -87,7 +89,7 @@ class MutateLifecycleTest :
             puzzle = MUTATE_PUZZLE,
         ) {
             val prompt = castMutateAndSelectTarget()
-            val result = resolveMutate(choiceIid = prompt.stackIid)
+            val result = resolveMutate(putOnTop = true)
 
             assertMutateMerge(
                 prompt = prompt,
@@ -155,21 +157,21 @@ private fun MatchFlowHarness.castMutateAndSelectTarget(): MutatePromptState {
         targetGroup.targetsList.map { it.targetInstanceId } shouldContain targetIid
     }
 
+    holdNextOptionalAction()
     val topBottomSlice = after { selectTargets(listOf(targetIid)) }
-    val selectNMsg = topBottomSlice.messages.firstOrNull { it.hasSelectNReq() }
-    selectNMsg shouldNotBe null
-    val selectNReq = selectNMsg!!.selectNReq
+    val optionalMsg = topBottomSlice.messages.firstOrNull { it.type == GREMessageType.OptionalActionMessage_695e }
+    optionalMsg shouldNotBe null
+    val optional = optionalMsg!!.optionalActionMessage
     val targetSpec =
         topBottomSlice.messages
             .filter { it.hasGameStateMessage() }
             .flatMap { it.gameStateMessage.persistentAnnotationsList }
             .firstOrNull { AnnotationType.TargetSpec in it.typeList && it.affectedIdsList.contains(targetIid) }
     assertSoftly {
-        selectNMsg.allowCancel shouldBe AllowCancel.No_a526
-        selectNReq.sourceId shouldBe stackIid
-        selectNReq.minSel shouldBe 1
-        selectNReq.maxSel shouldBe 1
-        selectNReq.idsList shouldBe listOf(stackIid, targetIid)
+        optionalMsg.allowCancel shouldBe AllowCancel.No_a526
+        optional.sourceId shouldBe stackIid
+        optional.recipientIdsList shouldBe listOf(targetIid)
+        optional.optionalActionTypesList shouldContain CardMechanicType.Mutate
 
         withClue("Mutate target prompt TargetSpec") { targetSpec shouldNotBe null }
         targetSpec!!.affectorId shouldBe stackIid
@@ -181,9 +183,9 @@ private fun MatchFlowHarness.castMutateAndSelectTarget(): MutatePromptState {
     return MutatePromptState(cardGrpId, targetGrpId, mutateGrpId, stackIid, targetIid)
 }
 
-private fun MatchFlowHarness.resolveMutate(choiceIid: Int): MutateResolutionState {
+private fun MatchFlowHarness.resolveMutate(putOnTop: Boolean): MutateResolutionState {
     val resolveStart = messageSnapshot()
-    respondToSelectN(listOf(choiceIid))
+    respondToOptionalAction(accept = putOnTop)
     passUntilResolved(maxPasses = 12)
     val gsms = messagesSince(resolveStart).filter { it.hasGameStateMessage() }.map { it.gameStateMessage }
     val suppressedObject =

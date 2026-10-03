@@ -48,6 +48,8 @@ object ZoneMapper {
         revealForSeat: Int? = null,
         revealHand: Boolean = false,
         previousSnapshot: GsmSnapshot? = null,
+        knownLibraryViewers: Map<ForgeCardId, Set<SeatId>> = emptyMap(),
+        previousLibraryViewers: Map<ForgeCardId, Set<SeatId>> = emptyMap(),
     ) {
         val canSeeHand = viewingSeatId == 0 || viewingSeatId == seatId.value || revealHand
         val handVisibility = if (revealHand) Visibility.Public else Visibility.Private
@@ -92,6 +94,9 @@ object ZoneMapper {
             gameObjects,
             libZoneId,
             revealForSeat == seatId.value,
+            knownLibraryViewers,
+            previousLibraryViewers,
+            viewingSeatId,
         )
 
         if (gyZoneId != null) {
@@ -165,6 +170,9 @@ object ZoneMapper {
         gameObjects: MutableList<GameObjectInfo>,
         libraryZoneId: Int,
         revealLibrary: Boolean,
+        knownLibraryViewers: Map<ForgeCardId, Set<SeatId>>,
+        previousLibraryViewers: Map<ForgeCardId, Set<SeatId>>,
+        viewingSeatId: Int,
     ) {
         val libraryContents = snap.zones[libraryZoneId]?.contents.orEmpty()
         val currentTop = libraryContents.firstOrNull()
@@ -190,15 +198,19 @@ object ZoneMapper {
         for (fid in libraryContents) {
             val instanceId = instanceIdLookup(fid).value
             library.addObjectInstanceIds(instanceId)
-            val inspectionViewers = if (fid == currentTop) snap.objects[fid]?.mayLookSeatIds.orEmpty() else emptySet()
+            val inspectionViewers =
+                (if (fid == currentTop) snap.objects[fid]?.mayLookSeatIds.orEmpty() else emptySet()) +
+                    knownLibraryViewers[fid].orEmpty()
             val inspectionWithdrawn =
-                fid == previousTop &&
-                    previousInspectionViewers.isNotEmpty() &&
+                (fid == previousTop && previousInspectionViewers.isNotEmpty() || previousLibraryViewers[fid].orEmpty().isNotEmpty()) &&
                     inspectionViewers.isEmpty() &&
                     !revealLibrary
             if (inspectionWithdrawn) {
                 gameObjects.add(hiddenLibraryObject(instanceId, libraryZoneId, seatId))
-            } else if (revealLibrary || inspectionViewers.isNotEmpty()) {
+            } else if (revealLibrary ||
+                inspectionViewers.isNotEmpty() &&
+                (viewingSeatId == 0 || SeatId(viewingSeatId) in inspectionViewers)
+            ) {
                 addPlayerCardObjects(
                     snap,
                     fid,
@@ -207,7 +219,7 @@ object ZoneMapper {
                     seatId,
                     environment,
                     instanceIdLookup,
-                    Visibility.Private,
+                    if (inspectionViewers.containsAll(setOf(SeatId(1), SeatId(2)))) Visibility.Public else Visibility.Private,
                     "library",
                     gameObjects,
                     viewers = inspectionViewers.mapTo(linkedSetOf()) { it.value }.apply { if (revealLibrary) add(seatId.value) },
@@ -380,6 +392,19 @@ object ZoneMapper {
             // Triggered abilities firing off a spell-on-stack (Cascade, source_zone=27)
             // need to project even when their source spell is still in the stack zone.
             if (entry.isSpell) continue
+            // Do not publish an Ability while identity resolution is still
+            // pending. Arena caches an Ability object's initial grpId/text
+            // pairing, so an interim grpId=0 object is safer to omit than to
+            // render the host's complete rules text. The next capture will add
+            // the same stack iid with its resolved row.
+            if (entry.grpId == 0) {
+                log.debug(
+                    "suppressing unresolved stack ability forgeCardId={} sourceGrpId={}",
+                    entry.forgeCardId,
+                    entry.sourceCardGrpId,
+                )
+                continue
+            }
 
             val abilityInstanceId = stackEntryIid(entry, instanceIdLookup)
             val grpId = entry.grpId.takeIf { it != 0 } ?: 0
@@ -408,14 +433,19 @@ object ZoneMapper {
 
             zoneBuilder.addObjectInstanceIds(abilityInstanceId)
             gameObjects.add(
-                ObjectMapper.buildAbilityObject(
-                    grpId = grpId,
-                    sourceCardGrpId = sourceCardGrpId,
-                    instanceId = abilityInstanceId,
-                    ownerSeatId = entry.owner.value,
-                    cardProto = environment.cardProto,
-                    parentInstanceId = parentInstanceId,
-                ),
+                ObjectMapper
+                    .buildAbilityObject(
+                        grpId = grpId,
+                        sourceCardGrpId = sourceCardGrpId,
+                        instanceId = abilityInstanceId,
+                        ownerSeatId = entry.owner.value,
+                        parentInstanceId = parentInstanceId,
+                    ).toBuilder()
+                    .apply {
+                        if (entry.abilityOriginalCardGrpId != 0 && entry.abilityOriginalCardGrpId != sourceCardGrpId) {
+                            addAbilityOriginalCardGrpIds(entry.abilityOriginalCardGrpId)
+                        }
+                    }.build(),
             )
         }
         orderStackTopFirst(snap, zoneBuilder, instanceIdLookup)

@@ -1,0 +1,13 @@
+name: "Mind Stone"
+grpId: 97716
+titleId: 4446
+abilities:
+  - id: 1152
+    textId: 227595
+    category: 1
+    subCategory: 1
+  - id: 88188
+    textId: 899407
+    category: 1
+    subCategory: 0
+expansionCode: "FIC"

@@ -3,8 +3,10 @@ package leyline.session.actions
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
+import leyline.bridge.bootstrap.GameBootstrap
 import leyline.testkit.ScriptedAction
 import leyline.testkit.SessionTest
+import leyline.testkit.TestCardRegistry
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
 
 private val COUNTERSPELL_EMPTY_STACK_PUZZLE =
@@ -56,6 +58,11 @@ private val FLYING_BLOCKERS_PUZZLE =
  */
 class ActionLegalityTest :
     SessionTest({
+        beforeSpec {
+            GameBootstrap.initializeCardDatabase(quiet = true)
+            TestCardRegistry.ensureRegistered()
+            TestCardRegistry.ensureCardRegistered("Mind Stone")
+        }
 
         session(
             "counterspell not offered as castable when stack is empty",
@@ -79,6 +86,44 @@ class ActionLegalityTest :
             // Counterspell should NOT be in active actions (no legal targets)
             val castActions = actions.filter { it.actionType == ActionType.Cast }
             castActions.size shouldBe 0
+        }
+
+        session(
+            "a tapped-cost source cannot use its own mana to afford its other ability",
+            puzzle = """
+                ActivePlayer=Human
+                ActivePhase=Main1
+                HumanLife=20
+                AILife=20
+
+                humanbattlefield=Mind Stone;Mountain|Tapped
+                humanhand=Mountain
+                humanlibrary=Mountain;Mountain;Mountain
+                ailibrary=Forest;Forest;Forest
+                """,
+        ) {
+            val actions = allMessages.last { it.hasActionsAvailableReq() }.actionsAvailableReq
+            val mindStone = human.battlefield.iid("Mind Stone")
+            actions.actionsList.any { it.instanceId == mindStone && it.actionType == ActionType.Activate_add3 } shouldBe false
+            actions.actionsList.any { it.instanceId == mindStone && it.actionType == ActionType.ActivateMana }.shouldBeTrue()
+        }
+
+        session(
+            "a separate untapped source makes the tapped-cost ability payable",
+            puzzle = """
+                ActivePlayer=Human
+                ActivePhase=Main1
+                HumanLife=20
+                AILife=20
+
+                humanbattlefield=Mind Stone;Mountain
+                humanlibrary=Mountain;Mountain;Mountain
+                ailibrary=Forest;Forest;Forest
+                """,
+        ) {
+            val actions = allMessages.last { it.hasActionsAvailableReq() }.actionsAvailableReq
+            val mindStone = human.battlefield.iid("Mind Stone")
+            actions.actionsList.any { it.instanceId == mindStone && it.actionType == ActionType.Activate_add3 }.shouldBeTrue()
         }
 
         session(

@@ -100,6 +100,7 @@ data class BoundCard(
                 KeywordAbilityIds.MOBILIZE,
                 KeywordAbilityIds.WARP,
                 KeywordAbilityIds.SNEAK,
+                KeywordAbilityIds.WEB_SLINGING,
                 KeywordAbilityIds.DISGUISE,
                 KeywordAbilityIds.PARADIGM,
             )

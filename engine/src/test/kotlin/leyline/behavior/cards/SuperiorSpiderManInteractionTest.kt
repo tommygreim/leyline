@@ -23,6 +23,63 @@ import wotc.mtgo.gre.external.messaging.Messages.GREMessageType
 class SuperiorSpiderManInteractionTest :
     SessionTest({
         session(
+            "Mind Swap retains distinct identities for copied ETB and reflexive exile",
+            puzzle =
+                """
+                [state]
+                ActivePlayer=Human
+                ActivePhase=Main1
+                HumanLife=20
+                AILife=20
+                humanhand=Superior Spider-Man
+                humangraveyard=Doomsday Excruciator
+                humanbattlefield=Island;Island;Swamp;Swamp
+                humanlibrary=Island;Island;Island;Island;Island;Island;Island;Island
+                ailibrary=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+                """.trimIndent(),
+        ) {
+            // The slim fixture provides card/ability identity. Pin the parent →
+            // hidden-child relation separately, as supplied by production SQLite.
+            (bridge.cardRepository as leyline.game.InMemoryCardRepository).registerAbilityInfo(
+                206630,
+                leyline.game.data.AbilityInfo(baseId = 0, manaCost = emptyList(), category = 3, hiddenAbilityIds = listOf(206677)),
+            )
+            holdNextOptionalAction()
+            castSpellByName("Superior Spider-Man") shouldBe true
+            respondToOptionalAction(true)
+            passUntilResolved(maxPasses = 12)
+            val ordering = lastSelectNReq()
+            ordering.context shouldBe wotc.mtgo.gre.external.messaging.Messages.SelectionContext.TriggeredAbility_c799
+            respondToSelectN(ordering.idsList, wotc.mtgo.gre.external.messaging.Messages.OrderingType.OrderAsIndicated)
+            passUntilResolved(maxPasses = 12)
+            val abilityRows =
+                allMessages
+                    .filter { it.hasGameStateMessage() }
+                    .flatMap { it.gameStateMessage.gameObjectsList }
+                    .filter { it.type == wotc.mtgo.gre.external.messaging.Messages.GameObjectType.Ability }
+                    .map { it.grpId }
+                    .toSet()
+            assertSoftly {
+                (174380 in abilityRows) shouldBe true
+                (206677 in abilityRows) shouldBe true
+                (97973 in abilityRows) shouldBe false
+                (206630 in abilityRows) shouldBe false
+                allMessages
+                    .filter { it.hasGameStateMessage() }
+                    .flatMap { it.gameStateMessage.gameObjectsList }
+                    .filter { it.grpId == 174380 }
+                    .any {
+                        it.abilityOriginalCardGrpIdsList.contains(
+                            bridge.cardRepository.findGrpIdByName("Doomsday Excruciator"),
+                        )
+                    } shouldBe
+                    true
+                human.getZone(ZoneType.Exile).cards.any { it.name == "Doomsday Excruciator" } shouldBe true
+                human.getZone(ZoneType.Library).size() shouldBe 6
+            }
+        }
+
+        session(
             "Mind Swap prompts before copying, then exiles the copied card",
             puzzle =
                 """

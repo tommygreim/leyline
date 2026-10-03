@@ -18,6 +18,7 @@ import leyline.game.grp
 import leyline.game.iid
 import leyline.game.mapping.ZoneIds
 import leyline.game.sid
+import leyline.game.snapshot.DungeonStateSnapshot
 import leyline.game.wid
 import leyline.testkit.detail
 import leyline.testkit.detailInt
@@ -345,6 +346,27 @@ class AnnotationBuilderTest :
             }
         }
 
+        test("dungeonStatus carries Arena's player and dungeon state keys") {
+            val ann =
+                AnnotationBuilder.dungeonStatus(
+                    2.sid,
+                    DungeonStateSnapshot(
+                        currentDungeonGrpId = 78768,
+                        currentDungeonInstanceId = 420,
+                        currentRoomGrpId = 110001,
+                        completedDungeonGrpIds = listOf(78770),
+                    ),
+                )
+            assertSoftly {
+                ann.typeList shouldBe listOf(AnnotationType.DungeonStatus)
+                ann.affectorId shouldBe 2
+                ann.detailInt(DetailKeys.CURRENT_DUNGEON) shouldBe 78768
+                ann.detailInt(DetailKeys.CURRENT_DUNGEON_ZCID) shouldBe 420
+                ann.detailInt(DetailKeys.CURRENT_ROOM) shouldBe 110001
+                ann.detailIntList(DetailKeys.ALL_DUNGEONS_COMPLETED) shouldBe listOf(78770)
+            }
+        }
+
         // --- ManaPaid ---
 
         test("manaPaidFields") {
@@ -594,6 +616,16 @@ class AnnotationBuilderTest :
                 ann.affectorId shouldBe 1150
                 ann.affectedIdsList shouldContain 1150
                 ann.affectedIdsCount shouldBe 1
+                ann.detailsCount shouldBe 0
+            }
+        }
+
+        test("permanentRegeneratedFields") {
+            val ann = AnnotationBuilder.permanentRegenerated(instanceId = 1151.iid)
+            assertSoftly {
+                ann.typeList shouldContain AnnotationType.PermanentRegenerated
+                ann.affectedIdsList shouldContain 1151
+                ann.affectorId shouldBe 0
                 ann.detailsCount shouldBe 0
             }
         }

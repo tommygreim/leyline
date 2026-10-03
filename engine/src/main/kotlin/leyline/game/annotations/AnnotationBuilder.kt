@@ -9,6 +9,7 @@ import leyline.game.codes.CounterTypes
 import leyline.game.codes.DetailKeys
 import leyline.game.codes.QualificationType
 import leyline.game.event.DamageSourceKind
+import leyline.game.snapshot.DungeonStateSnapshot
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationInfo
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
@@ -16,6 +17,7 @@ import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
 import wotc.mtgo.gre.external.messaging.Messages.CounterType
 import wotc.mtgo.gre.external.messaging.Messages.KeyValuePairInfo
 import wotc.mtgo.gre.external.messaging.Messages.KeyValuePairValueType
+import wotc.mtgo.gre.external.messaging.Messages.StaticList
 
 /**
  * Builds client-format [AnnotationInfo] protos for [GameStateMessage] bundles.
@@ -147,6 +149,40 @@ object AnnotationBuilder {
             .addDetails(int32Detail(DetailKeys.PHASE, phase))
             .addDetails(int32Detail(DetailKeys.STEP, step))
             .build()
+
+    /** Marks permanents that phased out while retaining their client identity. */
+    fun phasedOut(instanceIds: List<InstanceId>): AnnotationInfo =
+        AnnotationInfo
+            .newBuilder()
+            .addType(AnnotationType.PhasedOut_af5a)
+            .addAllAffectedIds(instanceIds.map { it.value })
+            .build()
+
+    /** Marks permanents that phased in while retaining their client identity. */
+    fun phasedIn(instanceIds: List<InstanceId>): AnnotationInfo =
+        AnnotationInfo
+            .newBuilder()
+            .addType(AnnotationType.PhasedIn)
+            .addAllAffectedIds(instanceIds.map { it.value })
+            .build()
+
+    /** Updates Arena's per-player Venture/dungeon state. */
+    fun dungeonStatus(
+        player: SeatId,
+        state: DungeonStateSnapshot,
+    ): AnnotationInfo =
+        AnnotationInfo
+            .newBuilder()
+            .addType(AnnotationType.DungeonStatus)
+            .setAffectorId(player.value)
+            .addDetails(int32Detail(DetailKeys.CURRENT_DUNGEON, state.currentDungeonGrpId))
+            .addDetails(int32Detail(DetailKeys.CURRENT_DUNGEON_ZCID, state.currentDungeonInstanceId))
+            .addDetails(int32Detail(DetailKeys.CURRENT_ROOM, state.currentRoomGrpId))
+            .apply {
+                if (state.completedDungeonGrpIds.isNotEmpty()) {
+                    addDetails(int32ListDetail(DetailKeys.ALL_DUNGEONS_COMPLETED, state.completedDungeonGrpIds))
+                }
+            }.build()
 
     /** Card's instanceId changed (e.g. zone move creates new object).
      *  [affectorId] = ability instance that caused the change (null = unset). */
@@ -487,6 +523,22 @@ object AnnotationBuilder {
             .addDetails(int32Detail(DetailKeys.COIN_FLIP_RESULT, result))
             .build()
 
+    /** Public naming event, including choices made by an AI controller. */
+    fun cardNamed(
+        sourceInstanceId: InstanceId,
+        playerSeatId: Int,
+        titleId: Int,
+    ): AnnotationInfo =
+        AnnotationInfo
+            .newBuilder()
+            .addType(AnnotationType.LinkInfo)
+            .setAffectorId(sourceInstanceId.value)
+            .addAffectedIds(playerSeatId)
+            .addDetails(int32Detail(DetailKeys.LINK_TYPE, 3))
+            .addDetails(int32Detail(DetailKeys.CHOICE_DOMAIN, StaticList.CardNames.number))
+            .addDetails(int32Detail(DetailKeys.CHOICE_VALUE, titleId))
+            .build()
+
     fun linkInfoChoice(
         sourceInstanceId: InstanceId,
         affectedIds: List<Int>,
@@ -689,6 +741,14 @@ object AnnotationBuilder {
             .newBuilder()
             .addType(AnnotationType.TokenDeleted)
             .setAffectorId(instanceId.value)
+            .addAffectedIds(instanceId.value)
+            .build()
+
+    /** A permanent regenerated instead of being destroyed. */
+    fun permanentRegenerated(instanceId: InstanceId): AnnotationInfo =
+        AnnotationInfo
+            .newBuilder()
+            .addType(AnnotationType.PermanentRegenerated)
             .addAffectedIds(instanceId.value)
             .build()
 

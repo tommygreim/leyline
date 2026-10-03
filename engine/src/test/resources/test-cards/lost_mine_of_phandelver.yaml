@@ -1,0 +1,35 @@
+name: "Lost Mine of Phandelver"
+grpId: 78769
+titleId: 543151
+abilities:
+  - id: 146082
+    textId: 543152
+    category: 2
+    subCategory: 15
+  - id: 146083
+    textId: 543153
+    category: 2
+  - id: 146084
+    textId: 543154
+    category: 2
+  - id: 146085
+    textId: 543155
+    category: 2
+  - id: 146086
+    textId: 543156
+    category: 2
+  - id: 146087
+    textId: 543157
+    category: 2
+  - id: 146088
+    textId: 543158
+    category: 2
+isToken: false
+isPrimaryCard: false
+power: ""
+toughness: ""
+colors: []
+types: [13]
+subtypes: []
+supertypes: []
+manaCost: ""

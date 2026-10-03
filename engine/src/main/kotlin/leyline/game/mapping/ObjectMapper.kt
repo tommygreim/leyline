@@ -26,21 +26,21 @@ object ObjectMapper {
      *
      * [grpId] and [sourceCardGrpId] are independent: [grpId] is the ability row id
      * (e.g. 86 for Cascade), [sourceCardGrpId] is the host permanent's grpId.
-     * `cardProto.buildObjectInfo(sourceCardGrpId)` carries the printed card type /
-     * color / supertype context the client uses to render the stack tile; the
-     * ability's identity rides on the top-level [grpId] field.
+     * Arena's stack Ability envelope is deliberately minimal. In particular,
+     * copying the source card's `name`, `overlayGrpId`, card types, and complete
+     * `uniqueAbilities` list makes the client render the source card's full rules
+     * text instead of the single ability row identified by [grpId].
      */
     fun buildAbilityObject(
         grpId: Int,
         sourceCardGrpId: Int,
         instanceId: Int,
         ownerSeatId: Int,
-        cardProto: CardProtoBuilder,
         parentInstanceId: Int = 0,
     ): GameObjectInfo {
         val builder =
-            cardProto
-                .buildObjectInfo(sourceCardGrpId)
+            GameObjectInfo
+                .newBuilder()
                 .setGrpId(grpId)
                 .setInstanceId(instanceId)
                 .setType(GameObjectType.Ability)
@@ -103,10 +103,9 @@ object ObjectMapper {
     /**
      * Build a [GameObjectInfo] for echo-back GSMs during iterative combat declaration.
      *
-     * Echo objects carry NO combat state (no attackState/blockState).
-     * Only base card fields are included — P/T, tapped, sickness from [CardSnapshot].
-     * The client uses the DeclareAttackersReq/DeclareBlockersReq re-prompt
-     * (not object state) to track provisional selections.
+     * Attacker selections live in the re-prompt; blocker selections also need
+     * explicit object relationships so the client's intention lines can render.
+     * Callers may provide a presentation-only combat role in [cardSnap].
      */
     fun buildProvisionalCombatObject(
         cardSnap: CardSnapshot,
@@ -134,7 +133,7 @@ object ObjectMapper {
             .setOwnerSeatId(ownerSeatId)
             .setControllerSeatId(cardSnap.controller.value)
             .setOthersideGrpId(cardSnap.othersideGrpId)
-            .applyFieldsFromSnapshot(cardSnap, parentLinkage) // echo objects carry no combat state
+            .applyFieldsFromSnapshot(cardSnap, parentLinkage)
             .build()
     }
 
@@ -187,6 +186,7 @@ object ObjectMapper {
         parentLinkage: ParentLinkage? = null,
         earthbend: EarthbendProjection? = null,
         grantedAbilitySnapshot: Map<Int, List<EffectTracker.TrackedGrantedAbility>> = emptyMap(),
+        abilityGrpIdsOverride: List<Int>? = null,
     ): GameObjectInfo {
         // Supported face-down creatures get a synthetic stencil envelope —
         // the per-card identity (name, subtypes, color, abilities) is
@@ -194,6 +194,17 @@ object ObjectMapper {
         // grpId=3, ability=141939). Mechanic-agnostic so Morph / Manifest /
         // Cloak can ride the same projection once their snapshot
         // recognizers land.
+        if (cardSnap.isFaceDownExile && cardSnap.mayLookSeatIds.isEmpty()) {
+            return GameObjectInfo
+                .newBuilder()
+                .setInstanceId(instanceId)
+                .setType(GameObjectType.Card)
+                .setZoneId(zoneId)
+                .setVisibility(Visibility.Hidden)
+                .setOwnerSeatId(ownerSeatId)
+                .setControllerSeatId(cardSnap.controller.value)
+                .build()
+        }
         if (cardSnap.faceDownKind != null) {
             return cardProto
                 .buildFaceDownObjectInfo(cardSnap.grpId)
@@ -228,15 +239,19 @@ object ObjectMapper {
         val extraAbilityGrpIds = extrinsicKws + cardSnap.mergedComponentAbilityGrpIds
         val builder =
             cardProto
-                .buildObjectInfo(cardSnap.grpId, extrinsicKeywordGrpIds = extraAbilityGrpIds)
-                .setInstanceId(instanceId)
-                .setType(objType)
-                .setZoneId(zoneId)
-                .setVisibility(visibility)
-                .setOwnerSeatId(ownerSeatId)
-                .setControllerSeatId(cardSnap.controller.value)
-                .setOthersideGrpId(cardSnap.othersideGrpId)
-                .applyFieldsFromSnapshot(cardSnap, parentLinkage)
+                .buildObjectInfo(
+                    cardSnap.grpId,
+                    extrinsicKeywordGrpIds = extraAbilityGrpIds,
+                    abilityGrpIdsOverride = abilityGrpIdsOverride,
+                )
+        builder.setInstanceId(instanceId)
+        builder.setType(objType)
+        builder.setZoneId(zoneId)
+        builder.setVisibility(visibility)
+        builder.setOwnerSeatId(ownerSeatId)
+        builder.setControllerSeatId(cardSnap.controller.value)
+        builder.setOthersideGrpId(cardSnap.othersideGrpId)
+        builder.applyFieldsFromSnapshot(cardSnap, parentLinkage)
         earthbend?.let { earthbend ->
             if (builder.uniqueAbilitiesList.none { it.grpId == earthbend.hasteAbilityGrpId }) {
                 builder.addUniqueAbilities(
@@ -382,8 +397,15 @@ object ObjectMapper {
         when (role) {
             is CombatRole.Attacker -> {
                 setAttackState(AttackState.Attacking)
-                if (role.targetInstanceId > 0) {
-                    setAttackInfo(AttackInfo.newBuilder().setTargetId(role.targetInstanceId))
+                if (role.targetInstanceId > 0 || role.blockerInstanceIds.isNotEmpty()) {
+                    setAttackInfo(
+                        AttackInfo.newBuilder().apply {
+                            if (role.targetInstanceId > 0) targetId = role.targetInstanceId
+                            role.blockerInstanceIds.forEach { id ->
+                                addOrderedBlockers(OrderedDamageAssignment.newBuilder().setInstanceId(id))
+                            }
+                        },
+                    )
                 }
                 when (role.isBlocked) {
                     true -> setBlockState(BlockState.Blocked)
@@ -430,5 +452,6 @@ object ObjectMapper {
             ForgeCoreType.Sorcery to CardType.Sorcery,
             ForgeCoreType.Kindred to CardType.Kindred,
             ForgeCoreType.Battle to CardType.Battle,
+            ForgeCoreType.Dungeon to CardType.Dungeon,
         )
 }

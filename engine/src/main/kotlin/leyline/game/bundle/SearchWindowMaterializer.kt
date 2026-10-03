@@ -46,7 +46,7 @@ internal class SearchWindowMaterializer(
                         SearchFromGroupsReq
                             .newBuilder()
                             .setMaxFind(window.maxFind)
-                            .addZonesToSearch(ZoneIds.libraryOf(SeatId(context.seatId)))
+                            .addZonesToSearch(ZoneIds.libraryOf(window.libraryOwnerSeatId ?: SeatId(context.seatId)))
                             .addAllGroups(
                                 window.groups.map { group ->
                                     Group
@@ -76,7 +76,7 @@ internal class SearchWindowMaterializer(
                     it.searchReq =
                         RequestBuilder.buildSearchRequest(
                             sourceInstanceId = sourceId,
-                            libraryZoneId = ZoneIds.libraryOf(SeatId(context.seatId)),
+                            libraryZoneId = ZoneIds.libraryOf(window.libraryOwnerSeatId ?: SeatId(context.seatId)),
                             allLibraryIds = libraryIds,
                             validTargetIds = validIds,
                             maxFind = window.maxFind,

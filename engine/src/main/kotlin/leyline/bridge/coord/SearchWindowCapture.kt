@@ -17,12 +17,16 @@ internal class SearchWindowCapture(
     }
 
     fun capture(request: PromptRequest): SearchWindowValue {
-        val player = owner.bridge.getPlayer(runtimeSeat) ?: error("Search player unavailable")
         val candidateIds =
             request.candidateRefs
                 .filter { it.kind == PromptCandidateKind.Card }
                 .associate { it.index to ForgeCardId(it.entityId) }
+        val player =
+            owner.bridge.getGame()?.players?.firstOrNull { player ->
+                player.getZone(ZoneType.Library).cards.any { ForgeCardId(it.id) in candidateIds.values }
+            } ?: owner.bridge.getPlayer(runtimeSeat) ?: error("Search player unavailable")
         return SearchWindowValue(
+            libraryOwnerSeatId = owner.bridge.seatOf(player),
             libraryCardIds = player.getZone(ZoneType.Library).cards.map { ForgeCardId(it.id) },
             candidateCardIdsByOption = candidateIds,
             optionCount = request.options.size,

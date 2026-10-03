@@ -91,6 +91,7 @@ object CardDataDeriver {
             hiddenAbilityIds = identity.hiddenAbilities.map { it.id to it.textId },
             abilityKinds = abilityKinds,
             abilityCategories = abilityCategories,
+            abilityBaseIds = identity.abilities.map { it.baseId },
             manaCost = manaCost,
             tokenGrpIds = identity.tokens,
             linkedFaceType = identity.linkedFaceType,

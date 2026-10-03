@@ -110,6 +110,21 @@ class GameEventCollector(
 ) : IGameEventVisitor.Base<Unit>() {
     private val log = LoggerFactory.getLogger(GameEventCollector::class.java)
 
+    // Bulk counter replacement events omit the old values. Retain only the
+    // previous observation so those events can produce the same ordered deltas
+    // as ordinary typed changes (including removal of the last counter).
+    private val observedPlayerCounters =
+        bridge
+            .allSeatIds()
+            .associateWith { seat ->
+                bridge
+                    .getPlayer(SeatId(seat))
+                    ?.counters
+                    ?.entrySet()
+                    ?.associate { it.element.name to it.count }
+                    .orEmpty()
+            }.toMutableMap()
+
     // Atomic frame swap: engine-thread @Subscribe handlers append; closeFrame() takes
     // the current list and installs a fresh empty one. The reference is volatile, the
     // list itself is mutated only before the swap.
@@ -344,6 +359,9 @@ class GameEventCollector(
                 null
             } ?: pendingTriggerAbilityIdentity(topSa, abilityDefinition, isTrigger)
         val abilityGrpId = abilityIdentity?.abilityGrpId ?: 0
+        topSa?.let { liveAbility ->
+            bridge.recordStackTargetSpecs(liveAbility, isSpell = !isTrigger && !isAbility)
+        }
         val paradigmSourceCardId =
             realCard
                 ?.effectSource
@@ -492,7 +510,10 @@ class GameEventCollector(
             specialAbilityGrpIdFor(card, sa)?.let { return ResolvedAbilityIdentity(definition, it) }
             decayedAbilityGrpIdFor(card, sa)?.let { return ResolvedAbilityIdentity(definition, it) }
         }
-        return if (!isTrigger && sa != null) {
+        // Trigger definitions alone lose copied-trait and reflexive-spawning
+        // provenance. Preserve the live wrapper when recording the identity;
+        // the stack mapper prefers this recorded row on subsequent frames.
+        return if (sa != null) {
             bridge.resolveAbilityIdentity(card, sa)
         } else {
             bridge.resolveAbilityIdentity(card, definition)
@@ -984,6 +1005,13 @@ class GameEventCollector(
         )
     }
 
+    override fun visit(ev: GameEventCardRegenerated) {
+        for (card in ev.cards()) {
+            frame.add(GameEvent.PermanentRegenerated(ForgeCardId(card.id)))
+            log.debug("event: PermanentRegenerated card={}", card.id)
+        }
+    }
+
     override fun visit(ev: GameEventPlayerDamaged) {
         val seat = seatOf(ev.target()) ?: return
         val source = ev.source() ?: return
@@ -1210,18 +1238,38 @@ class GameEventCollector(
         return ResolvedAbilityIdentity(definition, abilityGrpId)
     }
 
-    override fun visit(ev: GameEventPlayerPoisoned) {
+    override fun visit(ev: GameEventPlayerCounters) {
         val seat = seatOf(ev.receiver()) ?: return
-        val newValue = ev.oldValue() + ev.amount()
-        frame.add(
-            GameEvent.PlayerCountersChanged(
-                seatId = seat,
-                counterType = "POISON",
-                oldCount = ev.oldValue(),
-                newCount = newValue,
-            ),
-        )
-        log.debug("event: PlayerCountersChanged seat={} POISON {}→{}", seat, ev.oldValue(), newValue)
+        val current =
+            ev
+                .receiver()
+                .counters
+                ?.entrySet()
+                ?.associate { it.element.name to it.count }
+                .orEmpty()
+        val previous = observedPlayerCounters[seat.value].orEmpty()
+        val type = ev.type()
+        if (type != null) {
+            // Despite the field name, Player.setCounters passes the new total
+            // in amount(), not a delta. The separate poison event duplicates it.
+            recordPlayerCounter(seat, type.name, ev.oldValue(), ev.amount())
+        } else {
+            for (name in previous.keys + current.keys) {
+                recordPlayerCounter(seat, name, previous[name] ?: 0, current[name] ?: 0)
+            }
+        }
+        observedPlayerCounters[seat.value] = current
+    }
+
+    private fun recordPlayerCounter(
+        seat: SeatId,
+        name: String,
+        oldCount: Int,
+        newCount: Int,
+    ) {
+        if (oldCount == newCount) return
+        frame.add(GameEvent.PlayerCountersChanged(seat, name, oldCount, newCount))
+        log.debug("event: PlayerCountersChanged seat={} {} {}→{}", seat, name, oldCount, newCount)
     }
 
     override fun visit(ev: GameEventShuffle) {

@@ -6,8 +6,8 @@ import kotlinx.serialization.json.jsonObject
 import leyline.domain.PlayerId
 import leyline.domain.json.productionJson
 import leyline.domain.service.MatchCoordinator
-import leyline.native.account.Account
-import leyline.native.account.LocalAccountAuthenticator
+import leyline.native.Account
+import leyline.native.AccountAuthenticator
 import leyline.native.frontdoor.service.PlayerService
 import leyline.native.frontdoor.wire.CmdType
 import leyline.native.frontdoor.wire.FdResponse
@@ -17,7 +17,7 @@ import java.util.UUID
 
 /** One authenticated local persona per Front Door connection. */
 internal class FrontDoorIdentity(
-    private val authenticator: LocalAccountAuthenticator,
+    private val authenticator: AccountAuthenticator,
     private val players: PlayerService,
     private val writer: FdResponseWriter,
     private val coordinatorFactory: (PlayerId) -> MatchCoordinator,

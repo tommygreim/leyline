@@ -33,6 +33,7 @@ data class SearchWindowValue(
     val defaultIndex: Int,
     val source: SearchSourceValue?,
     val groups: List<SearchGroupValue> = emptyList(),
+    val libraryOwnerSeatId: leyline.bridge.types.SeatId? = null,
 ) {
     init {
         require(groups.map { it.groupId }.distinct().size == groups.size) { "Search group ids must be unique" }

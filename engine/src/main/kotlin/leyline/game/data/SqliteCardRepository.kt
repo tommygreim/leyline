@@ -69,6 +69,7 @@ internal class SqliteCardRepository(
         val baseId = integer("BaseId").default(0)
         val textId = integer("TextId").default(0)
         val oldSchoolManaText = text("OldSchoolManaText").nullable()
+        val hiddenAbilityIds = text("HiddenAbilityIds").nullable()
         val modalChildIds = text("ModalChildIds").nullable()
 
         // Arena ability category. Observed: 1 = Activated (player-initiated),
@@ -92,10 +93,16 @@ internal class SqliteCardRepository(
     private val dataCache = ConcurrentHashMap<Int, CardData?>()
     private val grpIdToName = ConcurrentHashMap<Int, String>()
     private val nameToGrpId = ConcurrentHashMap<String, Int>()
+
+    // Presentation lookups must not seed non-primary faces into deck-entry lookups.
+    private val anyFaceNameToGrpId = ConcurrentHashMap<String, Int>()
     private val missingNames = ConcurrentHashMap.newKeySet<String>()
     private val missingAnyFaceNames = ConcurrentHashMap.newKeySet<String>()
     private val tokenNameToGrpId = ConcurrentHashMap<String, Int>()
     private val missingTokenNames = ConcurrentHashMap.newKeySet<String>()
+    private val titleIdByName = ConcurrentHashMap<String, Int>()
+
+    @Volatile private var titleIdsLoaded = false
     private val modalCache = ConcurrentHashMap<Int, ModalAbilityInfo?>()
     private val abilityInfoCache = ConcurrentHashMap<Int, java.util.Optional<AbilityInfo>>()
     private val abilityLocalizationCache = ConcurrentHashMap<Int, java.util.Optional<AbilityLocalization>>()
@@ -114,12 +121,7 @@ internal class SqliteCardRepository(
     override fun findNameByGrpId(grpId: Int): String? {
         grpIdToName[grpId]?.let { return it }
         return queryNameByGrpId(grpId)?.also { name ->
-            rememberNameResolution(
-                name,
-                grpId,
-                clearPrimaryMiss = true,
-                clearAnyFaceMiss = true,
-            )
+            grpIdToName[grpId] = name
         }
     }
 
@@ -130,19 +132,19 @@ internal class SqliteCardRepository(
             if (grpId == null) {
                 missingNames.add(name)
             } else {
-                rememberNameResolution(name, grpId, clearAnyFaceMiss = true)
+                rememberNameResolution(name, grpId, nameToGrpId)
             }
         }
     }
 
     override fun findGrpIdByNameAnyFace(name: String): Int? {
-        nameToGrpId[name]?.let { return it }
+        anyFaceNameToGrpId[name]?.let { return it }
         if (name in missingAnyFaceNames) return null
         return queryGrpIdByNameAnyFace(name).also { grpId ->
             if (grpId == null) {
                 missingAnyFaceNames.add(name)
             } else {
-                rememberNameResolution(name, grpId, clearPrimaryMiss = true)
+                rememberNameResolution(name, grpId, anyFaceNameToGrpId)
             }
         }
     }
@@ -160,31 +162,64 @@ internal class SqliteCardRepository(
         }
     }
 
+    /**
+     * Resolve all requested names from one indexed read of the card database.
+     *
+     * The Forge name chooser can pass thousands of faces. Calling the scalar
+     * resolver for each face performs several independent SQLite transactions
+     * per name and can leave the game loop apparently stalled on the first
+     * Petrified Hamlet trigger. CardNames uses title IDs, so indexing the
+     * localized non-token names directly is both equivalent and much cheaper.
+     */
+    override fun findTitleIdsByName(names: Iterable<String>): Map<String, Int> {
+        val requested = names.toList().distinct()
+        if (requested.isEmpty()) return emptyMap()
+        ensureTitleIdsLoaded()
+        return requested.mapNotNull { name -> titleIdByName[forgeName(name)]?.let { name to it } }.toMap()
+    }
+
+    @Synchronized
+    private fun ensureTitleIdsLoaded() {
+        if (titleIdsLoaded) return
+        try {
+            transaction(database) {
+                Cards
+                    .join(Localizations, JoinType.INNER, Cards.titleId, Localizations.locId)
+                    .selectAll()
+                    .where { (Cards.isToken eq 0) and (Localizations.formatted eq 1) }
+                    .orderBy(Cards.isPrimaryCard, SortOrder.DESC)
+                    .orderBy(Cards.isDigitalOnly, SortOrder.ASC)
+                    .orderBy(Cards.isRebalanced, SortOrder.ASC)
+                    .orderBy(Cards.grpId, SortOrder.DESC)
+                    .forEach { row ->
+                        val name = row[Localizations.loc].let(::stripTags).let(::forgeName)
+                        titleIdByName.putIfAbsent(name, row[Cards.titleId])
+                    }
+            }
+        } catch (e: Exception) {
+            log.warn("Failed to index card title IDs: {}", e.message)
+        }
+        titleIdsLoaded = true
+    }
+
     override fun findGrpIdByNameAndSet(
         name: String,
         setCode: String,
     ): Int? =
         queryGrpIdByNameAndSet(name, setCode)?.also { grpId ->
-            rememberNameResolution(
-                name,
-                grpId,
-                clearPrimaryMiss = true,
-                clearAnyFaceMiss = true,
-            )
+            // A set-specific printing must not replace the canonical name lookup.
+            grpIdToName[grpId] = forgeName(name)
         }
 
     private fun rememberNameResolution(
         name: String,
         grpId: Int,
-        clearPrimaryMiss: Boolean = false,
-        clearAnyFaceMiss: Boolean = false,
+        nameCache: MutableMap<String, Int>,
     ) {
         val canonicalName = forgeName(name)
-        nameToGrpId[name] = grpId
-        nameToGrpId[canonicalName] = grpId
+        nameCache[name] = grpId
+        nameCache[canonicalName] = grpId
         grpIdToName[grpId] = canonicalName
-        if (clearPrimaryMiss) missingNames.remove(name)
-        if (clearAnyFaceMiss) missingAnyFaceNames.remove(name)
     }
 
     override fun findAllGrpIds(): List<Int> =
@@ -256,6 +291,7 @@ internal class SqliteCardRepository(
                             manaCost = parseManaCost(row[Abilities.oldSchoolManaText]),
                             category = row[Abilities.category],
                             subCategory = row[Abilities.subCategory],
+                            hiddenAbilityIds = parseIntList(row[Abilities.hiddenAbilityIds]),
                         )
                     }
             }
@@ -292,6 +328,7 @@ internal class SqliteCardRepository(
                     val abilityIds = parseAbilityIds(row[Cards.abilityIds])
                     val abilityKinds = lookupAbilityKinds(abilityIds.map { it.first })
                     val abilityCategories = lookupAbilityCategories(abilityIds.map { it.first })
+                    val abilityBaseIds = lookupAbilityBaseIds(abilityIds.map { it.first })
                     CardData(
                         grpId = row[Cards.grpId],
                         titleId = row[Cards.titleId],
@@ -304,6 +341,7 @@ internal class SqliteCardRepository(
                         abilityIds = abilityIds,
                         abilityKinds = abilityKinds,
                         abilityCategories = abilityCategories,
+                        abilityBaseIds = abilityBaseIds,
                         manaCost = parseManaCost(row[Cards.oldSchoolManaText]),
                         tokenGrpIds = parseTokenGrpIds(row[Cards.abilityIdToLinkedTokenGrpId]),
                         hiddenAbilityIds = parseAbilityIds(row[Cards.hiddenAbilityIds]),
@@ -343,6 +381,18 @@ internal class SqliteCardRepository(
             categories[id] = row[Abilities.category]
         }
         return ids.map { categories[it] ?: 0 }
+    }
+
+    private fun lookupAbilityBaseIds(ids: List<Int>): List<Int> {
+        val bases =
+            ids.distinct().associateWith { id ->
+                Abilities
+                    .selectAll()
+                    .where { Abilities.id eq id }
+                    .firstOrNull()
+                    ?.get(Abilities.baseId) ?: 0
+            }
+        return ids.map { bases.getValue(it) }
     }
 
     private fun queryNameByGrpId(grpId: Int): String? =

@@ -275,6 +275,12 @@ internal class MatchCutCoordinator(
         defaultOnTimeout: Boolean,
     ): Boolean = interactions.awaitOptional(interaction, sourceCard, timeoutMs, defaultOnTimeout)
 
+    override fun awaitTopOrBottom(
+        interaction: BlockingInteraction.TopOrBottom,
+        timeoutMs: Long?,
+        defaultOnTimeout: Boolean,
+    ): Boolean = interactions.awaitTopOrBottom(interaction, timeoutMs, defaultOnTimeout)
+
     override fun awaitNumeric(
         interaction: BlockingInteraction.Numeric,
         timeoutMs: Long?,

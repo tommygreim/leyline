@@ -1,0 +1,19 @@
+[metadata]
+Name:Face-down exile with public and foretell controls
+Goal:Survive
+Turns:4
+Difficulty:Easy
+Description:Foretell Doomskar, then cast Doomsday Excruciator. Inspect both players' face-down exiled library cards against public exile and the privately visible foretold card.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanhand=Doomsday Excruciator;Doomskar
+humanbattlefield=Swamp;Swamp;Swamp;Swamp;Swamp;Swamp;Plains;Plains;Island;Island
+humanexile=Mountain;Abrade
+humanlibrary=Mountain;Abrade;Duress;Mind Stone;Burst Lightning;Plains;Swamp;Plains;Island;Swamp;Plains;Island
+aibattlefield=Forest
+aiexile=Forest;Giant Growth
+ailibrary=Forest;Giant Growth;Mountain;Abrade;Mind Stone;Island;Forest;Forest;Forest;Forest;Forest;Forest

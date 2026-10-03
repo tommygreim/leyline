@@ -7,6 +7,7 @@ import leyline.bridge.coord.GameLoopPoller
 import leyline.bridge.handoff.PendingActionKind
 import leyline.bridge.handoff.PromptCallStatus
 import leyline.bridge.handoff.ResolvedPromptRoute
+import leyline.bridge.handoff.StaticChoiceKind
 import leyline.bridge.types.InstanceId
 import leyline.bridge.types.SeatId
 import leyline.game.mapping.PromptIds
@@ -459,8 +460,17 @@ private class ScenarioRun(
             "$context expected latest prompt SelectNReq"
         }
         val req = prompt.selectNReq
-        require(req.listType == SelectionListType.Static || req.listType == SelectionListType.StaticSubset) {
-            "$context expected static SelectNReq, got listType=${req.listType}"
+        // Dungeon and room choices have fixed protocol values, but their native
+        // workflows require a Dynamic list rather than a generic static enum.
+        val kind =
+            harness.bridge.cutCoordinator.staticChoices
+                .current()
+                ?.kind
+        val dynamicDungeonChoice =
+            req.listType == SelectionListType.Dynamic &&
+                (kind == StaticChoiceKind.Dungeon || kind == StaticChoiceKind.DungeonRoom)
+        require(req.listType == SelectionListType.Static || req.listType == SelectionListType.StaticSubset || dynamicDungeonChoice) {
+            "$context expected static or dungeon SelectNReq, got listType=${req.listType}, kind=$kind"
         }
         require(req.idsList.isEmpty() || step.id in req.idsList) {
             "$context static choice id=${step.id} not in SelectNReq ids ${req.idsList}"
@@ -626,10 +636,16 @@ private class ScenarioRun(
     private fun respondToOptionalAction(step: OptionalActionStep) {
         val ready =
             harness.passUntil(maxPasses = 20) {
-                harness.bridge.cutCoordinator
-                    .currentBlockingInteraction()
-                    ?.interaction is
-                    leyline.bridge.handoff.BlockingInteraction.Optional
+                when (
+                    harness.bridge.cutCoordinator
+                        .currentBlockingInteraction()
+                        ?.interaction
+                ) {
+                    is leyline.bridge.handoff.BlockingInteraction.Optional,
+                    is leyline.bridge.handoff.BlockingInteraction.TopOrBottom,
+                    -> true
+                    else -> false
+                }
             }
         require(ready) { "$context optional action did not become pending" }
         harness.respondToOptionalAction(step.accept)

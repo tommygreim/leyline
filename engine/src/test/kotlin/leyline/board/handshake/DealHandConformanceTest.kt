@@ -151,6 +151,7 @@ class DealHandConformanceTest :
             assertSoftly {
                 gsm.type shouldBe GameStateType.Full
                 gsm.zonesCount shouldBe 17
+                gsm.zonesList.any { it.zoneId == 12 } shouldBe false
                 gsm.teamsCount shouldBe 2
                 gsm.playersCount shouldBe 2
                 gsm.gameInfo.stage shouldBe GameStage.Start_a920
@@ -174,6 +175,7 @@ class DealHandConformanceTest :
             assertSoftly {
                 gsm.type shouldBe GameStateType.Full
                 gsm.zonesCount shouldBe 17
+                gsm.zonesList.any { it.zoneId == 12 } shouldBe false
                 gsm.pendingMessageCount shouldBe 1
             }
 

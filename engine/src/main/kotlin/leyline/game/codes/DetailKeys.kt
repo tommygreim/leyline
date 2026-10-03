@@ -87,4 +87,8 @@ object DetailKeys {
     const val IS_TOP = "isTop"
     const val COIN_FLIP_RESULT = "CoinFlipResult"
     const val AFFECTED_OBJECTS = "affected_objects"
+    const val CURRENT_DUNGEON = "CurrentDungeon"
+    const val CURRENT_DUNGEON_ZCID = "CurrentDungeonZCID"
+    const val CURRENT_ROOM = "CurrentRoom"
+    const val ALL_DUNGEONS_COMPLETED = "AllDungeonsCompleted"
 }

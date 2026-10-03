@@ -13,6 +13,11 @@ import leyline.bridge.types.SeatId
 import leyline.game.mapping.FrameIdResolver
 import leyline.game.state.ProjectionState
 import leyline.game.state.ProjectionTransition
+import leyline.game.state.ViewerProjectionCursor
+import wotc.mtgo.gre.external.messaging.Messages.Action
+import wotc.mtgo.gre.external.messaging.Messages.ActionInfo
+import wotc.mtgo.gre.external.messaging.Messages.ActionType
+import wotc.mtgo.gre.external.messaging.Messages.GameObjectInfo
 import wotc.mtgo.gre.external.messaging.Messages.GameStateMessage
 import wotc.mtgo.gre.external.messaging.Messages.HighlightType
 
@@ -102,6 +107,90 @@ class TargetingWindowMaterializerTest :
                 .map { it.targetInstanceId }
                 .distinct()
                 .size shouldBe 3
+        }
+
+        test("target prompts do not bind to a reserved but unprojected ability id") {
+            val sourceId = ForgeCardId(101)
+            val abilityForgeId = 77
+            val editor = ProjectionState.initial().editor()
+            val cardIid = editor.identities.getOrAlloc(sourceId)
+            editor.identities.getOrAlloc(FrameIdResolver.triggerStackAbilityForgeId(abilityForgeId))
+            editor.viewerCursors[SeatId(1)] =
+                ViewerProjectionCursor(
+                    fullState =
+                        GameStateMessage
+                            .newBuilder()
+                            .addGameObjects(GameObjectInfo.newBuilder().setInstanceId(cardIid.value))
+                            .build(),
+                )
+            val projection = editor.freeze()
+            val window =
+                TargetingWindowValue(
+                    sourceForgeCardId = sourceId,
+                    sourceGrpId = 1,
+                    outerAbilityGrpId = 2,
+                    targetingAbilityGrpId = 3,
+                    targetSourceZoneId = 7,
+                    targetPromptId = null,
+                    targetIndex = 1,
+                    minTargets = 0,
+                    maxTargets = 1,
+                    chooserSeatId = SeatId(1),
+                    candidates = emptyList(),
+                    isTriggeredAbility = true,
+                    forgeAbilityId = abilityForgeId,
+                    stackAbilityGrpId = 3,
+                )
+
+            TargetingWindowMaterializer.projectedSourceInstanceId(window, projection, 1) shouldBe cardIid
+        }
+
+        test("target toggle re-prompt keeps the current alternate-zone action rail") {
+            val railAction =
+                ActionInfo
+                    .newBuilder()
+                    .setSeatId(1)
+                    .setAction(Action.newBuilder().setActionType(ActionType.Cast).setInstanceId(303))
+                    .build()
+            val projection =
+                ProjectionState.initial().copy(
+                    viewerCursors =
+                        mapOf(
+                            SeatId(1) to
+                                ViewerProjectionCursor(
+                                    fullState = GameStateMessage.newBuilder().addActions(railAction).build(),
+                                ),
+                        ),
+                )
+            val window =
+                TargetingWindowValue(
+                    sourceForgeCardId = ForgeCardId(101),
+                    sourceGrpId = 1,
+                    outerAbilityGrpId = 2,
+                    targetingAbilityGrpId = 3,
+                    targetSourceZoneId = 7,
+                    targetPromptId = null,
+                    targetIndex = 1,
+                    minTargets = 0,
+                    maxTargets = 1,
+                    chooserSeatId = SeatId(1),
+                    candidates = emptyList(),
+                    isTriggeredAbility = false,
+                    forgeAbilityId = 0,
+                )
+
+            val prepared =
+                TargetingWindowMaterializer(seatId = 1).rePrompt(
+                    counter = LogicalSequencePlanner(),
+                    projection = projection,
+                    window = window,
+                    selectedOptionIndices = emptySet(),
+                    legalOptionIndices = emptySet(),
+                )
+
+            prepared.bundle.messages
+                .single { it.hasGameStateMessage() }
+                .gameStateMessage.actionsList shouldBe listOf(railAction)
         }
 
         test("card candidate with an existing Role gets ReplaceRole highlight; a plain card gets Tepid") {

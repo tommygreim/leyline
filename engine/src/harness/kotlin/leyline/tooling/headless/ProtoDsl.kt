@@ -409,6 +409,19 @@ fun optionalCostResp(ctoId: Int): ClientToGREMessage =
         )
     }
 
+/** Replicate's zero-count button selects the Done child option. */
+fun castingTimeDoneResp(ctoId: Int = 0): ClientToGREMessage =
+    clientMessage(ClientMessageType.CastingTimeOptionsResp_097b) {
+        setCastingTimeOptionsResp(
+            CastingTimeOptionsResp.newBuilder().setCastingTimeOptionResp(
+                CastingTimeOptionResp
+                    .newBuilder()
+                    .setCtoId(ctoId)
+                    .setCastingTimeOptionType(CastingTimeOptionType.Done),
+            ),
+        )
+    }
+
 fun castingTimeXResp(
     ctoId: Int,
     value: Int,

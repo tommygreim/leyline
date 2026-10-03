@@ -251,6 +251,7 @@ class MatchOneShotPayCostsRuntimeTest :
                         }
                     PayCostsRouteKind.Sacrifice,
                     PayCostsRouteKind.SelectCostReturnAttacker,
+                    PayCostsRouteKind.SelectCostReturnTappedCreature,
                     PayCostsRouteKind.StationTapCost,
                     PayCostsRouteKind.EnlistCost,
                     ->

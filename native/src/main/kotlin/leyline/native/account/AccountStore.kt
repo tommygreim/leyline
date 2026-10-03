@@ -256,14 +256,3 @@ class AccountStore(
             .uppercase()
             .take(26)
 }
-
-/** Immutable account snapshot returned from store queries. */
-data class Account(
-    val accountId: String,
-    val personaId: String,
-    val email: String,
-    val displayName: String,
-    val country: String,
-    val dob: String,
-    val createdAt: String,
-)

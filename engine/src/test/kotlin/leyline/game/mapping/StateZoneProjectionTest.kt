@@ -10,6 +10,7 @@ import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.InstanceId
 import leyline.bridge.types.SeatId
 import leyline.game.InMemoryCardRepository
+import leyline.game.data.CardData
 import leyline.game.data.CardProtoBuilder
 import leyline.game.data.KeywordAbilityIds
 import leyline.game.snapshot.CardSnapshot
@@ -119,6 +120,132 @@ class StateZoneProjectionTest :
                 projected.gameObjects.single().isCopy shouldBe true
                 projected.zone.objectInstanceIdsList shouldContainExactly listOf(112)
             }
+        }
+
+        test("modal spell projects the selected mode ability on the public stack card") {
+            val cards = InMemoryCardRepository()
+            cards.registerData(
+                CardData(
+                    grpId = 202,
+                    titleId = 1,
+                    power = "",
+                    toughness = "",
+                    colors = emptyList(),
+                    types = emptyList(),
+                    subtypes = emptyList(),
+                    supertypes = emptyList(),
+                    abilityIds = listOf(204487 to 0),
+                    manaCost = emptyList(),
+                ),
+                "Modal spell",
+            )
+            val environment =
+                StateProjectionEnvironment(
+                    CardProtoBuilder(cards),
+                    MatchProjectionConfig(false),
+                    ProjectionCardReferences(cards),
+                )
+            val spellId = ForgeCardId(12)
+            val snap =
+                GsmSnapshot.forTest(
+                    zones =
+                        mapOf(
+                            ZoneIds.STACK to
+                                ZoneSnapshot(
+                                    id = ZoneIds.STACK,
+                                    type = ZoneType.Stack,
+                                    owner = null,
+                                    visibility = Visibility.Public,
+                                    contents = listOf(spellId),
+                                ),
+                        ),
+                    objects =
+                        mapOf(
+                            spellId to CardSnapshot(spellId, "Modal spell", 202, SeatId(1), SeatId(1)),
+                        ),
+                    stack =
+                        StackSnapshot(
+                            listOf(
+                                StackEntry(
+                                    forgeCardId = spellId,
+                                    controller = SeatId(1),
+                                    owner = SeatId(1),
+                                    grpId = 204487,
+                                    sourceCardGrpId = 202,
+                                    isSpell = true,
+                                    targets = emptyList(),
+                                    selectedModalAbilityGrpIds = listOf(94618, 94619),
+                                ),
+                            ),
+                        ),
+                )
+
+            val projected =
+                StateZoneProjection
+                    .projectSharedZone(snap, ZoneIds.STACK, environment, { InstanceId(it.value + 100) })!!
+
+            val objectInfo = projected.gameObjects.single()
+            objectInfo.uniqueAbilitiesList.map { it.grpId } shouldBe listOf(94618, 94619)
+        }
+
+        test("unresolved single-ability stack entry is suppressed instead of using source grpId") {
+            val sourceId = ForgeCardId(12)
+            val cards = InMemoryCardRepository()
+            cards.registerData(
+                CardData(
+                    grpId = 202,
+                    titleId = 1,
+                    power = "",
+                    toughness = "",
+                    colors = emptyList(),
+                    types = emptyList(),
+                    subtypes = emptyList(),
+                    supertypes = emptyList(),
+                    abilityIds = listOf(30303 to 0),
+                    manaCost = emptyList(),
+                ),
+                "Single-ability source",
+            )
+            val bridge = GameBridge(cardRepository = cards)
+            val snap =
+                GsmSnapshot.forTest(
+                    stack =
+                        StackSnapshot(
+                            listOf(
+                                StackEntry(
+                                    forgeCardId = sourceId,
+                                    controller = SeatId(1),
+                                    owner = SeatId(1),
+                                    grpId = 0,
+                                    sourceCardGrpId = 202,
+                                    isSpell = false,
+                                    targets = emptyList(),
+                                ),
+                            ),
+                        ),
+                )
+            val zones =
+                mutableListOf(
+                    ZoneInfo
+                        .newBuilder()
+                        .setZoneId(ZoneIds.STACK)
+                        .setType(ZoneType.Stack)
+                        .setVisibility(Visibility.Public)
+                        .build(),
+                )
+            val gameObjects = mutableListOf<GameObjectInfo>()
+
+            ZoneMapper.addStackAbilitiesFromSnapshot(
+                snap = snap,
+                environment = bridge.stateProjectionEnvironment,
+                instanceIdLookup = bridge::getOrAllocInstanceId,
+                paradigmSourceStackIidLookup = { null },
+                zones = zones,
+                gameObjects = gameObjects,
+            )
+
+            gameObjects shouldBe emptyList()
+            zones.single().objectInstanceIdsList shouldBe emptyList()
         }
 
         test("zone-transfer facts retain cut-scoped card semantics") {

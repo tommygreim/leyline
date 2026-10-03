@@ -1,0 +1,46 @@
+name: block2-transforms
+description: Normal equip, exile-return transform, and re-equip through the native match-session flow.
+scenarios:
+  - id: mjolnir-hand-discard-control
+    puzzle: block2-clive-equipment
+    run: discard the hand copy of Mjolnir to deal two damage to each creature
+    expect: Bears die, Clive survives, and the battlefield copy of Mjolnir is not discarded
+    steps:
+      - activate: { card: "Mjölnir, Hammer of Thor", zone: hand }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: battlefield, card: "Clive, Ifrit's Dominant" }
+            - zone_contains: { side: ours, zone: battlefield, card: "Mjölnir, Hammer of Thor" }
+            - zone_contains: { side: ours, zone: graveyard, card: "Mjölnir, Hammer of Thor" }
+            - zone_not_contains: { side: opponent, zone: battlefield, card: Grizzly Bears }
+            - stack_empty: true
+  - id: clive-transform-and-reequip
+    puzzle: block2-clive-equipment
+    run: equip Clive, transform into Ifrit, fight Bears, and re-equip the returned creature
+    expect: Ifrit and Mjolnir remain on the battlefield in the same main phase, with an empty stack
+    steps:
+      - activate: { card: "Mjölnir, Hammer of Thor" }
+      - target: { side: ours, zone: battlefield, card: "Clive, Ifrit's Dominant" }
+      - resolve_stack: {}
+      - activate: { card: "Clive, Ifrit's Dominant" }
+      - pass_until:
+          prompt: SelectTargetsReq
+          max_passes: 12
+      - target: { side: opponent, zone: battlefield, card: Grizzly Bears }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - phase: Main1
+            - zone_contains: { side: ours, zone: battlefield, card: "Ifrit, Warden of Inferno" }
+            - zone_not_contains: { side: opponent, zone: battlefield, card: Grizzly Bears }
+      - activate: { card: "Mjölnir, Hammer of Thor" }
+      - target: { side: ours, zone: battlefield, card: "Ifrit, Warden of Inferno" }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - phase: Main1
+            - zone_contains: { side: ours, zone: battlefield, card: "Ifrit, Warden of Inferno" }
+            - zone_contains: { side: ours, zone: battlefield, card: "Mjölnir, Hammer of Thor" }
+            - battlefield_stats: { side: ours, card: "Ifrit, Warden of Inferno", power: 9, toughness: 9 }
+            - stack_empty: true

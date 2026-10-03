@@ -19,6 +19,19 @@ import leyline.protocol.HandshakeMessages
 import org.slf4j.LoggerFactory
 import wotc.mtgo.gre.external.messaging.Messages.*
 
+/** Transport-neutral lifecycle surface used by native adapters and test doubles. */
+interface MatchConnectionPort {
+    fun opened()
+
+    fun receive(msg: ClientToMatchServiceMessage)
+
+    fun assignSeat(assignment: MatchSeatAssignment)
+
+    fun disconnected()
+
+    fun failed(cause: Throwable)
+}
+
 /**
  * Transport-neutral GRE match connection — routes parsed match-service messages into the engine.
  *
@@ -51,7 +64,7 @@ class MatchConnection(
     private val resultObserver: ((MatchResultObservation) -> Unit)? = null,
     /** Optional setup after puzzle loading and before its runtime loop starts. */
     internal val beforePuzzleRuntimeStart: ((GameBridge) -> Unit)? = null,
-) {
+) : MatchConnectionPort {
     private val log = LoggerFactory.getLogger(MatchConnection::class.java)
     private var runtimeDeliveryObserver: MatchRuntimeDeliveryObserver? = null
     private var runtimeDeliveryGeneration: MatchRuntimeDeliveryGeneration? = null
@@ -174,7 +187,7 @@ class MatchConnection(
     private fun isHumanVsHuman(): Boolean = resolveRuntimeMatchConfig()?.humanVsHuman == true
 
     /** Bind the host-validated room reservation before the initial GRE connect. */
-    fun assignSeat(assignment: MatchSeatAssignment) {
+    override fun assignSeat(assignment: MatchSeatAssignment) {
         check(seatAssignment == null && connected == null) { "This connection already has a seat" }
         val hs = checkNotNull(handshaking)
         hs.matchId = assignment.matchId
@@ -184,11 +197,11 @@ class MatchConnection(
         seatAssignment = assignment
     }
 
-    fun opened() {
+    override fun opened() {
         log.info("Match connection opened")
     }
 
-    fun receive(msg: ClientToMatchServiceMessage) {
+    override fun receive(msg: ClientToMatchServiceMessage) {
         Tap.inbound(msg.clientToMatchServiceMessageType)
 
         when (msg.clientToMatchServiceMessageType) {
@@ -549,7 +562,7 @@ class MatchConnection(
         sendInitialBundle()
     }
 
-    fun disconnected() {
+    override fun disconnected() {
         val event = log.atInfo().addKeyValue("event", "match.disconnected")
         val correlatedEvent = lastConnectedMatchId?.let { event.addKeyValue("match_id", it) } ?: event
         val seatedEvent = lastConnectedSeatId?.let { correlatedEvent.addKeyValue("seat", it) } ?: correlatedEvent
@@ -568,7 +581,7 @@ class MatchConnection(
         )
     }
 
-    fun failed(cause: Throwable) {
+    override fun failed(cause: Throwable) {
         val event = log.atError().setCause(cause).addKeyValue("event", "match.connection_failed")
         val correlatedEvent = lastConnectedMatchId?.let { event.addKeyValue("match_id", it) } ?: event
         val seatedEvent = lastConnectedSeatId?.let { correlatedEvent.addKeyValue("seat", it) } ?: correlatedEvent

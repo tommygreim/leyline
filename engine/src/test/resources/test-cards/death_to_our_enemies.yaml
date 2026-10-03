@@ -1,0 +1,11 @@
+name: "Death to Our Enemies"
+grpId: 105022
+titleId: 1117626
+abilities:
+  - id: 206202
+    textId: 1117628
+    category: 2
+  - id: 206203
+    textId: 1117630
+    category: 2
+expansionCode: "MSH"

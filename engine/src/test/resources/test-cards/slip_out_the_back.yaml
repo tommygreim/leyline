@@ -1,0 +1,8 @@
+name: "Slip Out the Back"
+grpId: 80213
+titleId: 567215
+abilities:
+  - id: 149407
+    textId: 567217
+    category: 4
+expansionCode: "SNC"

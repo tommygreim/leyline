@@ -379,6 +379,12 @@ sealed interface GameEvent {
         val seatId: SeatId,
     ) : GameEvent
 
+    /** A permanent's regeneration shield prevented its destruction.
+     * Wired from Forge's GameEventCardRegenerated. */
+    data class PermanentRegenerated(
+        val cardId: ForgeCardId,
+    ) : GameEvent
+
     // -- Group A+: attachment events --
 
     /** A card was attached to another permanent (aura enchanting, equipment equipping). */

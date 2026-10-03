@@ -24,6 +24,7 @@ import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
 import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
 import wotc.mtgo.gre.external.messaging.Messages.ManaColor
+import wotc.mtgo.gre.external.messaging.Messages.ManaCostSpecType
 import wotc.mtgo.gre.external.messaging.Messages.ManaSpecType
 import wotc.mtgo.gre.external.messaging.Messages.OrderingType
 import wotc.mtgo.gre.external.messaging.Messages.PayCostsReq
@@ -266,6 +267,9 @@ private fun assertWaterbendPaymentActions(
     ids: List<Int>,
     creatureIds: Set<Int>,
 ) {
+    payCosts.manaCostList.forEach { requirement ->
+        requirement.specsList shouldContain ManaCostSpecType.Waterbend
+    }
     val actions = payCosts.paymentActions.actionsList
     ids.forEach { iid ->
         val action = actions.single { it.instanceId == iid }

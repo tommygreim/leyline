@@ -18,6 +18,7 @@ import leyline.game.state.ColorProductionKind
 import leyline.game.state.CommanderDesignationKind
 import leyline.game.state.DayNightDesignationKind
 import leyline.game.state.DelayedTriggerAffecteesKind
+import leyline.game.state.DungeonStatusKind
 import leyline.game.state.FaceDownCloakKind
 import leyline.game.state.FaceDownDisguiseKind
 import leyline.game.state.FaceDownForetellKind
@@ -105,6 +106,11 @@ internal object PersistentFeedBuilder {
                             FaceDownManifestDreadKind to faceDownManifestDread,
                             ColorProductionKind to colorProduction,
                             ClassLevelKind to classLevel,
+                            DungeonStatusKind to
+                                snap.dungeonStates.entries
+                                    .sortedBy { it.key.value }
+                                    .filter { (_, state) -> state.isActive || state.completedDungeonGrpIds.isNotEmpty() }
+                                    .map { (seat, state) -> AnnotationBuilder.dungeonStatus(seat, state) },
                             LinkInfoChoiceKind to linkInfo,
                         ) + designations,
                 ),

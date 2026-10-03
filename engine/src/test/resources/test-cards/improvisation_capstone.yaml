@@ -1,0 +1,15 @@
+name: "Improvisation Capstone"
+grpId: 102579
+titleId: 1111193
+abilities:
+  - id: 204401
+    textId: 1111194
+    category: 4
+  - id: 405
+    textId: 1110923
+    category: 4
+hiddenAbilities:
+  - id: 205572
+    textId: 1110923
+    category: 2
+expansionCode: "SOS"

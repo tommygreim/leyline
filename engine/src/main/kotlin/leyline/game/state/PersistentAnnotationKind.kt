@@ -611,6 +611,21 @@ data object ClassLevelKind : PersistentAnnotationKind {
 }
 
 /**
+ * Per-player dungeon progress and completion history. Arena rebuilds players
+ * for each state message without carrying DungeonData forward, so this row
+ * must remain in its persistent annotation baseline between ventures.
+ */
+data object DungeonStatusKind : PersistentAnnotationKind {
+    override val name = "DungeonStatus"
+    override val pruneStale = true
+    override val collisionStrategy = CollisionStrategy.REPLACE_IF_CHANGED
+
+    override fun matches(ann: AnnotationInfo): Boolean = AnnotationType.DungeonStatus in ann.typeList
+
+    override fun identityKey(ann: AnnotationInfo): Any = ann.affectorId
+}
+
+/**
  * Source color-production marker. Upserted from the current battlefield mana
  * sources, and removed when the source leaves or stops producing mana.
  */
@@ -787,6 +802,7 @@ object PersistentAnnotationKinds {
             MutateLayeredEffectKind,
             ColorProductionKind,
             ClassLevelKind,
+            DungeonStatusKind,
             LinkInfoChoiceKind,
             ManaDetailsKind,
             AbilityExhaustedKind,

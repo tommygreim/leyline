@@ -113,6 +113,15 @@ class MatchStaticChoiceInteractionRuntimeTest :
                     SelectionListType.StaticSubset,
                     PromptIds.CHOOSE_TYPE,
                 ),
+                Case(
+                    PromptSemantic.StaticCardNameChoice,
+                    StaticChoiceKind.CardName,
+                    listOf("Forest", "Island"),
+                    listOf(101, 202),
+                    StaticList.CardNames,
+                    SelectionListType.StaticSubset,
+                    PromptIds.CHOOSE_TYPE,
+                ),
             )
 
         fun sourceId(board: Board): Int =
@@ -274,6 +283,48 @@ class MatchStaticChoiceInteractionRuntimeTest :
                     .journal
                     .snapshotChoiceResults()
                     .shouldBeEmpty()
+            }
+        }
+
+        test("binary choice publishes dynamic prompt parameters and rejects invalid ids") {
+            val board = startPuzzleAtMain1(puzzle)
+            val coordinator = board.bridge.cutCoordinator
+            coordinator.drain(SeatId(1))
+            val result = AtomicReference<List<Int>>()
+            val finished = CountDownLatch(1)
+            val request =
+                PromptRequest(
+                    promptType = "confirm",
+                    message = "Tap or untap",
+                    options = listOf("Tap", "Untap"),
+                    route = PromptRouteResolver.resolve(PromptSemantic.StaticBinaryChoice),
+                    sourceEntityId = sourceId(board),
+                    staticOptionIds = listOf(0, 1),
+                    staticList = null,
+                )
+            Thread {
+                result.set(coordinator.staticChoices.awaitSelection(request, 3_000))
+                finished.countDown()
+            }.start()
+            val published = awaitPublished(coordinator)
+            val batch = coordinator.drain(SeatId(1)).single()
+            val message = batch.single { it.hasSelectNReq() }
+            val req = message.selectNReq
+            assertSoftly {
+                req.listType shouldBe SelectionListType.Dynamic
+                req.idType shouldBe IdType.PromptParameterIndex
+                req.idsList shouldContainExactly listOf(0, 1)
+                req.prompt.parametersList.map { it.type } shouldContainExactly
+                    listOf(ParameterType.NonLocalizedString, ParameterType.NonLocalizedString)
+                req.prompt.parametersList.map { it.stringValue } shouldContainExactly listOf("Tap", "Untap")
+                coordinator.acceptSettled(leyline.testkit.selectNResp(listOf(9)), published.gameStateId) shouldBe false
+                finished.count shouldBe 1L
+                board.human.battlefield
+                    .card("Island")
+                    .isTapped shouldBe false
+                coordinator.acceptSettled(leyline.testkit.selectNResp(listOf(1)), published.gameStateId) shouldBe true
+                finished.await(3, TimeUnit.SECONDS) shouldBe true
+                result.get() shouldContainExactly listOf(1)
             }
         }
 

@@ -47,7 +47,10 @@ internal class CardSelectWindowMaterializer {
         window: CardSelectWindowValue,
         context: SettledPromptMaterializationContext,
     ): SelectNReq {
-        val discard = window.kind == CardSelectKind.Discard || window.kind == CardSelectKind.DiscardEffect
+        val discard =
+            window.kind == CardSelectKind.Discard ||
+                window.kind == CardSelectKind.DiscardEffect ||
+                window.kind == CardSelectKind.DiscardCreatureOptional
         val discardEffect = window.kind == CardSelectKind.DiscardEffect
         return SelectNReq
             .newBuilder()
@@ -82,6 +85,8 @@ internal class CardSelectWindowMaterializer {
                     CardSelectKind.Learn -> setSelectNInnerPrompt(PromptIds.SELECT_N_LEARN_INNER_PARAMETER)
                     CardSelectKind.Discard -> prompt = Prompt.newBuilder().setPromptId(discardPromptId(window)).build()
                     CardSelectKind.DiscardEffect -> prompt = Prompt.newBuilder().setPromptId(discardPromptId(window)).build()
+                    CardSelectKind.DiscardCreatureOptional ->
+                        prompt = Prompt.newBuilder().setPromptId(PromptIds.DISCARD_CREATURE_OPTIONAL).build()
                     CardSelectKind.Suspect -> setSelectNInnerPrompt(PromptIds.SELECT_N_INNER_PARAMETER)
                     CardSelectKind.SacrificeEffect,
                     CardSelectKind.MutateTopBottom,
@@ -112,6 +117,8 @@ internal class CardSelectWindowMaterializer {
                 )
             CardSelectKind.Discard -> SelectNEnvelope.discard(request, discardPromptId(window), optional = window.min == 0)
             CardSelectKind.DiscardEffect -> SelectNEnvelope.discard(request, discardPromptId(window), optional = window.min == 0)
+            CardSelectKind.DiscardCreatureOptional ->
+                SelectNEnvelope.discard(request, PromptIds.DISCARD_CREATURE_OPTIONAL, optional = true)
             CardSelectKind.SacrificeEffect,
             -> SelectNEnvelope.default(request)
             CardSelectKind.Suspect -> SelectNEnvelope.suspectChoice(request)

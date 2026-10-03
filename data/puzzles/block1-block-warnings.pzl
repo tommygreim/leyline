@@ -1,0 +1,20 @@
+# Cast Kardur normally to require both opposing creatures to attack next turn.
+# Starting inside declare blockers would auto-declare during temporary-controller
+# puzzle setup, before the native client can receive its interactive prompt.
+[metadata]
+Name:Block 1 blocker requirements and menace controls
+Goal:Survive
+Turns:5
+Difficulty:Easy
+Description:Cast Kardur and pass without attacking. Both opposing creatures must attack next turn; inspect block warnings and submit a legal three-creature block.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanhand=Kardur, Doomscourge
+humanbattlefield=Mogg Flunkies;Grizzly Bears;Runeclaw Bear;Swamp;Swamp;Mountain;Mountain
+humanlibrary=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+aibattlefield=Noxious Gearhulk;Gaea's Protector
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

@@ -15,11 +15,18 @@ internal object StaticChoiceWindowCapture {
         val expectedList =
             when (route.descriptor.kind) {
                 StaticChoiceKind.Color -> StaticList.Colors
+                StaticChoiceKind.ManaColor -> StaticList.ManaColors
+                StaticChoiceKind.BasicLandType -> StaticList.BasicLandTypes
                 StaticChoiceKind.CardColor -> StaticList.CardColors
                 StaticChoiceKind.Subtype -> StaticList.SubTypes
+                StaticChoiceKind.CounterType -> StaticList.CounterTypes
                 StaticChoiceKind.Parity -> StaticList.Parities
+                StaticChoiceKind.Binary -> null
                 StaticChoiceKind.Keyword -> StaticList.Keywords
                 StaticChoiceKind.CardType -> StaticList.CardTypes
+                StaticChoiceKind.CardName -> StaticList.CardNames
+                StaticChoiceKind.Dungeon -> StaticList.None_a56d
+                StaticChoiceKind.DungeonRoom -> StaticList.None_a56d
             }
         check(request.staticList == expectedList) { "StaticChoice domain does not match its route" }
         check(request.staticOptionIds.size == request.options.size) { "StaticChoice values must match options" }
@@ -30,12 +37,18 @@ internal object StaticChoiceWindowCapture {
             kind = route.descriptor.kind,
             options =
                 request.staticOptionIds.mapIndexed { index, value ->
-                    StaticChoiceOptionValue(index, value)
+                    StaticChoiceOptionValue(
+                        index,
+                        value,
+                        request.options.getOrElse(index) { "" },
+                        request.promptParameterIds.getOrNull(index),
+                    )
                 },
             sourceForgeCardId = request.sourceEntityId?.let(::ForgeCardId),
             min = request.min,
             max = request.max,
             defaultOptionIndex = request.defaultIndex,
+            protocolPromptId = request.protocolPromptId,
         )
     }
 }

@@ -1,5 +1,8 @@
 package leyline.mechanics.rooms
 
+import forge.game.ability.AbilityFactory
+import forge.game.ability.effects.EffectEffect
+import forge.game.phase.PhaseType
 import forge.game.zone.ZoneType
 import io.kotest.assertions.assertSoftly
 import io.kotest.matchers.collections.shouldBeEmpty
@@ -9,6 +12,7 @@ import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.types.shouldBeInstanceOf
+import leyline.bridge.getAllCastableAbilities
 import leyline.bridge.handoff.PlayerAction
 import leyline.bridge.types.ForgeCardId
 import leyline.game.mapping.ActionMapper
@@ -75,6 +79,20 @@ class RoomActionTest :
             }
         }
 
+        test("payable Room doors retain left-right order and auto-tap plans for native highlighting") {
+            val (b, game, _) =
+                startWithBoard { _, human, _ ->
+                    repeat(4) { addCard("Plains", human, ZoneType.Battlefield) }
+                    addCard("Surgical Suite", human, ZoneType.Hand)
+                }
+            val card = game.humanPlayer.hand.card("Surgical Suite // Hospital Room")
+            val iid = b.instanceId(card)
+            val actions = ActionMapper.buildFromSnapshot(1, SnapshotCapture.run(game, b, "test", 0), b)
+            val offers = roomOffersForIid(actions.actionsList, iid)
+            offers.map { it.actionType } shouldBe listOf(ActionType.CastLeftRoom, ActionType.CastRightRoom)
+            offers.forEach { it.autoTapSolution.autoTapActionsCount shouldNotBe 0 }
+        }
+
         test("room in hand with insufficient mana for right door → only left offer") {
             // 2 Plains: left {1}{W} payable, right {3}{W} not.
             val (b, game, _) =
@@ -106,6 +124,80 @@ class RoomActionTest :
                 activeLeft shouldNotBe null
                 activeRight shouldBe null
                 inactiveRight shouldNotBe null
+            }
+        }
+
+        test("face-down exiled Room with MayPlay retains both ordered door choices") {
+            val (bridge, game, _) =
+                startWithBoard { game, human, _ ->
+                    val source = addCard("Tablet of Discovery", human, ZoneType.Battlefield)
+                    val room = addCard("Surgical Suite", human, ZoneType.Exile)
+                    repeat(4) { index ->
+                        addCard("Plains", human, ZoneType.Battlefield).setTapped(index >= 2)
+                    }
+                    source.addRemembered(room)
+                    source.setSVar(
+                        "TemporaryMayPlay",
+                        "Mode\$ Continuous | MayPlay\$ True | EffectZone\$ Command | " +
+                            "Affected\$ Card.IsRemembered | AffectedZone\$ Exile",
+                    )
+                    AbilityFactory
+                        .getAbility(
+                            "DB\$ Effect | RememberObjects\$ RememberedCard | " +
+                                "StaticAbilities\$ TemporaryMayPlay | Duration\$ UntilTheEndOfYourNextTurn",
+                            source,
+                        ).also { it.activatingPlayer = human }
+                        .let { EffectEffect().resolve(it) }
+                    source.clearRemembered()
+                    game.phaseHandler.devModeSet(PhaseType.MAIN1, human)
+                    game.action.checkStaticAbilities(false)
+                }
+            val player = game.humanPlayer
+            val room = player.getZone(ZoneType.Exile).cards.single()
+            room.turnFaceDown(true)
+            game.action.checkStaticAbilities(false)
+            val iid = bridge.instanceId(room)
+            val castable = getAllCastableAbilities(room, player)
+            val snap = SnapshotCapture.run(game, bridge, "exiled-room", 0)
+            val projection = ActionMapper.buildProjectionFromSnapshot(1, snap, bridge)
+            val doors = roomOffersForIid(projection.actions.actionsList + projection.actions.inactiveActionsList, iid)
+
+            snap.objects[ForgeCardId(room.id)]?.isRoom shouldBe true
+            castable.map { it.cardStateName } shouldContain forge.card.CardStateName.LeftSplit
+            castable.map { it.cardStateName } shouldContain forge.card.CardStateName.RightSplit
+            doors.map { it.actionType } shouldBe listOf(ActionType.CastLeftRoom, ActionType.CastRightRoom)
+            projection.actions.actionsList.any {
+                it.instanceId == iid && it.actionType == ActionType.CastLeftRoom
+            } shouldBe true
+            projection.actions.inactiveActionsList.any {
+                it.instanceId == iid && it.actionType == ActionType.CastRightRoom
+            } shouldBe true
+
+            player
+                .getZone(ZoneType.Battlefield)
+                .cards
+                .filter { it.name == "Plains" }
+                .forEach { it.setTapped(false) }
+            val bothPayable =
+                ActionMapper.buildProjectionFromSnapshot(
+                    1,
+                    SnapshotCapture.run(game, bridge, "exiled-room-both-payable", 1),
+                    bridge,
+                )
+            val activeDoors = roomOffersForIid(bothPayable.actions.actionsList, iid)
+            activeDoors.map { it.actionType } shouldBe listOf(ActionType.CastLeftRoom, ActionType.CastRightRoom)
+            activeDoors.forEach { action ->
+                val command =
+                    bothPayable.offers
+                        .single { it.action == action }
+                        .command
+                        .shouldBeInstanceOf<PlayerAction.CastSpell>()
+                command.ability?.cardStateName shouldBe
+                    if (action.actionType == ActionType.CastLeftRoom) {
+                        forge.card.CardStateName.LeftSplit
+                    } else {
+                        forge.card.CardStateName.RightSplit
+                    }
             }
         }
 

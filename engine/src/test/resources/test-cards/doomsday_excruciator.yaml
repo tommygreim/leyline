@@ -1,0 +1,14 @@
+name: "Doomsday Excruciator"
+grpId: 92170
+titleId: 812594
+abilities:
+  - id: 8
+    textId: 46
+    category: 0
+  - id: 174380
+    textId: 972180
+    category: 2
+  - id: 15671
+    textId: 24905
+    category: 2
+expansionCode: "DSK"

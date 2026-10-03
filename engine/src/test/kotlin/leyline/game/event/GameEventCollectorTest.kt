@@ -1,7 +1,9 @@
 package leyline.game.event
 
 import forge.card.MagicColor
+import forge.game.GameEntityCounterTable
 import forge.game.ability.AbilityKey
+import forge.game.ability.AbilityUtils
 import forge.game.card.CardView
 import forge.game.card.CounterEnumType
 import forge.game.event.*
@@ -24,6 +26,7 @@ import leyline.game.event.Zone
 import leyline.testkit.BoardTest
 import leyline.testkit.aiPlayer
 import leyline.testkit.humanPlayer
+import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
 
 /**
  * Tests for [leyline.game.event.GameEventCollector] — verifies that Forge engine events are
@@ -488,6 +491,88 @@ class GameEventCollectorTest :
                 dmg[0].sourceCardId shouldBe ForgeCardId(source.id)
                 dmg[0].targetCardId shouldBe ForgeCardId(target.id)
                 dmg[0].amount shouldBe 2
+            }
+        }
+
+        test("regenerated card event preserves every Forge card id") {
+            val (b, game, _) =
+                startWithBoard { _, human, _ ->
+                    addCard("Grizzly Bears", human, ZoneType.Battlefield)
+                    addCard("Serra Angel", human, ZoneType.Battlefield)
+                }
+            val collector = b.eventCollector!!
+            collector.closeFrame()
+            val cards = listOf(game.humanPlayer.battlefield.card("Grizzly Bears"), game.humanPlayer.battlefield.card("Serra Angel"))
+
+            game.fireEvent(GameEventCardRegenerated(cards.map { CardView.get(it) }))
+
+            collector
+                .closeFrame()
+                .events
+                .filterIsInstance<GameEvent.PermanentRegenerated>()
+                .map { it.cardId } shouldBe
+                cards.map { ForgeCardId(it.id) }
+        }
+
+        test("real regeneration ability emits event and shield prevents destruction") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Yavimaya Gnats", human, ZoneType.Battlefield)
+                }
+            val (b, game, _) = board
+            val collector = b.eventCollector!!
+            collector.closeFrame()
+            val card = game.humanPlayer.battlefield.card("Yavimaya Gnats")
+            val regeneration = card.getNonManaAbilities().first { it.api.toString() == "Regenerate" }
+            regeneration.activatingPlayer = game.humanPlayer
+
+            AbilityUtils.resolve(regeneration)
+            collector.closeFrame().events.filterIsInstance<GameEvent.PermanentRegenerated>() shouldBe emptyList()
+            card.shieldCount shouldBe 1
+
+            card.addDamageAfterPrevention(1, card, null, false, GameEntityCounterTable())
+            val instanceId = b.instanceId(card)
+            val projected =
+                board.snapshotDiff {
+                    game.action.destroy(card, regeneration, true, AbilityKey.newMap())
+                }
+            projected.annotationsList
+                .single { AnnotationType.PermanentRegenerated in it.typeList }
+                .affectedIdsList shouldBe listOf(instanceId)
+
+            card.isInPlay shouldBe true
+            card.isTapped shouldBe true
+            card.damage shouldBe 0
+            card.shieldCount shouldBe 0
+        }
+
+        test("actual planeswalker damage reaches the card damage event stream") {
+            val (b, game, _) =
+                startWithBoard { _, human, _ ->
+                    addCard("Grizzly Bears", human, ZoneType.Battlefield)
+                    addCard("Ugin, the Spirit Dragon", human, ZoneType.Battlefield)
+                }
+            val collector = b.eventCollector!!
+            collector.closeFrame()
+            val source =
+                game.humanPlayer
+                    .getZone(ZoneType.Battlefield)
+                    .cards
+                    .single { it.isCreature }
+            val target =
+                game.humanPlayer
+                    .getZone(ZoneType.Battlefield)
+                    .cards
+                    .single { it.isPlaneswalker }
+
+            target.addDamageAfterPrevention(2, source, null, false, GameEntityCounterTable())
+
+            val damage = collector.closeFrame().events.filterIsInstance<GameEvent.DamageDealtToCard>()
+            assertSoftly {
+                damage.size shouldBe 1
+                damage.single().sourceCardId shouldBe ForgeCardId(source.id)
+                damage.single().targetCardId shouldBe ForgeCardId(target.id)
+                damage.single().amount shouldBe 2
             }
         }
 

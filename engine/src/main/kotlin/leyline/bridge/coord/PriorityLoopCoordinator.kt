@@ -82,6 +82,13 @@ class PriorityLoopCoordinator(
                         turn = handler.turn,
                         playerId = player.id,
                         stack = game.stack.map { PriorityStackObject(it.id, it.activatingPlayer.id) },
+                        ownStackTargetsOwnPermanent =
+                            game.stack.any { item ->
+                                item.activatingPlayer.id == player.id &&
+                                    item.spellAbility.findTargetedCards().any { card ->
+                                        card.controller.id == player.id && card.isInZone(forge.game.zone.ZoneType.Battlefield)
+                                    }
+                            },
                         phase = handler.phase,
                         smartPhaseSkip = smartPhaseSkip,
                         promptJustResolved = promptJustResolved,
@@ -154,7 +161,7 @@ class PriorityLoopCoordinator(
                     forceVisibleAfterMana = true
                     continue
                 }
-                is PlayerAction.PlayLand -> return spellExecutor.playLand(action.cardId)
+                is PlayerAction.PlayLand -> return spellExecutor.playLand(action.cardId, action.ability)
                 is PlayerAction.DeclareAttackers,
                 is PlayerAction.DeclareBlockers,
                 -> return null

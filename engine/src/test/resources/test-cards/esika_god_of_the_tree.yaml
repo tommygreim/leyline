@@ -12,5 +12,8 @@ abilities:
     textId: 477556
     category: 3
 expansionCode: "KHM"
+hiddenAbilities:
+  - id: 1055
+    textId: 227440
 linkedFaces:
   - 75213

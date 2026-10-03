@@ -1,8 +1,8 @@
 name: "Recommission"
-grpId: 990001
-titleId: 990001
+grpId: 990007
+titleId: 990007
 abilities:
-  - id: 990001
-    textId: 990001
+  - id: 990007
+    textId: 990007
     category: 4
 expansionCode: "BRO"

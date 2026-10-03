@@ -69,13 +69,16 @@ fun getAllCastableAbilities(
     player: Player,
     checkTiming: Boolean = true,
 ): List<SpellAbility> {
-    // Foretold cards in exile are face-down — card.getSpells() reads from the
-    // current state (face-down) which has no spells. Reach into the original
-    // state to recover the underlying castable SA, then let
-    // GameActionUtil.getAlternativeCosts attach the AlternativeCost.Foretold
-    // wrapper. Without this, foretold cards never surface a cast action.
+    // Face-down cards in exile expose no current-state spells. Recover the
+    // printed spells only for Foretell or an actual MayPlay grant (such as
+    // Flameshape's Wizard-dependent permission); the normal Forge legality
+    // filter below still decides whether each recovered SA is castable.
     val baseAbilities =
-        if (card.isForetold && card.isInZone(forge.game.zone.ZoneType.Exile) && card.getSpells().isEmpty()) {
+        if (card.isFaceDown &&
+            card.isInZone(ZoneType.Exile) &&
+            card.getSpells().isEmpty() &&
+            (card.isForetold || card.mayPlay(player).isNotEmpty())
+        ) {
             card.getOriginalState(forge.card.CardStateName.Original)?.nonManaAbilities?.filter { it.isSpell }
                 ?: emptyList()
         } else {
@@ -164,8 +167,17 @@ private fun appendMdfcBackFaceSAs(
 ) {
     if (!card.isModal || !card.hasState(forge.card.CardStateName.Backside)) return
     for (sa in card.getState(forge.card.CardStateName.Backside).spellAbilities) {
-        if ((sa.isSpell || sa.isLandAbility) && expanded.none { existing -> existing === sa }) {
+        if (sa.isSpell && !sa.isLandAbility && expanded.none { existing -> existing === sa }) {
             sa.setActivatingPlayer(player)
+            // Forge applies a MayPlay grant by cloning a spell ability with
+            // the permission attached. Merely appending the printed backside
+            // SA leaves its Hand-only restriction in place in exile/graveyard.
+            if (!card.isInZone(ZoneType.Hand) && card.mayPlay(player).isNotEmpty()) {
+                GameActionUtil
+                    .getAlternativeCosts(sa, player, false)
+                    .onEach { it.setActivatingPlayer(player) }
+                    .forEach(expanded::add)
+            }
             expanded.add(sa)
         }
     }
@@ -176,7 +188,8 @@ private fun appendRoomDoorSAs(
     player: Player,
     expanded: MutableList<SpellAbility>,
 ) {
-    if (!card.isRoom) return
+    val printedRoom = card.getOriginalState(forge.card.CardStateName.Original)?.type?.hasSubtype("Room") == true
+    if (!card.isRoom && !(printedRoom && card.isFaceDown && card.isInZone(ZoneType.Exile))) return
     for (lockedState in card.lockedRooms) {
         val unlockSa = card.getUnlockAbility(lockedState) ?: continue
         unlockSa.setActivatingPlayer(player)
@@ -184,11 +197,53 @@ private fun appendRoomDoorSAs(
     }
 }
 
-fun buildMdfcBackLandAbility(card: Card): LandAbility? {
+fun buildMdfcBackLandAbility(
+    card: Card,
+    player: Player? = null,
+): LandAbility? {
     if (!card.isModal || !card.hasState(forge.card.CardStateName.Backside)) return null
     val backState = card.getState(forge.card.CardStateName.Backside)
     if (!backState.type.isLand) return null
-    return LandAbility(card, backState)
+    return LandAbility(card, backState).also { ability ->
+        player?.let { p ->
+            ability.activatingPlayer = p
+            card.mayPlay(p).firstOrNull { it.grantsZonePermissions() }?.let(ability::setMayPlay)
+        }
+    }
+}
+
+/**
+ * Build a land-play ability in the same permission context Forge uses for a
+ * card played outside its owner's hand.
+ *
+ * [LandAbility] starts with a Hand restriction.  Forge normally replaces that
+ * restriction with the [forge.game.card.CardPlayOption] attached to a
+ * `MayPlay` static ability.  Constructing a bare `LandAbility` for a land in
+ * a graveyard/exile therefore makes `Player.canPlayLand` reject it even when
+ * the card has a live "you may play" permission (Tablet of Discovery is one
+ * example).  Carrying the zone-granting option is required both while
+ * advertising an action and when executing it.
+ */
+fun buildLandPlayAbility(
+    card: Card,
+    player: Player,
+): LandAbility? {
+    val originalState = card.getOriginalState(forge.card.CardStateName.Original)
+    val mayPlay = card.mayPlay(player).firstOrNull { it.grantsZonePermissions() }
+    val ability =
+        if (card.isLand) {
+            LandAbility(card, card.currentState)
+        } else if (card.isFaceDown && card.isInZone(ZoneType.Exile) && mayPlay != null && originalState?.type?.isLand == true) {
+            // A face-down exiled land has no Land type in its current state,
+            // but a MayPlay grant can still let its controller play the
+            // printed face (for example, Flameshape with a Wizard in play).
+            LandAbility(card, originalState)
+        } else {
+            buildMdfcBackLandAbility(card) ?: return null
+        }
+    ability.activatingPlayer = player
+    mayPlay?.let(ability::setMayPlay)
+    return ability
 }
 
 fun chooseCastAbility(
@@ -234,6 +289,20 @@ fun getNonManaActivatedAbilities(
     }
     for (ability in sourceAbilities) {
         ability.setActivatingPlayer(player)
+        // Forge's generic `canPlay()` check does not itself keep an intrinsic
+        // battlefield activation off the hand rail.  The default activation
+        // zone is Battlefield; explicit `ActivationZone$` values opt into
+        // Channel/cycling, Unearth, command-zone abilities, and similar
+        // non-battlefield paths.  Without this guard a hand card with both an
+        // Equip keyword and a discard activation can advertise Equip instead
+        // of its legal hand activation (Mjölnir, Hammer of Thor).
+        val activationZones =
+            ability
+                .getParam("ActivationZone")
+                ?.takeIf { it.isNotBlank() }
+                ?.let(ZoneType::listValueOf)
+                ?: listOf(ZoneType.Battlefield)
+        if (activationZones.none(card::isInZone)) continue
         val isSpecialTurnFaceUp =
             ability.isTurnFaceUp && card.isFaceDown && card.isInZone(ZoneType.Battlefield)
         if (!ability.isActivatedAbility && !isSpecialTurnFaceUp) continue

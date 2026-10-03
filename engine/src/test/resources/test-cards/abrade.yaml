@@ -1,0 +1,8 @@
+name: "Abrade"
+grpId: 73914
+titleId: 125232
+abilities:
+  - id: 103801
+    textId: 237571
+    category: 4
+expansionCode: "AKR"

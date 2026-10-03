@@ -1,0 +1,27 @@
+name: block2-ugin
+description: Ugin's cast and loyalty routes; the Capstone reproducer is not yet a passing acceptance scenario.
+scenarios:
+  - id: ugin-cast-and-plus-two
+    puzzle: block2-ugin-ability-text
+    run: cast Ugin, exile opposing Bears, then activate the draw-and-life loyalty ability
+    expect: Bears are exiled, Ugin remains, and our life rises to 33 with a Mountain drawn
+    steps:
+      - cast: Ugin, Eye of the Storms
+      - pass_until:
+          prompt: SelectTargetsReq
+          max_passes: 12
+      - target: { side: opponent, zone: battlefield, card: Grizzly Bears }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: battlefield, card: "Ugin, Eye of the Storms" }
+            - zone_contains: { side: opponent, zone: exile, card: Grizzly Bears }
+            - phase: Main1
+            - stack_empty: true
+      - activate: { card: "Ugin, Eye of the Storms", ability_index: 0 }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - our_life: 33
+            - zone_contains: { side: ours, zone: hand, card: Mountain }
+            - stack_empty: true

@@ -32,6 +32,35 @@ class StateZoneTransferProjectionTest :
     FunSpec({
         tags(UnitTag)
 
+        test("destroyed token missing from snapshot still gets a Destroy transfer") {
+            val tokenId = ForgeCardId(42)
+            val result =
+                ZoneTransferDetector.detectZoneTransfers(
+                    gameObjects = emptyList(),
+                    zones = listOf(stateZone(ZoneIds.LIMBO, ZoneType.Limbo)),
+                    events =
+                        listOf(
+                            GameEvent.CardDestroyed(tokenId, SeatId(1)),
+                            GameEvent.TokenDestroyed(tokenId, SeatId(1)),
+                        ),
+                    context =
+                        stateZoneTransferContext(
+                            previousZones = mapOf(100 to ZoneIds.BATTLEFIELD),
+                            forgeIdLookup = { if (it.value == 100) tokenId else null },
+                            idAllocator = { InstanceIdRegistry.IdReallocation(InstanceId(100), InstanceId(200)) },
+                            idLookup = { InstanceId(100) },
+                        ),
+                )
+
+            assertSoftly {
+                result.transfers.single().category shouldBe TransferCategory.Destroy
+                result.transfers.single().origId shouldBe 100
+                result.transfers.single().newId shouldBe 200
+                result.retiredIds shouldContain 100
+                result.zoneRecordings shouldContain (200 to ZoneIds.P1_GRAVEYARD)
+            }
+        }
+
         test("cast mana payment uses materialized basic-land ability grpId") {
             val spellId = ForgeCardId(42)
             val forestId = ForgeCardId(7)

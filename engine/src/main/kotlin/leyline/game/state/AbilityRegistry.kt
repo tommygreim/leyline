@@ -2,6 +2,7 @@ package leyline.game.state
 
 import forge.game.ability.ApiType
 import forge.game.card.Card
+import forge.game.card.CardTraitChanges
 import forge.game.keyword.Keyword
 import forge.game.keyword.KeywordInterface
 import forge.game.spellability.SpellAbility
@@ -69,6 +70,24 @@ class AbilityRegistry private constructor(
     fun grantedAbilityUniqueIndex(ability: SpellAbility): Int? = grantedAbilityGrpId(ability)?.let { 0 }
 
     companion object {
+        /** Separate granted slots from printed slots and dynamically appended keywords. */
+        fun grantedUniqueAbilityId(ability: SpellAbility): Int? {
+            val grantor = ability.grantorStatic ?: return null
+            val grants =
+                ability.hostCard.changedCardTraits.cellSet().flatMap { cell ->
+                    (cell.value as? CardTraitChanges)
+                        ?.getAbilities()
+                        .orEmpty()
+                        .filter { it.isActivatedAbility && it.grantorStatic != null }
+                }
+            val index =
+                grants.indexOf(ability).takeIf { it >= 0 }
+                    ?: grants.indexOfFirst {
+                        it.definitionId == ability.definitionId && it.grantorStatic.id == grantor.id
+                    }
+            return index.takeIf { it >= 0 }?.let { 10_000 + it }
+        }
+
         /** Empty registry — no mappings. */
         val EMPTY =
             AbilityRegistry(emptyMap(), emptyMap(), emptyMap(), emptyMap(), sourceCardGrpId = 0, slotLayout = SlotLayout.Companion.EMPTY)
@@ -92,7 +111,13 @@ class AbilityRegistry private constructor(
             val triggerMap = mutableMapOf<Int, Int>()
             val keywordFamilies = mutableMapOf<AbilityDefinitionRef, AbilityKeywordFamily>()
 
-            val keywordCount = mapKeywords(card, abilityIds, saMap, staticMap, triggerMap, keywordFamilies)
+            val keywordCount =
+                if (card.type.isDungeon) {
+                    mapDungeonRooms(card, abilityIds, saMap, triggerMap)
+                    0
+                } else {
+                    mapKeywords(card, abilityIds, saMap, staticMap, triggerMap, keywordFamilies)
+                }
             val slotKinds =
                 abilityIds.mapIndexed { i, _ ->
                     when {
@@ -121,7 +146,8 @@ class AbilityRegistry private constructor(
                 } else {
                     emptyList()
                 }
-            mapActivatedAbilities(card, abilityIds, activatedSlotIndices, saMap)
+            val keywordActivations = mapEquipmentKeywordActivations(card, cardData, saMap)
+            mapActivatedAbilities(card, abilityIds, activatedSlotIndices, saMap, keywordActivations)
             mapReconfigureUnattachAbilities(card, saMap)
             mapStationThresholdStatics(card, abilityIds, staticMap)
             mapManaAbilities(card, abilityIds, manaSlotIndices, fallbackGrpId, saMap)
@@ -165,6 +191,26 @@ class AbilityRegistry private constructor(
             val thresholdRows = abilityIds.map { it.first }.filter { it >= STATION_THRESHOLD_ABILITY_ID_FLOOR }
             for ((staticAbility, grpId) in stationStatics.zip(thresholdRows)) {
                 staticMap[staticAbility.definitionId] = grpId
+            }
+        }
+
+        /**
+         * Forge's Dungeon keyword generates one non-intrinsic trigger per room
+         * in definition order. Arena has one ability row per room in that same
+         * order, not one shared keyword row. Bind both the room effect and its
+         * trigger so branch selection, current-room state, and stack text agree.
+         */
+        private fun mapDungeonRooms(
+            card: Card,
+            abilityIds: List<Pair<Int, Int>>,
+            saMap: MutableMap<Int, Int>,
+            triggerMap: MutableMap<Int, Int>,
+        ) {
+            val rooms = card.triggers.filter { it.overridingAbility?.hasParam("RoomName") == true }
+            if (rooms.size != abilityIds.size) return
+            for ((trigger, row) in rooms.zip(abilityIds)) {
+                triggerMap[trigger.definitionId] = row.first
+                saMap[trigger.overridingAbility.definitionId] = row.first
             }
         }
 
@@ -220,28 +266,65 @@ class AbilityRegistry private constructor(
          * for puzzle/test paths). Skipping non-activated slots prevents
          * the off-by-one bug where Arena's interleaved trigger/static
          * slots would shift activated SAs onto the wrong grpIds.
+         * Equipment keyword definitions already bound by native BaseId reserve
+         * their rows and are not reassigned by this positional fallback.
          */
         private fun mapActivatedAbilities(
             card: Card,
             abilityIds: List<Pair<Int, Int>>,
             activatedSlotIndices: List<Int>,
             saMap: MutableMap<Int, Int>,
+            keywordActivations: Set<Int>,
         ) {
+            val claimedRows = keywordActivations.mapNotNull(saMap::get).toSet()
+            val remainingSlots = activatedSlotIndices.filter { abilityIds[it].first !in claimedRows }
             var idx = 0
             for (sa in nonManaActivatedAbilities(card)) {
                 if (!sa.isActivatedAbility || sa.isManaAbility()) continue
+                if (sa.definitionId in keywordActivations) continue
                 if (isReconfigureUnattach(sa)) {
                     saMap[sa.definitionId] = KeywordAbilityIds.RECONFIGURE_UNATTACH
                     continue
                 }
-                if (idx >= activatedSlotIndices.size) {
+                if (idx >= remainingSlots.size) {
                     idx++
                     continue
                 }
-                val slotIdx = activatedSlotIndices[idx]
+                val slotIdx = remainingSlots[idx]
                 if (slotIdx < abilityIds.size) saMap[sa.definitionId] = abilityIds[slotIdx].first
                 idx++
             }
+        }
+
+        /**
+         * Forge appends generated Equipment abilities after explicit activations;
+         * native rows follow printed order instead. Bind by keyword root before
+         * assigning the remaining rows, so Equip cannot become a hand ability.
+         * Reconfigure's unattach ability retains its separate virtual row.
+         */
+        private fun mapEquipmentKeywordActivations(
+            card: Card,
+            data: CardData,
+            saMap: MutableMap<Int, Int>,
+        ): Set<Int> {
+            if (data.abilityBaseIds.size != data.abilityIds.size) return emptySet()
+            val bound = mutableSetOf<Int>()
+            for ((keyword, baseId) in mapOf(
+                Keyword.EQUIP to KeywordAbilityIds.EQUIP,
+                Keyword.RECONFIGURE to KeywordAbilityIds.RECONFIGURE,
+            )) {
+                val definitions = card.keywords.filter { it.isIntrinsic && it.keyword == keyword }
+                val rows = data.abilityIds.indices.filter { data.abilityBaseIds[it] == baseId || data.abilityIds[it].first == baseId }
+                if (definitions.size != rows.size) continue
+                for ((definition, row) in definitions.zip(rows)) {
+                    for (sa in definition.abilities) {
+                        if (!sa.isActivatedAbility || sa.isManaAbility() || isReconfigureUnattach(sa)) continue
+                        saMap[sa.definitionId] = data.abilityIds[row].first
+                        bound.add(sa.definitionId)
+                    }
+                }
+            }
+            return bound
         }
 
         private fun nonManaActivatedAbilities(card: Card): List<SpellAbility> {
@@ -306,6 +389,18 @@ class AbilityRegistry private constructor(
                     ?.filter { it.isIntrinsic && it.definitionId !in triggerMap }
                     .orEmpty()
             if (triggers.isEmpty()) return
+            // One printed trigger may be split into primary and Secondary
+            // event definitions in Forge. Secondary definitions sharing the
+            // same Execute effect consume their primary's slot, not a new row.
+            val primary = triggers.filter { !it.isSecondary }
+            val groups = primary.map { mutableListOf(it) }.toMutableList()
+            for (secondary in triggers.filter { it.isSecondary }) {
+                val matching =
+                    groups.filter {
+                        secondary.hasParam("Execute") && it.first().getParam("Execute") == secondary.getParam("Execute")
+                    }
+                if (matching.size == 1) matching.single().add(secondary) else groups.add(mutableListOf(secondary))
+            }
             val intrinsicSlots =
                 abilityIds.indices.filter { idx ->
                     idx >= keywordCount &&
@@ -315,9 +410,21 @@ class AbilityRegistry private constructor(
                             cardData.abilityKinds[idx] == SlotKind.Intrinsic
                         }
                 }
-            if (intrinsicSlots.size != triggers.size) return
-            for ((trig, slotIdx) in triggers.zip(intrinsicSlots)) {
-                triggerMap[trig.definitionId] = abilityIds[slotIdx].first
+            when {
+                intrinsicSlots.size == groups.size ->
+                    for ((group, slotIdx) in groups.zip(intrinsicSlots)) {
+                        group.forEach { triggerMap[it.definitionId] = abilityIds[slotIdx].first }
+                    }
+                // Arena commonly represents one printed "enters or attacks"
+                // sentence with one ability row, while Forge models the two
+                // events as separate intrinsic triggers. Both definitions must
+                // resolve to that one row instead of falling through to the
+                // first ability on the card (for example, Impending).
+                intrinsicSlots.size == 1 -> {
+                    val grpId = abilityIds[intrinsicSlots.single()].first
+                    triggers.forEach { triggerMap[it.definitionId] = grpId }
+                }
+                else -> return
             }
         }
 

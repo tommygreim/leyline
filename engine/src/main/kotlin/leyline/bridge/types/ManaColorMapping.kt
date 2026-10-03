@@ -24,7 +24,7 @@ object ManaColorMapping {
             ManaCostShard.GREEN,
         )
 
-    /** ManaCostShard → proto ManaColor. Only simple shards mapped; hybrids skipped. */
+    /** ManaCostShard → proto ManaColor. Choice-bearing shards are handled by [requirementColors]. */
     val SHARD_MAP: Map<ManaCostShard, ManaColor> =
         mapOf(
             ManaCostShard.WHITE to ManaColor.White_afc9,
@@ -58,6 +58,59 @@ object ManaColorMapping {
 
     /** Map a [ManaCostShard] to proto ManaColor, or null if unmapped (hybrid, etc.). */
     fun fromShard(shard: ManaCostShard): ManaColor? = SHARD_MAP[shard]
+
+    /**
+     * The colours that identify a Phyrexian pip on the wire.  The client
+     * represents `{B/P}` as `[Black, Phyrexian]` (and the two-colour form as
+     * `[Black, Green, Phyrexian]`), rather than as a single opaque colour.
+     */
+    fun phyrexianColors(shard: ManaCostShard): List<ManaColor> =
+        buildList {
+            if (shard.isWhite) add(ManaColor.White_afc9)
+            if (shard.isBlue) add(ManaColor.Blue_afc9)
+            if (shard.isBlack) add(ManaColor.Black_afc9)
+            if (shard.isRed) add(ManaColor.Red_afc9)
+            if (shard.isGreen) add(ManaColor.Green_afc9)
+            add(ManaColor.Phyrexian_afc9)
+        }
+
+    /** Alternative selector used by the cast-time ManaType prompt. */
+    fun manaTypeAlternative(shard: ManaCostShard): ManaColor? =
+        when {
+            shard.isPhyrexian() -> ManaColor.Phyrexian_afc9
+            shard.isOr2Generic() && shard.isMonoColor -> ManaColor.TwoGeneric
+            standardHybridColors(shard).size > 1 -> standardHybridColors(shard)[1]
+            else -> null
+        }
+
+    /** Colours accepted when a choice-bearing pip is paid with mana. */
+    fun paymentColors(shard: ManaCostShard): List<ManaColor> =
+        when {
+            shard.isPhyrexian() -> phyrexianColors(shard).dropLast(1)
+            shard.isOr2Generic() && shard.isMonoColor -> listOf(fromOrTwoGenericShard(shard)!!)
+            standardHybridColors(shard).size > 1 -> standardHybridColors(shard)
+            else -> emptyList()
+        }
+
+    /** Full ManaRequirement colour list for one Forge shard. */
+    fun requirementColors(shard: ManaCostShard): List<ManaColor> =
+        when {
+            shard.isPhyrexian() -> phyrexianColors(shard)
+            shard.isOr2Generic() && shard.isMonoColor -> listOf(ManaColor.TwoGeneric, fromOrTwoGenericShard(shard)!!)
+            standardHybridColors(shard).size > 1 -> standardHybridColors(shard)
+            else -> fromShard(shard)?.let(::listOf).orEmpty()
+        }
+
+    /** Ordinary two-way hybrid choices, including colorless hybrids. */
+    fun standardHybridColors(shard: ManaCostShard): List<ManaColor> {
+        if (shard.isPhyrexian() || shard.isOr2Generic()) return emptyList()
+        val colors =
+            shard
+                .toShortString()
+                .split('/')
+                .mapNotNull(::fromProduced)
+        return colors.takeIf { it.size > 1 }.orEmpty()
+    }
 
     fun fromOrTwoGenericShard(shard: ManaCostShard): ManaColor? {
         if (!shard.isOr2Generic() || !shard.isMonoColor) return null
@@ -106,9 +159,16 @@ object ManaColorMapping {
 
     fun colorCounts(cost: ManaCost): Map<ManaColor, Int> =
         buildMap {
-            for (shard in cost) {
-                val color = fromShard(shard) ?: continue
-                put(color, getOrDefault(color, 0) + 1)
+            // CostAdjustment can rebuild Forge's shard list in a different
+            // order at each priority stop. Sort the client colors so a card's
+            // displayed pips stay fixed while the cost itself is unchanged.
+            val counts =
+                cost
+                    .mapNotNull { shard -> fromShard(shard) ?: ManaColor.Phyrexian_afc9.takeIf { shard.isPhyrexian() } }
+                    .groupingBy { it }
+                    .eachCount()
+            for (color in counts.keys.sortedBy { it.number }) {
+                put(color, counts.getValue(color))
             }
         }
 
@@ -138,8 +198,9 @@ object ManaColorMapping {
         val counts = mutableMapOf<ManaColor, Int>()
         val generic = cost.genericCost
         if (generic > 0) counts[ManaColor.Generic] = generic
-        for ((color, count) in colorCounts(cost)) {
-            counts.merge(color, count, Int::plus)
+        for (shard in cost) {
+            val color = fromShard(shard) ?: ManaColor.Phyrexian_afc9.takeIf { shard.isPhyrexian() } ?: continue
+            counts.merge(color, 1, Int::plus)
         }
         return counts.toList()
     }

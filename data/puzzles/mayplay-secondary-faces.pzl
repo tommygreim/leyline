@@ -1,0 +1,17 @@
+[metadata]
+Name:MayPlay secondary faces
+Goal:Survive
+Turns:3
+Difficulty:Easy
+Description:Cast Flameshape to exile a Gandalf and a Room, then exercise their alternate cast options.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanhand=Gandalf, Goblins' Bane
+humanbattlefield=Gandalf, Goblins' Bane;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Swamp;Swamp
+humanlibrary=Gandalf, Goblins' Bane;Unholy Annex // Ritual Chamber;Mountain;Mountain;Mountain;Mountain
+aibattlefield=Forest
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest

@@ -5,6 +5,8 @@ import leyline.bridge.types.ForgeCardId
 data class StaticChoiceOptionValue(
     val originalOptionIndex: Int,
     val protocolValue: Int,
+    val label: String = "",
+    val promptParameterId: Int? = null,
 )
 
 /** Immutable materialization input for one static enum SelectN window. */
@@ -15,6 +17,7 @@ data class StaticChoiceWindowValue(
     val min: Int,
     val max: Int,
     val defaultOptionIndex: Int,
+    val protocolPromptId: Int? = null,
 )
 
 data class PublishedStaticChoiceInteraction(

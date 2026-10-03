@@ -5,6 +5,7 @@ import forge.ai.ComputerUtilCost
 import forge.ai.LobbyPlayerAi
 import forge.card.ColorSet
 import forge.card.GamePieceType
+import forge.card.ICardFace
 import forge.card.mana.ManaCost
 import forge.card.mana.ManaCostShard
 import forge.game.Game
@@ -18,6 +19,7 @@ import forge.game.card.CardCollection
 import forge.game.card.CardCollectionView
 import forge.game.card.CardLists
 import forge.game.card.CardView
+import forge.game.card.CounterType
 import forge.game.combat.Combat
 import forge.game.cost.Cost
 import forge.game.cost.CostBlight
@@ -30,6 +32,7 @@ import forge.game.cost.CostPart
 import forge.game.cost.CostPartMana
 import forge.game.cost.CostPartWithList
 import forge.game.cost.CostPayLife
+import forge.game.cost.CostPutCounter
 import forge.game.cost.CostReturn
 import forge.game.cost.CostSacrifice
 import forge.game.cost.CostTapType
@@ -46,6 +49,7 @@ import forge.game.player.PlayerActionConfirmMode
 import forge.game.player.PlayerView
 import forge.game.replacement.ReplacementEffect
 import forge.game.spellability.AbilitySub
+import forge.game.spellability.AlternativeCost
 import forge.game.spellability.OptionalCostValue
 import forge.game.spellability.SpellAbility
 import forge.game.spellability.SpellAbilityView
@@ -434,6 +438,31 @@ class PlayerController(
         params: MutableMap<String, Any>?,
     ): T? {
         if (delayedReveal != null) reveal(delayedReveal)
+        if (sa?.isMutate == true) {
+            val source = sa.hostCard
+            val recipient =
+                optionList
+                    .filterIsInstance<Card>()
+                    .firstOrNull { candidate -> candidate.id != source?.id }
+            if (source != null && recipient != null) {
+                // Arena's MutateOptionalActionBrowser renders the source and
+                // recipient as two piles and maps Yes/No to over/under. Forge
+                // exposes the same decision as a chooseSingleEntity call;
+                // route that seam through the mechanic-specific workflow
+                // rather than emitting a generic SelectN browser.
+                val putOnTop =
+                    optionalActionGate.await(
+                        hostCard = source,
+                        defaultOnTimeout = true,
+                        logContext = "chooseSingleEntityForEffect:Mutate",
+                        customPromptId = PromptIds.OPTIONAL_ACTION,
+                        mechanicType = CardMechanicType.Mutate,
+                        recipientCards = listOf(recipient),
+                    )
+                @Suppress("UNCHECKED_CAST")
+                return (if (putOnTop) source else recipient) as T
+            }
+        }
         return targetingCoordinator.chooseSingleEntity(
             optionList,
             sa,
@@ -488,6 +517,24 @@ class PlayerController(
             return awaitCommanderReturn(hostCard, sa, "confirmAction:Commander")
         }
 
+        // A library top/bottom move is not a yes/no action.  Forge exposes it
+        // as confirmAction because its return value selects the primary (top)
+        // versus alternate (bottom) destination, while Arena uses the typed
+        // Scryish workflow and identifies the affected card as a recipient.
+        if (mode == PlayerActionConfirmMode.ChangeZoneToAltDestination &&
+            isTopOrBottomLibraryChoice(options) &&
+            sa != null
+        ) {
+            val recipient = sa.getTargetCard() ?: sa.findTargetedCards().firstOrNull()
+            if (recipient != null) {
+                return optionalActionGate.awaitTopOrBottom(
+                    sourceCard = hostCard,
+                    recipientCard = recipient,
+                    defaultOnTimeout = true,
+                )
+            }
+        }
+
         // Endure: binary mode pick at trigger resolution. Yes → +1/+1 counters
         // (engine adds counters when confirmAction returns true); No → Spirit
         // token (engine creates the token in the else branch). Rides the same
@@ -536,9 +583,21 @@ class PlayerController(
             hostCard = hostCard,
             defaultOnTimeout = true,
             logContext = "confirmAction",
-            customPromptId = PromptIds.OPTIONAL_ACTION,
+            customPromptId = optionalActionPromptId(sa),
             mechanicType = if (sa?.api == ApiType.Explore) CardMechanicType.Explore else null,
         )
+    }
+
+    private fun optionalActionPromptId(sa: SpellAbility?): Int {
+        if (sa?.api != ApiType.ChangeZone) return PromptIds.OPTIONAL_ACTION
+        val origins = sa.getParamOrDefault("Origin", "").split(',').map(String::trim)
+        val destination = sa.getParamOrDefault("Destination", "").trim()
+        val changeType = sa.getParamOrDefault("ChangeType", "")
+        return if ("Library" in origins && destination == "Battlefield" && "Land.Basic" in changeType) {
+            PromptIds.SEARCH_BASIC_LAND_OPTIONAL
+        } else {
+            PromptIds.OPTIONAL_ACTION
+        }
     }
 
     private fun isParityChoice(options: List<String>): Boolean {
@@ -547,9 +606,24 @@ class PlayerController(
         return ids.all { it != null } && ids.toSet().size == 2
     }
 
+    private fun isTopOrBottomLibraryChoice(options: MutableList<String>?): Boolean {
+        if (options?.size != 2) return false
+        val labels = options.map { it.substringBefore("(").trim().lowercase() }
+        return labels.any { it == "top" || it.endsWith(" top") } &&
+            labels.any { it == "bottom" || it.endsWith(" bottom") }
+    }
+
     override fun confirmTrigger(wrapper: WrappedAbility): Boolean {
         if (wrapper.isMandatory) return true
         if (isParadigmDelayedTrigger(wrapper)) return true
+        // Forge asks again in confirmPayment before spending energy. That
+        // payment is the optional decision; do not show a second generic gate.
+        if (wrapper.wrappedAbility.payCosts
+                ?.costParts
+                ?.singleOrNull() is forge.game.cost.CostPayEnergy
+        ) {
+            return true
+        }
         // Route through the coordinator-owned OptionalActionMessage interaction.
         val accepted =
             optionalActionGate.await(
@@ -569,6 +643,8 @@ class PlayerController(
                 ?.trim()
                 .orEmpty()
         return when {
+            wrapper.api == ApiType.Discard && wrapper.getParamOrDefault("Mode", "") == "Hand" ->
+                PromptIds.DISCARD_HAND_OPTIONAL
             scriptedCost.startsWith("Discard<") -> PromptIds.DISCARD_OPTIONAL
             scriptedCost == "X" -> PromptIds.OPTIONAL_PAY_X
             else -> PromptIds.OPTIONAL_ACTION
@@ -671,6 +747,16 @@ class PlayerController(
         question: String,
         sa: SpellAbility,
     ): Boolean {
+        if (costPart is forge.game.cost.CostPayEnergy) {
+            val amount = costPart.getAbilityAmount(sa)
+            return optionalActionGate.await(
+                hostCard = sa.hostCard,
+                defaultOnTimeout = false,
+                logContext = "confirmPayment:Energy",
+                customPromptId = PromptIds.OPTIONAL_PAY_ENERGY[amount],
+                costText = if (amount in PromptIds.OPTIONAL_PAY_ENERGY) null else "$amount {oE}",
+            )
+        }
         val activeCost =
             sa.hostCard
                 ?.game
@@ -871,10 +957,43 @@ class PlayerController(
         isOptional: Boolean,
     ): String? = staticChoiceCoordinator.chooseSomeType(kindOfType, sa, validTypes, isOptional)
 
+    override fun chooseCounterType(
+        options: List<CounterType>,
+        sa: SpellAbility?,
+        prompt: String?,
+        params: MutableMap<String, Any>?,
+    ): CounterType? = staticChoiceCoordinator.chooseCounterType(options, sa, prompt, params)
+
     override fun chooseProtectionType(
         sa: SpellAbility,
         choices: List<String>,
     ): String = staticChoiceCoordinator.chooseProtectionType(sa, choices)
+
+    override fun chooseCardName(
+        sa: SpellAbility,
+        cpp: Predicate<ICardFace>,
+        valid: String,
+        message: String,
+    ): String = staticChoiceCoordinator.chooseCardName(sa, cpp, message)
+
+    override fun chooseCardName(
+        sa: SpellAbility,
+        faces: List<ICardFace>,
+        message: String,
+    ): String = staticChoiceCoordinator.chooseCardName(sa, faces, message)
+
+    override fun chooseSingleCardFace(
+        sa: SpellAbility,
+        message: String,
+        cpp: Predicate<ICardFace>,
+        name: String,
+    ): ICardFace? = staticChoiceCoordinator.chooseSingleCardFace(sa, cpp, message)
+
+    override fun chooseSingleCardFace(
+        sa: SpellAbility,
+        faces: List<ICardFace>,
+        message: String,
+    ): ICardFace? = staticChoiceCoordinator.chooseSingleCardFace(sa, faces, message)
 
     override fun willPutCardOnTop(c: Card): Boolean {
         // The bare PromptRequest this used to build (no semantic/route) resolved to
@@ -985,6 +1104,21 @@ class PlayerController(
         // everything else (non-mana echo and multi-part costs) falls through
         // to PCHuman.
         cost.costParts.singleOrNull().let { single ->
+            if (single is CostPutCounter && sa.hostCard?.hasKeyword("Riot") == true) {
+                // Forge models Riot as an ETB replacement whose "unless" cost
+                // is AddCounter<1/P1P1>: paying the cost chooses the counter,
+                // while declining it chooses haste. Arena does not render this
+                // as a generic payment confirmation; its Riot browser is
+                // selected by CardMechanicType.Riot and supplies the two
+                // mechanic-specific buttons.
+                return optionalActionGate.await(
+                    hostCard = sa.hostCard,
+                    defaultOnTimeout = true,
+                    logContext = "payCostToPreventEffect:Riot",
+                    customPromptId = PromptIds.OPTIONAL_ACTION,
+                    mechanicType = CardMechanicType.Riot,
+                )
+            }
             if (single is CostPayLife) {
                 val isEtbLandReplacement =
                     sa.api == ApiType.Tap &&
@@ -1280,7 +1414,9 @@ class PlayerController(
             when (cpl) {
                 is CostDiscard -> PromptSemantic.SelectNDiscard
                 is CostReturn ->
-                    if (cpl.type.contains("attacking+unblocked") ||
+                    if (sa.alternativeCost == AlternativeCost.WebSlinging) {
+                        PromptSemantic.ReturnTappedCreatureCost
+                    } else if (cpl.type.contains("attacking+unblocked") ||
                         cpl.descriptiveType.contains("unblocked attacker", ignoreCase = true)
                     ) {
                         PromptSemantic.ReturnUnblockedAttackerCost
@@ -1509,10 +1645,10 @@ class PlayerController(
                     defaultOnTimeout = 0,
                     logContext = "chooseNumberForKeywordCost(${keyword.keyword})",
                     presentation =
-                        if (keyword.keyword == Keyword.REPLICATE) {
-                            BlockingInteraction.NumericPresentation.Replicate
-                        } else {
-                            BlockingInteraction.NumericPresentation.Generic
+                        when (keyword.keyword) {
+                            Keyword.REPLICATE -> BlockingInteraction.NumericPresentation.Replicate
+                            Keyword.MULTIKICKER -> BlockingInteraction.NumericPresentation.Multikicker
+                            else -> BlockingInteraction.NumericPresentation.Generic
                         },
                 )
         }
@@ -1733,10 +1869,43 @@ class PlayerController(
         // gate must protect is a pre-set outer-target supplied via the Cast
         // PerformAction — sa.targets.isEmpty() handles that.
         val needsTargeting = sa.targets.isEmpty()
-        return withActiveSpellSource(sa) {
-            val req = PlaySpellAbility(this, sa)
-            req.playAbility(needsTargeting, false, false)
-        }.also { priorityLoopCoordinator?.actionCompleted(it) }
+        val success =
+            withActiveSpellSource(sa) {
+                val req = PlaySpellAbility(this, sa)
+                req.playAbility(needsTargeting, false, false)
+            }
+        if (!success) {
+            // ActionPerformer acknowledges Activate_add3 before the Forge game
+            // thread reaches this callback. Keep the actual Forge rejection
+            // visible in the server log; otherwise a failed activation looks
+            // like a successful client action with no stack object.
+            val costPayable =
+                runCatching {
+                    sa.payCosts?.canPay(sa, player, sa.isTrigger())
+                }.getOrNull()
+            log.warn(
+                "Forge spell ability rejected: card={} forgeCardId={} abilityId={} definitionId={} " +
+                    "activated={} planeswalker={} zone={} loyalty={} canPlay={} restrictions={} " +
+                    "timing={} legalAfterStack={} costPayable={} targetsEmpty={} usesTargeting={}",
+                sa.hostCard?.name,
+                sa.hostCard?.id,
+                sa.id,
+                sa.definitionId,
+                sa.isActivatedAbility,
+                sa.isPwAbility,
+                sa.hostCard?.zone?.zoneType,
+                sa.hostCard?.currentLoyalty,
+                runCatching { sa.canPlay() }.getOrNull(),
+                runCatching { sa.checkRestrictions(player) }.getOrNull(),
+                runCatching { sa.canCastTiming(player) }.getOrNull(),
+                runCatching { sa.isLegalAfterStack }.getOrNull(),
+                costPayable,
+                sa.targets.isEmpty(),
+                sa.usesTargeting(),
+            )
+        }
+        priorityLoopCoordinator?.actionCompleted(success)
+        return success
     }
 
     private fun <T> withActiveSpellSource(
@@ -1806,6 +1975,21 @@ class PlayerController(
                 forgeAbilityId = if (sa.isTrigger) sa.id else 0,
             )
         return bridge.requestModalChoice(request, possible, sa.hostCard, sa)
+    }
+
+    override fun chooseSingleSpellForEffect(
+        spells: List<SpellAbility>,
+        sa: SpellAbility,
+        title: String,
+        params: MutableMap<String, Any>?,
+    ): SpellAbility? {
+        // VentureEffect presents the two legal next rooms as WrappedAbilities. Arena
+        // recognizes their AbilityGrpId values and opens DungeonRoomSelectWorkflow;
+        // the generic modal/card picker cannot provide that protocol shape.
+        if (spells.size > 1 && spells.all { it.hasParam("RoomName") }) {
+            return staticChoiceCoordinator.chooseDungeonRoom(sa, spells, title)
+        }
+        return super.chooseSingleSpellForEffect(spells, sa, title, params)
     }
 
     override fun chooseKeywordForPump(

@@ -1,16 +1,61 @@
 package leyline.game.mapping
 
 import forge.game.zone.ZoneType
+import io.kotest.assertions.assertSoftly
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import leyline.bridge.types.ForgeCardId
 import leyline.game.snapshot.SnapshotCapture
 import leyline.testkit.BoardTest
 import leyline.testkit.TestCardRegistry
+import leyline.testkit.detailIntList
 import leyline.testkit.humanPlayer
+import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
 
 class ObjectMapperTest :
     BoardTest({
+
+        test("continuous mana grants have distinct ability slots and visible added text until their source leaves") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Gandalf, Goblins' Bane", human, ZoneType.Battlefield)
+                    addCard("Esika, God of the Tree", human, ZoneType.Hand)
+                }
+            val gandalf = board.human.battlefield.card("Gandalf, Goblins' Bane")
+            val esika = board.human.hand.card("Esika, God of the Tree")
+            val iid = board.instanceId(gandalf.id)
+            val gsm =
+                board.snapshotDiff {
+                    board.game.action.moveToPlay(esika, null, emptyMap())
+                    board.game.action.checkStaticAbilities(false)
+                }
+            val facts = board.bridge.materializeEffectProjectionFacts().grantedAbilityEntries
+            val obj = gsm.gameObjectsList.single { it.instanceId == iid }
+            assertSoftly {
+                gandalf.manaAbilities.any { it.grantorStatic?.hostCard == esika } shouldBe true
+                facts.single { it.forgeCardId == ForgeCardId(gandalf.id) }.abilityGrpId shouldBe 1055
+                obj.uniqueAbilitiesList.map { it.grpId }.toSet() shouldBe setOf(205166, 15, 1055)
+                obj.uniqueAbilitiesList
+                    .map { it.id }
+                    .distinct()
+                    .size shouldBe obj.uniqueAbilitiesCount
+                gsm.persistentAnnotationsList.any {
+                    AnnotationType.AddAbility_af5a in it.typeList && 1055 in it.detailIntList("grpid") && iid in it.affectedIdsList
+                } shouldBe true
+            }
+            val removed =
+                board.snapshotDiff {
+                    board.game.action.moveToGraveyard(esika, null)
+                    board.game.action.checkStaticAbilities(false)
+                }
+            assertSoftly {
+                board.bridge.materializeEffectProjectionFacts().grantedAbilityEntries shouldBe emptyList()
+                removed.gameObjectsList
+                    .single { it.instanceId == iid }
+                    .uniqueAbilitiesList
+                    .any { it.grpId == 1055 } shouldBe false
+            }
+        }
 
         test("DFC card has othersideGrpId set") {
             // Register back face in test card DB (startWithBoard only registers board cards)
@@ -98,10 +143,6 @@ class ObjectMapperTest :
             // (e.g. 86 for Cascade) from the source card's grpId. Pre-fix these
             // two fields collapsed to the same value; the fix reroutes any
             // future regression that re-collapses them straight into this test.
-            val (b, _, _) =
-                startWithBoard { _, human, _ ->
-                    addCard("Grizzly Bears", human, ZoneType.Battlefield)
-                }
             val abilityGrpId = 86 // Cascade
             val sourceCardGrpId = 93301 // Bloodbraid Elf (canonical Cascade host)
             val abilityIid = 9999
@@ -112,7 +153,6 @@ class ObjectMapperTest :
                     sourceCardGrpId = sourceCardGrpId,
                     instanceId = abilityIid,
                     ownerSeatId = 1,
-                    cardProto = b.cardProto,
                 )
 
             io.kotest.assertions.assertSoftly {
@@ -123,6 +163,11 @@ class ObjectMapperTest :
                 obj.instanceId shouldBe abilityIid
                 obj.ownerSeatId shouldBe 1
                 obj.controllerSeatId shouldBe 1
+                obj.name shouldBe 0
+                obj.overlayGrpId shouldBe 0
+                obj.cardTypesCount shouldBe 0
+                obj.uniqueAbilitiesCount shouldBe 0
+                obj.hasToughness() shouldBe false
             }
         }
     })

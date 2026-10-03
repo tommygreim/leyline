@@ -79,6 +79,7 @@ object ZoneMoveLedger {
                 move.to == Zone.Battlefield -> TransferCategory.PlayLand
             move.to == Zone.Stack && cast?.isAbility != true -> TransferCategory.CastSpell
             move.from == Zone.Stack && resolved?.hasFizzled == true -> TransferCategory.Countered
+            move.from == Zone.Stack && move.cause?.api == "Counter" -> TransferCategory.Countered
             move.from == Zone.Battlefield &&
                 move.to == Zone.Exile &&
                 warpResolution -> TransferCategory.Warp
@@ -109,7 +110,6 @@ object ZoneMoveLedger {
             move.cause?.api == "Mill" -> TransferCategory.Mill
             move.cause?.api == "Surveil" -> TransferCategory.Surveil
             move.cause?.api == "Draw" -> TransferCategory.Draw
-            move.cause?.api == "Counter" -> TransferCategory.Countered
             move.cause?.api == "ChangeZone" && move.from == Zone.Library && move.to == Zone.Hand -> TransferCategory.Put
             else -> TransferCategoryResolver.categoryFromZonePair(move.from, move.to)
         }

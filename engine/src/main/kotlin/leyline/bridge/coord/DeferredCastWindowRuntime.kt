@@ -88,6 +88,10 @@ internal class DeferredCastWindowRuntime(
             val ctoIds: List<Int>,
             val promptColors: List<ManaColor>,
             val paymentColors: List<ManaColor>,
+            val promptManaTypes: List<ManaColor>,
+            val paymentManaTypes: List<ManaColor>,
+            val promptColorOptions: List<List<ManaColor>>,
+            val paymentColorOptions: List<List<ManaColor>>,
             override var adopted: Boolean = false,
         ) : Prompt
 
@@ -109,6 +113,10 @@ internal class DeferredCastWindowRuntime(
             val ctoIds: List<Int>,
             val promptColors: List<ManaColor>,
             val paymentColors: List<ManaColor>,
+            val promptManaTypes: List<ManaColor>,
+            val paymentManaTypes: List<ManaColor>,
+            val promptColorOptions: List<List<ManaColor>>,
+            val paymentColorOptions: List<List<ManaColor>>,
         ) : Publication
 
         data class Optional(
@@ -133,7 +141,25 @@ internal class DeferredCastWindowRuntime(
         ctoIds: List<Int>,
         promptColors: List<ManaColor>,
         paymentColors: List<ManaColor>,
-    ) = publishClaimed(Publication.Hybrid(claim, request, ctoIds, promptColors, paymentColors))
+        promptManaTypes: List<ManaColor>,
+        paymentManaTypes: List<ManaColor>,
+        promptColorOptions: List<List<ManaColor>>,
+        paymentColorOptions: List<List<ManaColor>>,
+    ) {
+        publishClaimed(
+            Publication.Hybrid(
+                claim,
+                request,
+                ctoIds,
+                promptColors,
+                paymentColors,
+                promptManaTypes,
+                paymentManaTypes,
+                promptColorOptions,
+                paymentColorOptions,
+            ),
+        )
+    }
 
     fun publishOptional(
         claim: MatchActionWindowRuntime.ActionClaim,
@@ -438,6 +464,10 @@ internal class DeferredCastWindowRuntime(
                         publication.ctoIds.toList(),
                         publication.promptColors.toList(),
                         publication.paymentColors.toList(),
+                        publication.promptManaTypes.toList(),
+                        publication.paymentManaTypes.toList(),
+                        publication.promptColorOptions.map { it.toList() },
+                        publication.paymentColorOptions.map { it.toList() },
                     )
                 is Publication.Optional -> optionalPrompt(publication.claim, gameStateId, publication.ctoIds)
                 is Publication.Alternate -> {

@@ -1,0 +1,12 @@
+name: "Stoke Genius"
+grpId: 86836
+titleId: 731612
+abilities:
+  - id: 19117
+    textId: 40375
+    category: 4
+expansionCode: "WOE"
+linkedFaceType: 7
+linkedFaces:
+  - 86835
+isPrimaryCard: false

@@ -43,7 +43,6 @@ import leyline.bridge.interaction.shouldAutoResolve
 import leyline.bridge.interaction.shouldReturnAll
 import leyline.bridge.interaction.sourceEntityId
 import leyline.bridge.interaction.unfilteredRefs
-import leyline.bridge.types.AbilityKeywordFamily
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.PromptCandidateRefDto
 import leyline.bridge.types.ResolvedAbilityIdentity
@@ -552,23 +551,43 @@ class TargetingCoordinator(
         hand: CardCollectionView,
         param: Array<String>,
         sa: SpellAbility,
-    ): CardCollectionView =
-        // Same TgtChoose discard family as chooseCardsToDiscardFrom (DiscardEffect.java's
-        // adjacent branch), just with the extra "or discard one matching card instead"
-        // escape hatch — route it the same way. The previous hand-rolled PromptRequest
-        // skipped candidateRefs and left semantic at its Generic default, which resolves
-        // to no coordinator-owned runtime: bridge.requestChoice returned its default
-        // index with no prompt ever reaching the client (Winternight Stories, reported
-        // live — the discard was silently auto-chosen).
-        chooseCardsViaBridge(
+    ): CardCollectionView {
+        // Arena presents this effect as two sequential decisions: first the
+        // optional one-card escape hatch, then (only after Decline) the normal
+        // mandatory discard. Keeping the branches separate also avoids putting
+        // newly drawn cards in a detached center-screen selection pile.
+        val matching =
+            CardCollection(
+                hand.filter { card ->
+                    card.isValid(param, sa.activatingPlayer, sa.hostCard, sa)
+                },
+            )
+        if (matching.isNotEmpty()) {
+            val alternate =
+                chooseCardsViaBridge(
+                    matching,
+                    min = 0,
+                    max = 1,
+                    "Discard a ${param.joinToString("/")} card?",
+                    semantic = PromptSemantic.SelectNDiscardCreatureOptional,
+                    candidateRefs = buildCandidateRefs(matching),
+                    sourceEntityId = sa.hostCard?.id,
+                    forcePrompt = true,
+                    cancellable = true,
+                )
+            if (alternate.isNotEmpty()) return alternate
+        }
+        return chooseCardsViaBridge(
             hand,
-            min = 1,
+            min = min,
             max = min,
-            "Choose $min card(s) to discard (or discard a single ${param.joinToString("/")} instead)",
+            "Choose $min cards to discard",
             semantic = PromptSemantic.SelectNDiscardEffect,
             candidateRefs = buildCandidateRefs(hand),
             sourceEntityId = sa.hostCard?.id,
+            forcePrompt = true,
         )
+    }
 
     // -- Reveal ------------------------------------------------------------
 
@@ -925,12 +944,7 @@ class TargetingCoordinator(
     internal fun effectiveTargetPromptId(
         sa: SpellAbility,
         abilityIdentity: ResolvedAbilityIdentity? = bridge.resolveAbilityIdentity(sa),
-    ): Int =
-        when {
-            abilityIdentity?.keywordFamily == AbilityKeywordFamily.Mentor -> PromptIds.MENTOR_TARGET
-            sa.isMutate -> PromptIds.MUTATE_TARGET
-            else -> targetPromptId(sa) ?: PromptIds.SELECT_TARGETS
-        }
+    ): Int = TargetPromptIdResolver.resolve(sa, abilityIdentity)
 
     internal fun targetGroupIndex(sa: SpellAbility): Int {
         var index = 0
@@ -941,37 +955,6 @@ class TargetingCoordinator(
             current = current.subAbility
         }
         return 1
-    }
-
-    private fun targetPromptId(sa: SpellAbility): Int? {
-        val valid =
-            sa.targetRestrictions
-                ?.validTgts
-                ?.toList()
-                .orEmpty()
-        if (valid.isEmpty()) return null
-        val normalized = valid.map { it.lowercase() }
-        if (normalized == listOf("any")) return PromptIds.CHOOSE_ANY_TARGET
-        val allOpponentControlled = normalized.all { "youdontctrl" in it }
-        val targetKinds =
-            normalized
-                .flatMap { restriction ->
-                    buildList {
-                        if ("creature" in restriction) add("creature")
-                        if ("planeswalker" in restriction) add("planeswalker")
-                    }
-                }.toSet()
-        return when {
-            targetKinds == setOf("creature", "planeswalker") && allOpponentControlled ->
-                PromptIds.TARGET_CREATURE_OR_PLANESWALKER_YOU_DONT_CONTROL
-            targetKinds == setOf("creature") && normalized.all { "youctrl" in it && "youdontctrl" !in it } ->
-                PromptIds.TARGET_CREATURE_YOU_CONTROL
-            targetKinds == setOf("creature") && allOpponentControlled ->
-                PromptIds.TARGET_CREATURE_YOU_DONT_CONTROL
-            targetKinds == setOf("creature") && normalized.none { "youctrl" in it || "youdontctrl" in it } ->
-                PromptIds.TARGET_CREATURE
-            else -> null
-        }
     }
 
     private fun arrangeTopNCards(
@@ -1139,6 +1122,12 @@ class TargetingCoordinator(
                 defaultIndex = 0,
                 candidateRefs = candidateRefs,
                 route = PromptRouteResolver.resolve(PromptSemantic.RevealChoose),
+                targetPromptId =
+                    when (sa?.getParam("DiscardValid")) {
+                        "Card.nonCreature+nonLand", "Card.nonLand+nonCreature" -> PromptIds.CHOOSE_NONCREATURE_NONLAND_CARD
+                        "Card.nonLand" -> PromptIds.CHOOSE_NONLAND_CARD
+                        else -> null
+                    },
                 sourceEntityId = sa?.hostCard?.id ?: currentSourceEntityId()?.takeIf { it > 0 },
             )
         return CardCollection(

@@ -132,6 +132,7 @@ class DiscardInteractionTest :
             turns = 10,
         ) {
             val req = castSpellUntilSelectNReq("Duress")
+            req.prompt.promptId shouldBe leyline.game.mapping.PromptIds.CHOOSE_NONCREATURE_NONLAND_CARD
             val divinationId = findInstanceId(req.idsList, "Divination")
             assertSoftly {
                 req.context shouldBe SelectionContext.Resolution_a163
@@ -316,8 +317,9 @@ class DiscardInteractionTest :
             respondToSelectN(listOf(bearId))
 
             assertSoftly {
-                req.minSel shouldBe 1
-                req.maxSel shouldBe 2
+                req.prompt.promptId shouldBe leyline.game.mapping.PromptIds.DISCARD_CREATURE_OPTIONAL
+                req.minSel shouldBe 0
+                req.maxSel shouldBe 1
                 req.idsList shouldHaveSize 3
 
                 // Discarding a single creature satisfies the unless clause: 3 drawn - 1
@@ -334,5 +336,29 @@ class DiscardInteractionTest :
                 discardPrompts.shouldNotBeEmpty()
                 discardPrompts.last().outcome shouldBe PromptCallStatus.RESPONDED
             }
+        }
+
+        session(
+            "declining the unless-type branch opens a separate mandatory discard-two prompt",
+            puzzleFile = "data/puzzles/winternight-stories-unless-discard.pzl",
+            turns = 2,
+        ) {
+            castSpellByName("Winternight Stories") shouldBe true
+            passUntilResolved(maxPasses = 8)
+
+            val optional = lastSelectNReq()
+            optional.prompt.promptId shouldBe leyline.game.mapping.PromptIds.DISCARD_CREATURE_OPTIONAL
+            respondToSelectN(emptyList())
+
+            val mandatory = lastSelectNReq()
+            assertSoftly {
+                mandatory.prompt.promptId shouldBe leyline.game.mapping.PromptIds.DISCARD_TWO
+                mandatory.minSel shouldBe 2
+                mandatory.maxSel shouldBe 2
+                mandatory.idsList shouldHaveSize 3
+            }
+            respondToSelectN(mandatory.idsList.take(2))
+
+            human.getZone(ForgeZoneType.Graveyard).cards.filter { it.name == "Grizzly Bears" } shouldHaveSize 2
         }
     })

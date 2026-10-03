@@ -1,0 +1,20 @@
+# Siphoner has enough energy for one optional upkeep payment. At three life,
+# accepting must draw and leave two life; declining must preserve three life.
+# The opponent has no spells or permanents to interfere with the choice.
+[metadata]
+Name:Energy upkeep payment
+Goal:Survive
+Turns:4
+Difficulty:Tutorial
+Description:Choose whether to spend two energy to draw a card and lose one life.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=3
+AILife=20
+humancounters=ENERGY=2
+humanbattlefield=Glint-Sleeve Siphoner;Mountain
+humanhand=Forest;Shock
+humanlibrary=Island;Island;Island;Island
+ailibrary=Mountain;Mountain;Mountain;Mountain

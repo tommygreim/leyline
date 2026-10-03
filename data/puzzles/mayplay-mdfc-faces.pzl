@@ -1,0 +1,17 @@
+[metadata]
+Name:MayPlay modal double-faced cards
+Goal:Survive
+Turns:3
+Difficulty:Easy
+Description:Cast Flameshape to exile Silundi Vision and Esika, then test their spell, land, and back-spell options.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanhand=Gandalf, Goblins' Bane
+humanbattlefield=Gandalf, Goblins' Bane;Mountain;Mountain;Mountain;Plains;Plains;Island;Island;Forest;Forest;Swamp
+humanlibrary=Silundi Vision;Esika, God of the Tree;Burst Lightning;Mountain;Mountain;Mountain;Mountain;Mountain
+aibattlefield=Forest
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest

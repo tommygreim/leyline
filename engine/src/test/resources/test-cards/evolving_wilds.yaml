@@ -1,0 +1,8 @@
+name: "Evolving Wilds"
+grpId: 67003
+titleId: 10621
+abilities:
+  - id: 88024
+    textId: 508438
+    category: 1
+expansionCode: "RIX"

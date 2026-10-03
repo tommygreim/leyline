@@ -137,6 +137,83 @@ class CreatureManaTest :
             actions
                 .map { it.manaSelectionsList.single().selectionCount }
                 .sorted() shouldBe listOf(1, 2)
+            val manaByCount =
+                actions.associateBy {
+                    it.manaPaymentOptionsList
+                        .single()
+                        .manaList
+                        .single()
+                        .count
+                }
+            manaByCount
+                .getValue(1)
+                .manaPaymentOptionsList
+                .single()
+                .manaList
+                .single()
+                .specsList
+                .map { it.type } shouldBe listOf(ManaSpecType.Predictive)
+            manaByCount
+                .getValue(2)
+                .manaPaymentOptionsList
+                .single()
+                .manaList
+                .single()
+                .specsList
+                .map { it.type } shouldBe listOf(ManaSpecType.Predictive, ManaSpecType.Restricted)
+        }
+
+        test("Cavern of Souls marks restricted mana that cannot be countered") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Cavern of Souls", human, ZoneType.Battlefield).setChosenType("Elf")
+                }
+
+            val actions =
+                ActionMapper
+                    .buildFromSnapshot(1, GsmSnapshot.capture(board.game, board.bridge, "test", 0), board.bridge)
+                    .ofType(ActionType.ActivateMana)
+                    .filter {
+                        it.instanceId ==
+                            board.instanceId(
+                                board.human
+                                    .getZone(ZoneType.Battlefield)
+                                    .cards
+                                    .single()
+                                    .id,
+                            )
+                    }
+
+            actions shouldHaveSize 2
+            actions
+                .flatMap { action -> action.manaPaymentOptionsList.flatMap { it.manaList } }
+                .map { it.specsList.map { spec -> spec.type } }
+                .toSet() shouldBe
+                setOf(
+                    listOf(ManaSpecType.Predictive),
+                    listOf(ManaSpecType.Predictive, ManaSpecType.Restricted, ManaSpecType.CantBeCountered),
+                )
+        }
+
+        test("Cavern's auto-tap projection preserves the same source specs") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Cavern of Souls", human, ZoneType.Battlefield).setChosenType("Elf")
+                    addCard("Elvish Mystic", human, ZoneType.Hand)
+                }
+
+            val cast =
+                ActionMapper
+                    .buildFromSnapshot(1, GsmSnapshot.capture(board.game, board.bridge, "test", 0), board.bridge)
+                    .ofType(ActionType.Cast)
+                    .single()
+
+            cast.autoTapSolution.autoTapActionsList
+                .flatMap { it.manaPaymentOption.manaList }
+                .single()
+                .specsList
+                .map { it.type } shouldBe
+                listOf(ManaSpecType.Predictive, ManaSpecType.Restricted, ManaSpecType.CantBeCountered)
         }
 
         test("Reflecting Pool exposes the live colors its lands can produce for manual mana") {

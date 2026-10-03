@@ -89,7 +89,14 @@ object TransferAnnotations {
                     // drain Forge produces the populated SpellCast event in (same drain
                     // as the zone-change for untargeted spells; the post-target-submit
                     // drain for targeted spells, when Forge has actually paid mana).
-                    if (origId != newId) annotations.add(AnnotationBuilder.objectIdChanged(origId, newId, affectorId))
+                    if (transfer.createdOnStack) {
+                        // Arena's TokenCreated parser creates a card view for
+                        // copied spells too. An OIC from an unpublished exile
+                        // id instead makes its cast animation dereference null.
+                        annotations.add(AnnotationBuilder.tokenCreated(newId, affectorId))
+                    } else if (origId != newId) {
+                        annotations.add(AnnotationBuilder.objectIdChanged(origId, newId, affectorId))
+                    }
                     annotations.add(AnnotationBuilder.zoneTransfer(newId, srcZone, destZone, category.label, affectorId = affectorId))
                 }
                 TransferCategory.Resolve -> {

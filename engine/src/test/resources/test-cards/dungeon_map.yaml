@@ -1,0 +1,12 @@
+name: "Dungeon Map"
+grpId: 77347
+titleId: 499235
+abilities:
+  - id: 1152
+    textId: 227595
+    category: 1
+    subCategory: 1
+  - id: 143940
+    textId: 499237
+    category: 1
+    subCategory: 0

@@ -64,7 +64,7 @@ internal object ActivatedActionEmitter {
         cardData: (Int) -> CardData?,
         envelope: Envelope,
         abilityRegistryLookup: (Card, CardData?) -> AbilityRegistry?,
-        autoTapSolution: (ManaCost) -> AutoTapSolution? = { null },
+        autoTapSolution: (ManaCost, SpellAbility) -> AutoTapSolution? = { _, _ -> null },
         skipSpecialTurnFaceUp: Boolean = false,
         onActive: (Action, Int, SpellAbility, Int) -> Unit = { _, _, _, _ -> },
         abilities: List<SpellAbility> = getNonManaActivatedAbilities(card, player),
@@ -76,7 +76,7 @@ internal object ActivatedActionEmitter {
             val abilityCost = CastDisplayCost.of(ability, player) ?: ability.payCosts?.totalMana
             val autoTap =
                 if (canPay && abilityCost != null && !abilityCost.isNoCost) {
-                    autoTapSolution(abilityCost)
+                    autoTapSolution(abilityCost, ability)
                 } else {
                     null
                 }
@@ -87,16 +87,14 @@ internal object ActivatedActionEmitter {
             val identityCardData = cardData(grpId(identityCard))
             val registry = abilityRegistryLookup(identityCard, identityCardData)
             val abilityGrpId = registry?.forSpellAbility(ability) ?: 0
-            val grantedIndex =
-                ability
-                    .takeIf { it.grantorStatic != null }
-                    ?.let { abilities.take(abilityIndex).count { prior -> prior.grantorStatic != null } }
             emitActivatedAbilityAction(
                 builder = builder,
                 instanceId = actionInstanceId,
                 grpId = actionGrpId,
                 abilityGrpId = abilityGrpId,
-                uniqueAbilityId = uniqueAbilityIdFor(actionCardData, abilityGrpId, grantedIndex = grantedIndex),
+                uniqueAbilityId =
+                    AbilityRegistry.grantedUniqueAbilityId(ability)
+                        ?: uniqueAbilityIdFor(actionCardData, abilityGrpId),
                 abilityCost = abilityCost,
                 autoTapSolution = autoTap,
                 canPay = canPay,
@@ -137,7 +135,12 @@ internal object ActivatedActionEmitter {
             actionBuilder.setShouldStop(ShouldStopEvaluator.shouldStop(ActionType.Activate_add3))
         }
         if ((!canPay || envelope.activeManaCost) && abilityCost != null && !abilityCost.isNoCost) {
-            ActionManaCosts.addManaCostFromForge(abilityCost, actionBuilder, abilityGrpId)
+            ActionManaCosts.addManaCostFromForge(
+                abilityCost,
+                actionBuilder,
+                abilityGrpId,
+                ActionManaCosts.manaCostSpecs(nonManaCosts),
+            )
         }
         actionBuilder.addAllCosts(ActionCostParts.of(nonManaCosts))
         autoTapSolution?.let(actionBuilder::setAutoTapSolution)
@@ -202,6 +205,16 @@ internal object ActivatedActionEmitter {
                         .addSpecs(ManaInfo.Spec.newBuilder().setType(ManaSpecType.Predictive))
                         .setAbilityGrpId(abilityGrpId)
                         .setCount(producedCount)
+                // The client groups same-colour manual mana sources into one
+                // picker.  An unrestricted `{T}: Add {R}` beside a restricted
+                // `{T}: Add {R}{R}` must carry this distinction or that picker
+                // silently selects the larger output (Tablet of Discovery).
+                // The card DB supplies the restriction's actual text/meaning
+                // through abilityGrpId; this flag tells the client not to merge
+                // it with ordinary red mana.
+                manaSourceSpecs(sa).forEach { spec ->
+                    manaInfo.addSpecs(ManaInfo.Spec.newBuilder().setType(spec))
+                }
                 if (card.type.isSnow) {
                     manaInfo.addSpecs(ManaInfo.Spec.newBuilder().setType(ManaSpecType.FromSnow))
                 }
@@ -271,7 +284,14 @@ internal object ActivatedActionEmitter {
             sa.payCosts
                 ?.totalMana
                 ?.takeIf { !it.isNoCost }
-                ?.let { ActionManaCosts.addManaCostFromForge(it, actionBuilder, abilityGrpId) }
+                ?.let {
+                    ActionManaCosts.addManaCostFromForge(
+                        it,
+                        actionBuilder,
+                        abilityGrpId,
+                        ActionManaCosts.manaCostSpecs(sa.payCosts),
+                    )
+                }
             actionBuilder.build()
         }
     }
@@ -333,11 +353,9 @@ internal object ActivatedActionEmitter {
         cardData: CardData?,
         abilityGrpId: Int,
         fallbackWhenUnmapped: Boolean = false,
-        grantedIndex: Int? = null,
     ): Int? {
         if (abilityGrpId == 0) return null
         if (cardData == null) return INITIAL_UNIQUE_ABILITY_ID
-        grantedIndex?.let { return INITIAL_UNIQUE_ABILITY_ID + cardData.abilityIds.size + it }
         val index = cardData.abilityIds.indexOfFirst { (grpId, _) -> grpId == abilityGrpId }
         return when {
             index >= 0 -> INITIAL_UNIQUE_ABILITY_ID + index
@@ -359,6 +377,23 @@ internal object ActivatedActionEmitter {
             card.type.hasSubtype("Treasure") -> ManaSpecType.FromTreasure
             card.type.hasSubtype("Cave") -> ManaSpecType.FromCave
             else -> null
+        }
+
+    /**
+     * ManaInfo source annotations backed by Forge's AbilityManaPart.
+     * RestrictValid/extra restrictions make the source restricted; the
+     * AddsNoCounter parameter is retained by Forge as a first-class boolean
+     * and therefore maps directly to CantBeCountered.
+     */
+    fun manaSourceSpecs(ability: SpellAbility): List<ManaSpecType> =
+        buildList {
+            val mana = ability.manaPart
+            if (!mana.manaRestrictions.isNullOrBlank() || !mana.extraManaRestriction.isNullOrBlank()) {
+                add(ManaSpecType.Restricted)
+            }
+            if (mana.isCannotCounterPaidWith) {
+                add(ManaSpecType.CantBeCountered)
+            }
         }
 
     fun producedManaColors(sa: forge.game.spellability.SpellAbility): List<ManaColor> =

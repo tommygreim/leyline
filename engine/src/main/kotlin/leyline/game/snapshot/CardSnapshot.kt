@@ -44,6 +44,7 @@ data class CardSnapshot(
     val chosenType: String? = null,
     /** Chosen color ids in Arena's static color domain. */
     val chosenColorIds: List<Int> = emptyList(),
+    val chosenCardNameTitleIds: List<Int> = emptyList(),
     /**
      * True when the card has at least one non-mana activated ability.
      * Needed to know whether to iterate spellAbilities during action enumeration.
@@ -154,6 +155,10 @@ data class CardSnapshot(
     val isForetold: Boolean = false,
     /** Supported face-down battlefield/stack mechanic, when present. */
     val faceDownKind: FaceDownKind? = null,
+    /** Face-down exile is hidden even from its owner unless Forge grants inspection. */
+    val isFaceDownExile: Boolean = false,
+    /** Includes ordinary morph/manifest; remembered library views must not reveal these. */
+    val isFaceDown: Boolean = false,
     /** True when this card is one of its owner's commanders. */
     val isCommander: Boolean = false,
     /** Commander tax currently exposed to the client, in generic mana. */
@@ -292,6 +297,7 @@ sealed interface CombatRole {
     data class Attacker(
         val targetInstanceId: Int,
         val isBlocked: Boolean?,
+        val blockerInstanceIds: List<Int> = emptyList(),
     ) : CombatRole
 
     /**

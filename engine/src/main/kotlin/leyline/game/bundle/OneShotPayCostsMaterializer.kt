@@ -53,6 +53,7 @@ internal class OneShotPayCostsMaterializer {
                         PayCostsRouteKind.Sacrifice,
                         PayCostsRouteKind.SelectCostExileFromGrave,
                         PayCostsRouteKind.SelectCostReturnAttacker,
+                        PayCostsRouteKind.SelectCostReturnTappedCreature,
                         PayCostsRouteKind.StationTapCost,
                         PayCostsRouteKind.EnlistCost,
                         PayCostsRouteKind.TapPayment,
@@ -91,6 +92,7 @@ internal class OneShotPayCostsMaterializer {
             PayCostsRouteKind.Sacrifice -> PromptIds.CHOOSE_OR_COST_PAY_SACRIFICE
             PayCostsRouteKind.SelectCostExileFromGrave -> PromptIds.CHOOSE_OR_COST_PAY_EXILE_FROM_GRAVE
             PayCostsRouteKind.SelectCostReturnAttacker -> PromptIds.NINJUTSU_RETURN_UNBLOCKED_ATTACKER_COST
+            PayCostsRouteKind.SelectCostReturnTappedCreature -> PromptIds.WEB_SLINGING_RETURN_TAPPED_CREATURE_COST
             PayCostsRouteKind.CollectEvidence -> PromptIds.COLLECT_EVIDENCE_COST
             PayCostsRouteKind.StationTapCost -> PromptIds.STATION_TAP_COST
             PayCostsRouteKind.EnlistCost -> PromptIds.ENLIST_TAP_COST

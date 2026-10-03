@@ -20,6 +20,12 @@ interface BlockingInteractionRuntime {
         defaultOnTimeout: Boolean,
     ): Boolean = awaitOptional(interaction, timeoutMs, defaultOnTimeout)
 
+    fun awaitTopOrBottom(
+        interaction: BlockingInteraction.TopOrBottom,
+        timeoutMs: Long?,
+        defaultOnTimeout: Boolean,
+    ): Boolean = defaultOnTimeout
+
     fun awaitNumeric(
         interaction: BlockingInteraction.Numeric,
         timeoutMs: Long?,

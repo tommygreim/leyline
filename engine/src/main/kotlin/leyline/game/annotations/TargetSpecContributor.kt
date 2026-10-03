@@ -46,7 +46,17 @@ object TargetSpecContributor : AnnotationContributor {
             // structurally unreachable and crashes under DevCheck.strict.
             val affectorIid =
                 if (spec.affectorInstanceIdAtRecord != 0) {
-                    InstanceId(spec.affectorInstanceIdAtRecord)
+                    // A spell's target is chosen while the card still has its
+                    // hand/exile iid.  The same GSM then reallocates that card
+                    // onto the stack.  TargetSpec must follow that reallocation
+                    // or Arena cannot attach the targeting line to the visible
+                    // stack object.
+                    ctx.transferResult
+                        ?.idReallocations
+                        .orEmpty()
+                        .fold(InstanceId(spec.affectorInstanceIdAtRecord)) { current, reallocation ->
+                            if (reallocation.old == current) reallocation.new else current
+                        }
                 } else if (spec.isStackAbility) {
                     if (spec.forgeAbilityId != 0) {
                         ctx.targetSpecStackAbilityIid(spec)

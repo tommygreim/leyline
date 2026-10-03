@@ -3,15 +3,35 @@ package leyline.game.mapping
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.InstanceId
 import leyline.game.annotations.TransferResult
+import leyline.game.data.CardProtoBuilder
 import leyline.game.snapshot.BoundCard
 import leyline.game.snapshot.GsmSnapshot
 import leyline.game.snapshot.LinkedFaceRole
 import leyline.game.state.ProjectionState
+import wotc.mtgo.gre.external.messaging.Messages.GameObjectInfo
 import wotc.mtgo.gre.external.messaging.Messages.GameObjectType
 import wotc.mtgo.gre.external.messaging.Messages.Visibility
 
 /** Projects supported secondary-face companions without adding them to zone membership. */
 object LinkedFaceCompanionProjector {
+    /** Attach linked faces to already-visible parents in a direct lifecycle state. */
+    fun visibleCompanions(
+        snap: GsmSnapshot,
+        parents: List<GameObjectInfo>,
+        instanceIdLookup: (ForgeCardId) -> InstanceId,
+        cardProto: CardProtoBuilder,
+    ): List<GameObjectInfo> {
+        val visibleParents = parents.filter { it.type == GameObjectType.Card }.associateBy { it.instanceId }
+        return snap.boundCards.values.flatMap { bound ->
+            val parentIid = instanceIdLookup(bound.forgeCardId)
+            val parent = visibleParents[parentIid.value] ?: return@flatMap emptyList()
+            bound.linkedFaces.map { face ->
+                val companionIid = instanceIdLookup(FrameIdResolver.linkedFaceCompanionForgeId(parentIid, face.role))
+                ObjectMapper.buildLinkedFaceObject(face, companionIid.value, parent, cardProto)
+            }
+        }
+    }
+
     fun append(
         transferResult: TransferResult,
         snap: GsmSnapshot,

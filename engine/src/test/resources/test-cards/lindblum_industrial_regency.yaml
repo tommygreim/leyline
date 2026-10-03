@@ -1,0 +1,14 @@
+name: "Lindblum, Industrial Regency"
+grpId: 96166
+titleId: 928765
+abilities:
+  - id: 180111
+    textId: 894988
+    category: 3
+  - id: 1004
+    textId: 227612
+    category: 1
+expansionCode: "FIN"
+linkedFaceType: 8
+linkedFaces:
+  - 96167

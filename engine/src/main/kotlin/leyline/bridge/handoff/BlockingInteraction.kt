@@ -2,6 +2,7 @@ package leyline.bridge.handoff
 
 import leyline.bridge.types.ForgeCardId
 import wotc.mtgo.gre.external.messaging.Messages.CardMechanicType
+import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
 import kotlin.ConsistentCopyVisibility
 
 /** Immutable engine-thread request presented before a blocking interaction waits. */
@@ -17,9 +18,25 @@ sealed interface BlockingInteraction {
          *  Explore routes to a dedicated browser only when this is set. Null keeps
          *  the message tag-free, same as before this field existed. */
         val mechanicType: CardMechanicType? = null,
+        /** Cards displayed alongside [sourceId] by mechanic-specific workflows (e.g. Mutate). */
+        val recipientIds: List<ForgeCardId> = emptyList(),
         /** Client mana-cost text (`o1`, `oUoB`, ...) shown as "Pay {cost}." instead of the
          *  generic "Choose options." prompt. Null keeps the generic prompt. */
         val costText: String? = null,
+    ) : BlockingInteraction
+
+    /**
+     * Choose whether a card is put on top of or bottom of its owner's library.
+     *
+     * This is deliberately not [Optional]: Arena selects a Scryish workflow
+     * from [CardMechanicType.PutTopOrBottom] and uses the recipient card to
+     * render the affected object.  The response remains the GRE optional
+     * boolean (yes = top, no = bottom), but the prompt's identity and
+     * workflow are no longer lost in the generic optional-action rail.
+     */
+    data class TopOrBottom(
+        val sourceId: ForgeCardId,
+        val recipientId: ForgeCardId,
     ) : BlockingInteraction
 
     data class FreeCast(
@@ -34,13 +51,25 @@ sealed interface BlockingInteraction {
         val min: Int,
         val max: Int,
         val defaultValue: Int,
-        /** The generic X picker is a different client workflow from Replicate. */
+        /**
+         * The generic X picker is a different client workflow from keyword
+         * repeat-count pickers. Arena carries the latter in a typed
+         * CastingTimeOptionsReq with a numeric child request.
+         */
         val presentation: NumericPresentation = NumericPresentation.Generic,
     ) : BlockingInteraction
 
     enum class NumericPresentation {
-        Generic,
-        Replicate,
+        Generic(null),
+        Replicate(CastingTimeOptionType.Replicate),
+        Multikicker(CastingTimeOptionType.Multikicker),
+        ;
+
+        val castingTimeOptionType: CastingTimeOptionType?
+
+        constructor(castingTimeOptionType: CastingTimeOptionType?) {
+            this.castingTimeOptionType = castingTimeOptionType
+        }
     }
 
     @ConsistentCopyVisibility

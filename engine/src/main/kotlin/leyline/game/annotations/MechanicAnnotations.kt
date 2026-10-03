@@ -190,6 +190,11 @@ object MechanicAnnotations {
                     annotations.add(AnnotationBuilder.tokenDeleted(instanceId))
                     log.debug("mechanic: tokenDeleted iid={}", instanceId.value)
                 }
+                is GameEvent.PermanentRegenerated -> {
+                    val instanceId = idResolver(ev.cardId)
+                    annotations.add(AnnotationBuilder.permanentRegenerated(instanceId))
+                    log.debug("mechanic: permanentRegenerated iid={}", instanceId.value)
+                }
                 is GameEvent.SpellCast -> {
                     annotations.addAll(
                         TransferAnnotations.castSpellEventAnnotations(

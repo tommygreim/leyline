@@ -17,6 +17,31 @@ interface CardRepository {
 
     fun findGrpIdByName(name: String): Int?
 
+    /**
+     * The value used by Arena's `StaticList.CardNames` selector. This is a
+     * card *title* identity, not a printing/GRP identity: the client expands
+     * one title id to every printing which shares that localized card name.
+     */
+    fun findTitleIdByName(name: String): Int? =
+        (findGrpIdByName(name) ?: findGrpIdByNameAnyFace(name))
+            ?.let(::findByGrpId)
+            ?.titleId
+            ?.takeIf { it > 0 }
+
+    /**
+     * Resolve a batch of Forge card-face names to Arena CardNames title IDs.
+     *
+     * Name-card effects commonly enumerate the complete Forge catalog before
+     * filtering it (for example, all lands). The default keeps repositories
+     * without a bulk backend correct; client-database repositories should
+     * override this to avoid one or more SQL transactions per face.
+     */
+    fun findTitleIdsByName(names: Iterable<String>): Map<String, Int> =
+        names
+            .distinct()
+            .mapNotNull { name -> findTitleIdByName(name)?.let { name to it } }
+            .toMap()
+
     /** Deck-entry lookup. Repositories may accept exact catalog aliases while returning the deck-legal parent. */
     fun findDeckGrpIdByName(name: String): Int? = findGrpIdByName(name)
 
@@ -30,6 +55,10 @@ interface CardRepository {
 
     /** Like [findGrpIdByName] but includes secondary faces and derived forms. */
     fun findGrpIdByNameAnyFace(name: String): Int? = findGrpIdByName(name)
+
+    /** Visible entities include derived/non-primary faces and dungeon cards, not only deck entries. */
+    fun findPresentationGrpIdByName(name: String): Int? =
+        findGrpIdByName(name) ?: findGrpIdByNameAnyFace(name) ?: findTokenGrpIdByName(name)
 
     /** Token-only name lookup. Forge often appends " Token" to the DB display name. */
     fun findTokenGrpIdByName(name: String): Int? = null
@@ -173,6 +202,12 @@ data class AbilityInfo(
     val manaCost: List<Pair<ManaColor, Int>>,
     val category: Int = 0,
     val subCategory: Int = 0,
+    /**
+     * Child ability rows carried by the client-database ability record. Arena
+     * uses these for the separately-addressable work of an enclosing ability,
+     * such as the reflexive "when you do" portion of a triggered ability.
+     */
+    val hiddenAbilityIds: List<Int> = emptyList(),
 )
 
 data class AbilityLocalization(
@@ -216,6 +251,7 @@ object KeywordAbilityIds {
     const val CONVOKE_PAYMENT = 172
 
     // BaseId roots — each printing has its own ability row chaining to this.
+    const val EQUIP = 5
     const val KICKER = 34
     const val FLASHBACK = 35
     const val MADNESS = 36
@@ -256,6 +292,9 @@ object KeywordAbilityIds {
     const val MOBILIZE = 363
     const val WARP = 371
     const val SNEAK = 394
+
+    /** Web-slinging ability base from Arena's AbilityType enum. */
+    const val WEB_SLINGING = 382
     const val PARADIGM = 405
     const val RECONFIGURE = 237
     const val AIRBEND = 8100006
@@ -279,6 +318,9 @@ object KeywordAbilityIds {
         mapOf(
             "WARP" to WARP,
             "SNEAK" to SNEAK,
+            "WEBSLINGING" to WEB_SLINGING,
+            "WEB_SLINGING" to WEB_SLINGING,
+            "WEB-SLINGING" to WEB_SLINGING,
             "OVERLOAD" to OVERLOAD,
             "EVOKE" to EVOKE,
             "BLITZ" to BLITZ,

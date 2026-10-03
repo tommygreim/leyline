@@ -1,14 +1,19 @@
 package leyline.game.annotations
 
+import forge.game.ability.AbilityKey
 import forge.game.zone.ZoneType
 import io.kotest.assertions.assertSoftly
+import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import leyline.bridge.handoff.InteractivePromptBridge
 import leyline.bridge.types.AbilityDefinitionRef
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.ResolvedAbilityIdentity
 import leyline.bridge.types.SeatId
+import leyline.game.event.FrameEventLog
+import leyline.game.event.GameEvent
 import leyline.game.mapping.FrameIdResolver
 import leyline.game.snapshot.GsmSnapshot
 import leyline.game.snapshot.StackEntry
@@ -128,6 +133,77 @@ class TargetSpecAnnotationTest :
                 targetAnn.affectedIdsList.size shouldBe 1
                 targetAnn.detailInt("index") shouldBe 1
                 targetAnn.detailInt("abilityGrpId") shouldBeGreaterThan 0
+            }
+        }
+
+        test("spell TargetSpec follows the same-frame hand-to-stack iid reallocation") {
+            val (b, game) =
+                startWithBoard { _, human, _ ->
+                    addCard("Grizzly Bears", human, ZoneType.Battlefield)
+                    addCard("Murder", human, ZoneType.Hand)
+                }
+            val creature = b.getPlayer(SeatId(1))!!.battlefield.card("Grizzly Bears")
+            val spell = b.getPlayer(SeatId(1))!!.hand.card("Murder")
+            val before = GsmSnapshot.capture(game, b, Board.TEST_MATCH_ID, 1)
+            val baseline =
+                StateMapper.buildFromSnapshot(
+                    before,
+                    1,
+                    Board.TEST_MATCH_ID,
+                    b,
+                    effectFacts = b.materializeEffectProjectionFacts(),
+                    abilityExhaustionFacts = leyline.game.state.AbilityExhaustionFacts(),
+                )
+            b.commitProjection(baseline.transition)
+            val handIid = b.instanceId(spell)
+            b.seat(SeatId(1)).prompt.addPendingTargetSpec(
+                InteractivePromptBridge.PendingTarget(
+                    spellForgeCardId = spell.id,
+                    spellName = spell.name,
+                    affectees =
+                        listOf(
+                            InteractivePromptBridge.PendingTarget.TargetAffectee(targetForgeCardId = creature.id),
+                        ),
+                    index = 1,
+                    affectorInstanceIdAtRecord = handIid,
+                ),
+            )
+            game.action.moveTo(ZoneType.Stack, spell, null, AbilityKey.newMap())
+            val after = GsmSnapshot.capture(game, b, Board.TEST_MATCH_ID, 2)
+            val result =
+                StateMapper.buildFromSnapshot(
+                    after,
+                    2,
+                    Board.TEST_MATCH_ID,
+                    b,
+                    prev = before,
+                    events =
+                        FrameEventLog(
+                            listOf(
+                                GameEvent.SpellCast(
+                                    cardId = ForgeCardId(spell.id),
+                                    seatId = SeatId(1),
+                                    spellGrpId =
+                                        after.boundCards
+                                            .getValue(ForgeCardId(spell.id))
+                                            .snapshot.grpId,
+                                ),
+                            ),
+                        ),
+                    promptFacts = b.materializePromptProjectionFacts(),
+                    effectFacts = b.materializeEffectProjectionFacts(),
+                    mechanicSourceFacts = leyline.game.state.MechanicSourceFacts(),
+                    abilityExhaustionFacts = leyline.game.state.AbilityExhaustionFacts(),
+                )
+
+            val targetSpec = result.gsm.persistentAnnotation(AnnotationType.TargetSpec)
+            val stackIds =
+                result.gsm.zonesList
+                    .filter { it.type == wotc.mtgo.gre.external.messaging.Messages.ZoneType.Stack }
+                    .flatMap { it.objectInstanceIdsList }
+            assertSoftly {
+                targetSpec.affectorId shouldNotBe handIid
+                stackIds shouldContain targetSpec.affectorId
             }
         }
 

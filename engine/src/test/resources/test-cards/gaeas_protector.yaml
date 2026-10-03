@@ -1,0 +1,5 @@
+# Synthetic protocol identity for combat tests; not a client catalog export.
+name: "Gaea's Protector"
+grpId: 900002
+titleId: 900002
+abilities: []

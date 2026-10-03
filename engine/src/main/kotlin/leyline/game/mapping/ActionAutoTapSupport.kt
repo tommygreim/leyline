@@ -1,6 +1,9 @@
 package leyline.game.mapping
 
+import forge.ai.ComputerUtilMana
 import forge.card.mana.ManaCost
+import forge.game.mana.ManaCostBeingPaid
+import forge.game.spellability.SpellAbility
 import leyline.bridge.ActionManaCosts
 import leyline.bridge.getPlayableManaAbilities
 import leyline.bridge.types.ManaColorMapping
@@ -35,58 +38,172 @@ internal object ActionAutoTapSupport {
         val abilityGrpId: Int,
         val fromSnow: Boolean,
         val kindSpec: ManaSpecType?,
+        val sourceSpecs: List<ManaSpecType>,
+        val count: Int = 1,
     )
 
     fun build(
         manaCost: ManaCost,
         context: ActionBuildContext,
+        ability: SpellAbility? = null,
     ): AutoTapSolution? =
-        if (manaCost.any { ManaColorMapping.fromOrTwoGenericShard(it) != null }) {
+        if (ability != null && !manaCost.any { it.isPhyrexian() }) {
+            buildFromForgePlan(manaCost, context, ability)
+        } else if (manaCost.any { it.isPhyrexian() }) {
+            buildWithPhyrexian(manaCost, context)
+        } else if (manaCost.any { ManaColorMapping.fromOrTwoGenericShard(it) != null }) {
             buildOrTwoGenericAutoTapSolution(manaCost, context)
         } else {
             build(ActionManaCosts.forgeManaCostToPairs(manaCost), context)
         }
 
+    private fun buildFromForgePlan(
+        manaCost: ManaCost,
+        context: ActionBuildContext,
+        ability: SpellAbility,
+    ): AutoTapSolution? {
+        // The engine's dry run understands production amounts, floating mana,
+        // and restrictions tied to the spell being paid for. It never taps or
+        // sacrifices the selected sources.
+        val plan =
+            ComputerUtilMana.getManaPaymentPlan(ManaCostBeingPaid(manaCost), ability, context.player, false)
+                ?: return null
+        // Forge's dry-run API returns source abilities, not the chosen color
+        // for a flexible source. Preserve the color-aware predictor there
+        // rather than claiming that its first available color was selected.
+        if (plan.any { manaAbility ->
+                val colors = ActivatedActionEmitter.producedManaColors(manaAbility)
+                colors.size != 1 || ManaColor.AnyColor in colors
+            }
+        ) {
+            return build(ActionManaCosts.forgeManaCostToPairs(manaCost), context, plan.toSet())
+        }
+        val sources =
+            plan.mapNotNull { manaAbility ->
+                val card = manaAbility.hostCard ?: return@mapNotNull null
+                val color = ActivatedActionEmitter.producedManaColors(manaAbility).firstOrNull() ?: return@mapNotNull null
+                val registry = context.abilityRegistry(card, context.cardData(context.grpId(card)))
+                ManaSource(
+                    context.instanceId(card),
+                    color,
+                    registry?.forSpellAbility(manaAbility.definitionId) ?: ActivatedActionEmitter.basicLandAbilityGrpId(card, manaAbility),
+                    card.type.isSnow,
+                    ActivatedActionEmitter.sourceKindSpec(card),
+                    ActivatedActionEmitter.manaSourceSpecs(manaAbility),
+                    manaAbility.amountOfManaGenerated(false).coerceAtLeast(1),
+                ) to color
+            }
+        return buildAutoTapSolution(sources)
+    }
+
+    /**
+     * Build a source-only auto-tap projection for Phyrexian costs.  Life is an
+     * implicit payment source, so a Phyrexian pip may recurse without consuming
+     * a battlefield source.  The actual life payment is applied later from the
+     * ManaType choice stash in CostPaymentCoordinator.
+     */
+    private fun buildWithPhyrexian(
+        manaCost: ManaCost,
+        context: ActionBuildContext,
+    ): AutoTapSolution? {
+        val sources = collectManaSources(context)
+        val shards = manaCost.toList()
+        val used = mutableSetOf<Int>()
+        val matched = mutableListOf<Pair<ManaSource, ManaColor>>()
+
+        fun paySource(
+            color: ManaColor,
+            then: () -> Boolean,
+        ): Boolean {
+            for (source in sources) {
+                if (source.instanceId in used || !canPayRequirement(source, color)) continue
+                used.add(source.instanceId)
+                matched.add(source to source.color)
+                if (then()) return true
+                matched.removeAt(matched.lastIndex)
+                used.remove(source.instanceId)
+            }
+            return false
+        }
+
+        fun payGeneric(
+            count: Int,
+            then: () -> Boolean,
+        ): Boolean {
+            if (count == 0) return then()
+            for (source in sources) {
+                if (source.instanceId in used) continue
+                used.add(source.instanceId)
+                matched.add(source to source.color)
+                if (payGeneric(count - 1, then)) return true
+                matched.removeAt(matched.lastIndex)
+                used.remove(source.instanceId)
+            }
+            return false
+        }
+
+        fun payPip(index: Int): Boolean {
+            if (index == shards.size) return payGeneric(manaCost.genericCost) { true }
+            val shard = shards[index]
+            if (shard == forge.card.mana.ManaCostShard.X || shard == forge.card.mana.ManaCostShard.GENERIC) {
+                return payPip(index + 1)
+            }
+            if (shard.isPhyrexian()) {
+                val colors = ManaColorMapping.phyrexianColors(shard).dropLast(1)
+                return colors.any { color -> paySource(color) { payPip(index + 1) } } || payPip(index + 1)
+            }
+            if (shard.isOr2Generic()) {
+                val color = ManaColorMapping.fromOrTwoGenericShard(shard) ?: return false
+                return paySource(color) { payPip(index + 1) } || payGeneric(2) { payPip(index + 1) }
+            }
+            val color = ManaColorMapping.fromShard(shard) ?: return false
+            return paySource(color) { payPip(index + 1) }
+        }
+
+        return if (payPip(0)) buildAutoTapSolution(matched) else null
+    }
+
     @Suppress("CyclomaticComplexMethod")
     private fun build(
         manaCost: List<Pair<ManaColor, Int>>,
         context: ActionBuildContext,
+        plannedAbilities: Set<SpellAbility>? = null,
     ): AutoTapSolution? {
         if (manaCost.isEmpty()) return null
-        val sources = collectManaSources(context)
+        val sources = collectManaSources(context, plannedAbilities)
 
         val usedSourceInstanceIds = mutableSetOf<Int>()
         val matched = mutableListOf<Pair<ManaSource, ManaColor>>()
-        val coloredReqs = manaCost.filter { it.first != ManaColor.Generic && it.first != ManaColor.X }
-        val genericReqs = manaCost.filter { it.first == ManaColor.Generic }
+        val coloredRequirements =
+            manaCost
+                .filter { it.first != ManaColor.Generic && it.first != ManaColor.X }
+                .flatMap { (color, count) -> List(count) { color } }
+        val genericNeeded = manaCost.filter { it.first == ManaColor.Generic }.sumOf { it.second }
+        if (coloredRequirements.size + genericNeeded > sources.map { it.instanceId }.distinct().size) return null
 
-        for ((reqColor, reqCount) in coloredReqs) {
-            var remaining = reqCount
-            for (src in sources) {
-                if (remaining <= 0) break
-                if (src.instanceId in usedSourceInstanceIds) continue
-                if (canPayRequirement(src, reqColor)) {
-                    usedSourceInstanceIds.add(src.instanceId)
-                    matched.add(src to src.color)
-                    remaining--
-                }
+        // A flexible source can satisfy an earlier pip but be the only source
+        // for a later one. Greedy first-fit then reports an affordable spell as
+        // unpayable, leaving it unhighlighted even though Forge can cast it.
+        fun assign(index: Int): Boolean {
+            if (index == coloredRequirements.size) {
+                val remaining = sources.distinctBy { it.instanceId }.filterNot { it.instanceId in usedSourceInstanceIds }
+                if (remaining.size < genericNeeded) return false
+                remaining.take(genericNeeded).forEach { matched.add(it to it.color) }
+                return true
             }
-            if (remaining > 0) return null
+            val requirement = coloredRequirements[index]
+            for (source in sources) {
+                if (source.instanceId in usedSourceInstanceIds || !canPayRequirement(source, requirement)) continue
+                usedSourceInstanceIds.add(source.instanceId)
+                matched.add(source to if (source.color == ManaColor.AnyColor) requirement else source.color)
+                if (assign(index + 1)) return true
+                matched.removeAt(matched.lastIndex)
+                usedSourceInstanceIds.remove(source.instanceId)
+            }
+            return false
         }
 
-        for ((_, reqCount) in genericReqs) {
-            var remaining = reqCount
-            for (src in sources) {
-                if (remaining <= 0) break
-                if (src.instanceId in usedSourceInstanceIds) continue
-                usedSourceInstanceIds.add(src.instanceId)
-                matched.add(src to src.color)
-                remaining--
-            }
-            if (remaining > 0) return null
-        }
-
-        return buildAutoTapSolution(matched)
+        return if (assign(0)) buildAutoTapSolution(matched) else null
     }
 
     @Suppress("CyclomaticComplexMethod")
@@ -172,11 +289,15 @@ internal object ActionAutoTapSupport {
                 src.color == reqColor
         }
 
-    private fun collectManaSources(context: ActionBuildContext): List<ManaSource> {
+    private fun collectManaSources(
+        context: ActionBuildContext,
+        plannedAbilities: Set<SpellAbility>? = null,
+    ): List<ManaSource> {
         val sources = mutableListOf<ManaSource>()
-        for (card in context.player.getZone(ForgeZoneType.Battlefield).cards) {
+        for (card in context.player.getCardsIn(ForgeZoneType.Battlefield)) {
             if (card.isTapped) continue
             for (sa in getPlayableManaAbilities(card, context.player)) {
+                if (plannedAbilities != null && sa !in plannedAbilities) continue
                 val colors = ActivatedActionEmitter.producedManaColors(sa)
                 if (colors.isEmpty()) continue
                 val instanceId = context.instanceId(card)
@@ -192,6 +313,7 @@ internal object ActionAutoTapSupport {
                             abilityGrpId,
                             fromSnow = card.type.isSnow,
                             kindSpec = ActivatedActionEmitter.sourceKindSpec(card),
+                            sourceSpecs = ActivatedActionEmitter.manaSourceSpecs(sa),
                         ),
                     )
                 }
@@ -213,9 +335,12 @@ internal object ActionAutoTapSupport {
                     .setSrcInstanceId(src.instanceId)
                     .addSpecs(ManaInfo.Spec.newBuilder().setType(ManaSpecType.Predictive))
                     .setAbilityGrpId(src.abilityGrpId)
-                    .setCount(1)
+                    .setCount(src.count)
             if (src.fromSnow) {
                 manaInfo.addSpecs(ManaInfo.Spec.newBuilder().setType(ManaSpecType.FromSnow))
+            }
+            src.sourceSpecs.forEach { spec ->
+                manaInfo.addSpecs(ManaInfo.Spec.newBuilder().setType(spec))
             }
             src.kindSpec?.let { manaInfo.addSpecs(ManaInfo.Spec.newBuilder().setType(it)) }
             builder.addAutoTapActions(

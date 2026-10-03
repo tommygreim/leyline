@@ -18,9 +18,12 @@ import leyline.game.snapshot.SnapshotCapture
 import leyline.game.state.GameBridge
 import leyline.testkit.BoardTest
 import leyline.testkit.SessionTest
+import leyline.testkit.aiPlayer
 import leyline.testkit.haveManaCost
+import leyline.testkit.humanPlayer
 import wotc.mtgo.gre.external.messaging.Messages.Action
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
+import wotc.mtgo.gre.external.messaging.Messages.ManaColor
 
 /**
  * Displayed-cost rule over fixture boards: the cost on an action offer is the
@@ -247,6 +250,100 @@ class CastDisplayCostBoardTest :
             assertSoftly {
                 active.shouldBeEmpty()
                 inactive.single { it.alternativeGrpId == 0 } should haveManaCost(generic = 1, white = 1)
+            }
+        }
+
+        test("Adventure face cost remains visible when sorcery timing forbids its cast") {
+            val (b, game, _) =
+                startWithBoard { g, human, ai ->
+                    addCard("Hearth Elemental", human, ZoneType.Hand)
+                    repeat(4) { addCard("Lightning Bolt", human, ZoneType.Graveyard) }
+                    addCard("Mountain", human)
+                    g.phaseHandler.devModeSet(PhaseType.MAIN1, ai)
+                }
+
+            val (creatureActive, creatureInactive) = castOffers(b, game, "Hearth Elemental")
+            val (adventureActive, adventureInactive) = castOffers(b, game, "Hearth Elemental", ActionType.CastAdventure)
+            assertSoftly {
+                creatureActive.shouldBeEmpty()
+                creatureInactive.single() should haveManaCost(generic = 1, red = 1)
+                adventureActive.shouldBeEmpty()
+                adventureInactive.single() should haveManaCost(generic = 1, red = 1)
+            }
+
+            val naive = ActionMapper.buildNaiveActionsFromSnapshot(SessionTest.HUMAN_SEAT, SnapshotCapture.run(game, b, "test", 0), b)
+            val cardId = b.instanceId(game.humanPlayerCard("Hearth Elemental"))
+            assertSoftly {
+                naive.actionsList.single { it.instanceId == cardId && it.actionType == ActionType.Cast } should
+                    haveManaCost(generic = 1, red = 1)
+                naive.actionsList.single { it.instanceId == cardId && it.actionType == ActionType.CastAdventure } should
+                    haveManaCost(generic = 1, red = 1)
+                game.humanPlayerCard("Hearth Elemental").currentStateName shouldBe forge.card.CardStateName.Original
+            }
+        }
+
+        test("active Hearth creature reduction does not reduce Stoke Genius") {
+            val (b, game, _) =
+                startWithBoard { _, human, _ ->
+                    addCard("Hearth Elemental", human, ZoneType.Hand)
+                    repeat(5) { addCard("Lightning Bolt", human, ZoneType.Graveyard) }
+                    repeat(2) { addCard("Mountain", human) }
+                }
+
+            val (creatureActive, _) = castOffers(b, game, "Hearth Elemental")
+            val (adventureActive, _) = castOffers(b, game, "Hearth Elemental", ActionType.CastAdventure)
+            assertSoftly {
+                creatureActive.single() should haveManaCost(red = 1)
+                adventureActive.single() should haveManaCost(generic = 1, red = 1)
+                game.humanPlayerCard("Hearth Elemental").currentStateName shouldBe forge.card.CardStateName.Original
+            }
+        }
+
+        test("room doors keep both costs when their casts are timing restricted") {
+            val (b, game, _) =
+                startWithBoard { g, human, ai ->
+                    addCard("Surgical Suite // Hospital Room", human, ZoneType.Hand)
+                    addCard("Plains", human)
+                    g.phaseHandler.devModeSet(PhaseType.MAIN1, ai)
+                }
+
+            val (leftActive, leftInactive) = castOffers(b, game, "Surgical Suite // Hospital Room", ActionType.CastLeftRoom)
+            val (rightActive, rightInactive) = castOffers(b, game, "Surgical Suite // Hospital Room", ActionType.CastRightRoom)
+            assertSoftly {
+                leftActive.shouldBeEmpty()
+                rightActive.shouldBeEmpty()
+                leftInactive.single() should haveManaCost(generic = 1, white = 1)
+                rightInactive.single() should haveManaCost(generic = 3, white = 1)
+            }
+
+            val naive = ActionMapper.buildNaiveActionsFromSnapshot(SessionTest.HUMAN_SEAT, SnapshotCapture.run(game, b, "test", 0), b)
+            val roomInstanceId = b.instanceId(game.humanPlayerCard("Surgical Suite // Hospital Room"))
+            val roomActions = naive.actionsList.filter { it.instanceId == roomInstanceId }
+            assertSoftly {
+                roomActions.single { it.actionType == ActionType.CastLeftRoom } should haveManaCost(generic = 1, white = 1)
+                roomActions.single { it.actionType == ActionType.CastRightRoom } should haveManaCost(generic = 3, white = 1)
+                roomActions.none { it.actionType == ActionType.Cast } shouldBe true
+            }
+
+            game.phaseHandler.devModeSet(PhaseType.MAIN1, game.humanPlayer)
+            castOffers(b, game, "Surgical Suite // Hospital Room", ActionType.CastRightRoom)
+                .second
+                .single() should haveManaCost(generic = 3, white = 1)
+        }
+
+        test("hand cost keeps printed color order across priority changes") {
+            val (b, game, _) =
+                startWithBoard { _, human, _ ->
+                    addCard("Glarb, Calamity's Augur", human, ZoneType.Hand)
+                }
+            val printedColors = listOf(ManaColor.Black_afc9, ManaColor.Green_afc9, ManaColor.Blue_afc9)
+            castOffers(b, game, "Glarb, Calamity's Augur").let { (active, inactive) ->
+                (active + inactive).single().manaCostList.map { it.colorList.single() } shouldBe printedColors
+            }
+            game.phaseHandler.devModeSet(PhaseType.MAIN1, game.aiPlayer)
+            castOffers(b, game, "Glarb, Calamity's Augur").let { (active, inactive) ->
+                active.shouldBeEmpty()
+                inactive.single().manaCostList.map { it.colorList.single() } shouldBe printedColors
             }
         }
 

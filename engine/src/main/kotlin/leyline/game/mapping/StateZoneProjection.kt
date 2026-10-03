@@ -94,6 +94,14 @@ object StateZoneProjection {
                 .setVisibility(originalZone.visibility)
                 .also { builder -> originalZone.owner?.let { builder.setOwnerSeatId(it.value) } }
         val gameObjects = mutableListOf<GameObjectInfo>()
+        val selectedModalAbilityGrpIds =
+            if (arenaZoneId == ZoneIds.STACK) {
+                snap.stack.entries
+                    .filter { it.isSpell && it.selectedModalAbilityGrpIds.isNotEmpty() }
+                    .associate { it.forgeCardId to it.selectedModalAbilityGrpIds }
+            } else {
+                emptyMap()
+            }
         for (forgeCardId in originalZone.contents) {
             val bound = snap.boundCards[forgeCardId] ?: continue
             val card = bound.snapshot
@@ -101,18 +109,26 @@ object StateZoneProjection {
             val instanceId = instanceIdLookup(forgeCardId).value
             zoneBuilder.addObjectInstanceIds(instanceId)
             gameObjects +=
-                ObjectMapper.buildFromSnapshot(
-                    card,
-                    instanceId,
-                    arenaZoneId,
-                    card.owner.value,
-                    environment.cardProto,
-                    Visibility.Public,
-                    keywordSnapshot,
-                    parentLinkage = bound.parentLinkage,
-                    earthbend = earthbendProjection(forgeCardId),
-                    grantedAbilitySnapshot = grantedAbilitySnapshot,
-                )
+                ObjectMapper
+                    .buildFromSnapshot(
+                        card,
+                        instanceId,
+                        arenaZoneId,
+                        card.owner.value,
+                        environment.cardProto,
+                        if (card.isFaceDownExile) Visibility.Private else Visibility.Public,
+                        keywordSnapshot,
+                        parentLinkage = bound.parentLinkage,
+                        earthbend = earthbendProjection(forgeCardId),
+                        grantedAbilitySnapshot = grantedAbilitySnapshot,
+                        abilityGrpIdsOverride = selectedModalAbilityGrpIds[forgeCardId],
+                    ).let { obj ->
+                        if (card.isFaceDownExile && card.mayLookSeatIds.isNotEmpty()) {
+                            obj.toBuilder().addAllViewers(card.mayLookSeatIds.map { it.value }).build()
+                        } else {
+                            obj
+                        }
+                    }
         }
         return SharedZoneProjection(zoneBuilder.build(), gameObjects.toList())
     }

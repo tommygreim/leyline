@@ -449,7 +449,7 @@ class MatchCutCoordinatorBlockingTest :
             val invalidRows =
                 listOf(
                     listOf(DamageAssignmentRow(slots[0].instanceId, 1), DamageAssignmentRow(slots[1].instanceId, 2)),
-                    listOf(DamageAssignmentRow(slots[1].instanceId, 1), DamageAssignmentRow(slots[0].instanceId, 2)),
+                    listOf(DamageAssignmentRow(Int.MAX_VALUE, 1), DamageAssignmentRow(slots[0].instanceId, 2)),
                     listOf(DamageAssignmentRow(slots[0].instanceId, 4), DamageAssignmentRow(slots[1].instanceId, -1)),
                     listOf(DamageAssignmentRow(slots[0].instanceId, 2), DamageAssignmentRow(slots[1].instanceId, 2)),
                 )
@@ -480,7 +480,8 @@ class MatchCutCoordinatorBlockingTest :
                 listOf(
                     DamageAssignmentCommand(
                         assigner.instanceId,
-                        listOf(DamageAssignmentRow(slots[0].instanceId, 2), DamageAssignmentRow(slots[1].instanceId, 1)),
+                        // Arena can return rows in the reverse of request order.
+                        listOf(DamageAssignmentRow(slots[1].instanceId, 1), DamageAssignmentRow(slots[0].instanceId, 2)),
                         0,
                     ),
                 ),

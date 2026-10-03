@@ -2,6 +2,7 @@ package leyline.bridge.coord
 
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.SeatId
+import leyline.game.PlaybackCutReason
 import leyline.game.PlaybackCutRequest
 import leyline.game.bundle.BundleBuilder
 import leyline.game.event.DamageSourceKind
@@ -23,7 +24,17 @@ internal object CombatPlaybackFramePlanner {
         sourceControllerSeats: Map<ForgeCardId, Int>,
     ): List<BundleBuilder.PlaybackFrameSpec> {
         if (!events.events.shouldSplitCombatDamageWindow()) {
-            return listOf(BundleBuilder.PlaybackFrameSpec(events, turnStarted = request.turnStarted))
+            return listOf(
+                BundleBuilder.PlaybackFrameSpec(
+                    events,
+                    turnStarted = request.turnStarted,
+                    // Arena's compulsory draw frame is only a zone transfer.
+                    // Advertising the newly drawn card as castable in that same
+                    // frame makes the client stage it at screen centre before
+                    // the later priority frame moves it into the hand.
+                    embedActions = request.reason != PlaybackCutReason.DrawStep,
+                ),
+            )
         }
         val damageFrames =
             events.events.combatDamageFrames(defaultSeat, currentTurnSeat, matchSeats, sourceControllerSeats)

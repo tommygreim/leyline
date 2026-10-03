@@ -96,6 +96,47 @@ class MatchSearchInteractionRuntimeTest :
             return checkNotNull(published)
         }
 
+        test("opponent library search exposes the full searched library to its chooser") {
+            val board = startPuzzleAtMain1(puzzle.replace("ailibrary=Forest", "ailibrary=Mountain;Forest;Forest"))
+            val coordinator = board.bridge.cutCoordinator
+            coordinator.drain(SeatId(1))
+            val candidates =
+                board.ai
+                    .getZone(ZoneType.Library)
+                    .cards
+                    .filter { it.name == "Forest" }
+            val base = request(board)
+            val searchRequest =
+                base.copy(
+                    options = candidates.map { it.name },
+                    candidateRefs =
+                        candidates.mapIndexed { index, card ->
+                            PromptCandidateRefDto(index, PromptCandidateKind.Card, card.id, ZoneType.Library.name)
+                        },
+                )
+            val finished = CountDownLatch(1)
+            Thread {
+                coordinator.search.awaitSearch(searchRequest, 3_000)
+                finished.countDown()
+            }.start()
+            val published = awaitPublished(coordinator)
+            val batch = coordinator.drain(SeatId(1)).flatten()
+            val search = batch.single { it.hasSearchReq() }.searchReq
+            search.zonesToSearchList shouldContainExactly listOf(ZoneIds.libraryOf(SeatId(2)))
+            search.itemsToSearchCount shouldBe 3
+            search.itemsSoughtCount shouldBe 2
+            val objects =
+                batch
+                    .filter {
+                        it.hasGameStateMessage()
+                    }.flatMap { it.gameStateMessage.gameObjectsList }
+                    .associateBy { it.instanceId }
+            search.itemsToSearchList.forEach { id -> objects.getValue(id).grpId shouldBeGreaterThan 0 }
+            coordinator.acceptSettled(leyline.testkit.searchResp(listOf(search.itemsSoughtList.first())), published.gameStateId) shouldBe
+                true
+            finished.await(3, TimeUnit.SECONDS) shouldBe true
+        }
+
         test("initial cut publishes library objects and SearchReq atomically") {
             val board = startPuzzleAtMain1(puzzle)
             val coordinator = board.bridge.cutCoordinator

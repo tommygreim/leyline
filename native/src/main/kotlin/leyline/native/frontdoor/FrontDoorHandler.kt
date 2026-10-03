@@ -25,7 +25,7 @@ import leyline.domain.service.DraftService
 import leyline.domain.service.EventRegistry
 import leyline.domain.service.MatchCoordinator
 import leyline.domain.service.MatchmakingService
-import leyline.native.account.LocalAccountAuthenticator
+import leyline.native.AccountAuthenticator
 import leyline.native.frontdoor.service.LobbyStubs
 import leyline.native.frontdoor.service.PlayerService
 import leyline.native.frontdoor.wire.CmdType
@@ -55,7 +55,7 @@ import java.util.UUID
  * and responses go through [FdResponseWriter].
  */
 class FrontDoorHandler(
-    authenticator: LocalAccountAuthenticator,
+    authenticator: AccountAuthenticator,
     private val deckRepository: DeckRepository,
     private val playerService: PlayerService,
     private val matchmaking: MatchmakingService,

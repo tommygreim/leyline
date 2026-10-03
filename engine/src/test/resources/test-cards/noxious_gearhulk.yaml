@@ -1,0 +1,5 @@
+# Synthetic protocol identity for combat tests; not a client catalog export.
+name: "Noxious Gearhulk"
+grpId: 900001
+titleId: 900001
+abilities: []

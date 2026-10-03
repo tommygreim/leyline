@@ -41,7 +41,7 @@ class PriorityActionCandidates private constructor(
             player: Player,
         ): PriorityActionCandidates {
             val handIds = player.getZone(ZoneType.Hand).cards.mapTo(mutableSetOf()) { it.id }
-            val battlefieldIds = player.getZone(ZoneType.Battlefield).cards.mapTo(mutableSetOf()) { it.id }
+            val battlefieldIds = player.getCardsIn(ZoneType.Battlefield).mapTo(mutableSetOf()) { it.id }
             return PriorityActionCandidates(
                 candidateCards(game, player).associate { card ->
                     card.id to buildCandidate(card, player, handIds, battlefieldIds)
@@ -55,7 +55,7 @@ class PriorityActionCandidates private constructor(
             isOwnTurn: Boolean = game.phaseHandler.playerTurn == player,
         ): Boolean {
             val handIds = player.getZone(ZoneType.Hand).cards.mapTo(mutableSetOf()) { it.id }
-            val battlefieldIds = player.getZone(ZoneType.Battlefield).cards.mapTo(mutableSetOf()) { it.id }
+            val battlefieldIds = player.getCardsIn(ZoneType.Battlefield).mapTo(mutableSetOf()) { it.id }
             return candidateCards(game, player).any { card ->
                 val candidate = buildCandidate(card, player, handIds, battlefieldIds)
                 candidate.casts.any { ActionAvailability.canExecute(it, player) } ||
@@ -71,7 +71,7 @@ class PriorityActionCandidates private constructor(
         ): List<Card> =
             (
                 player.getZone(ZoneType.Hand).cards +
-                    player.getZone(ZoneType.Battlefield).cards +
+                    player.getCardsIn(ZoneType.Battlefield) +
                     game.getCardsIn(
                         listOf(
                             ZoneType.Graveyard,
@@ -87,15 +87,18 @@ class PriorityActionCandidates private constructor(
             handIds: Set<Int>,
             battlefieldIds: Set<Int>,
         ): CardCandidates {
+            // A land's MayPlay option must travel with the LandAbility.  A
+            // bare LandAbility retains Forge's Hand restriction and makes a
+            // legal graveyard/exile land look non-executable.
             val landAbility =
-                if (card.id in handIds && card.isLand) {
-                    LandAbility(card, card.currentState).also { it.activatingPlayer = player }
+                if (card.id in handIds || card.mayPlay(player).any { it.grantsZonePermissions() }) {
+                    buildLandPlayAbility(card, player)
                 } else {
                     null
                 }
             val mdfcLandAbility =
-                if (card.id in handIds) {
-                    buildMdfcBackLandAbility(card)?.also { it.activatingPlayer = player }
+                if (card.id in handIds || card.mayPlay(player).any { it.grantsZonePermissions() }) {
+                    buildMdfcBackLandAbility(card, player)
                 } else {
                     null
                 }

@@ -2,6 +2,12 @@ package leyline.game.mapping
 
 /** Protocol prompt IDs matching expected protocol values. */
 object PromptIds {
+    /** PromptParameter labels used by the native dynamic binary-choice workflow. */
+    const val ADD_COUNTER = 1203
+    const val REMOVE_COUNTER = 1204
+    const val CHOOSE_NONCREATURE_NONLAND_CARD = 1243
+    const val CHOOSE_NONLAND_CARD = 1032
+
     /** Protocol error envelope; this ID has no player-visible localization. */
     const val ILLEGAL_REQUEST = 3
 
@@ -12,11 +18,25 @@ object PromptIds {
     const val ORDER_BLOCKERS = 7
     const val ASSIGN_DAMAGE = 8
     const val SELECT_TARGETS = 10
+    const val TARGET_PERMANENT = 1006
+    const val TARGET_PLAYER = 1019
+    const val TARGET_SPELL = 1022
+    const val TARGET_ARTIFACT = 1023
+    const val TARGET_OPPONENT = 1038
+    const val TARGET_LAND = 1047
+    const val TARGET_PLANESWALKER = 1069
+    const val TARGET_ENCHANTMENT = 1126
+    const val TARGET_SPELL_OR_PERMANENT = 1390
     const val TARGET_CREATURE_YOU_CONTROL = 152
     const val TARGET_CREATURE = 1010
     const val TARGET_CREATURE_YOU_DONT_CONTROL = 1112
     const val TARGET_CREATURE_OR_PLANESWALKER_YOU_DONT_CONTROL = 2401
     const val CHOOSE_ANY_TARGET = 11869
+    const val TARGET_PLAYER_DRAWS_X = 15755
+    const val DEAL_THREE_DAMAGE_TO_ANY_TARGET = 15845
+    const val DEAL_FOUR_DAMAGE_TO_ANY_TARGET = 14412
+    const val DEAL_X_DAMAGE_TO_ANY_TARGET = 15850
+    const val RETURN_TARGET_SPELL_OR_PERMANENT_TO_HAND = 14411
     const val PAY_COSTS = 11
     const val CASTING_TIME_OPTIONS = 23
 
@@ -63,6 +83,12 @@ object PromptIds {
     /** Optional single-card discard — "Discard a card?" */
     const val DISCARD_OPTIONAL = 4482
 
+    /** Optional whole-hand discard — "Discard your hand?" */
+    const val DISCARD_HAND_OPTIONAL = 8606
+
+    /** Winternight Stories-style alternate — "Discard a creature card?" */
+    const val DISCARD_CREATURE_OPTIONAL = 8771
+
     /** Optional two-card discard — "Discard up to two cards." */
     const val DISCARD_UP_TO_TWO = 4064
 
@@ -73,8 +99,14 @@ object PromptIds {
     /** Semantically neutral fallback for a "you may" decision. */
     const val OPTIONAL_ACTION = 23
 
+    /** Optional basic-land search — "Search your library for a basic land card?" */
+    const val SEARCH_BASIC_LAND_OPTIONAL = 1250
+
     /** Optional X-mana payment — "Pay {X}?" */
     const val OPTIONAL_PAY_X = 1159
+
+    /** Fixed energy-payment questions in the native prompt catalog. */
+    val OPTIONAL_PAY_ENERGY = mapOf(1 to 1151, 2 to 1150, 3 to 12672, 4 to 13635)
     const val DREDGE_THIS_CARD = 89
 
     /** Commander zone replacement decision: "Move your commander to the command zone?" */
@@ -179,11 +211,24 @@ object PromptIds {
     /** Station activation cost — "Tap a creature to add charge counters equal to its power." */
     const val STATION_TAP_COST = 14726
 
+    /** Combat-warning prompt IDs from Arena's PromptMessage enum. */
+    const val WARNING_INSUFFICIENT_BLOCKERS = 117
+    const val WARNING_BLOCKER_CANNOT_BLOCK_ALONE = 119
+    const val WARNING_ATTACKER_CANNOT_ATTACK_ALONE = 120
+    const val WARNING_ATTACKER_MUST_BE_BLOCKED = 121
+    const val WARNING_MUST_ATTACK_WITH_AT_LEAST_ONE = 122
+    const val WARNING_MUST_ATTACK = 124
+    const val WARNING_MUST_BLOCK = 125
+    const val WARNING_ATTACKER_MUST_BE_BLOCKED_BY_ALL = 130
+
     /** Frantic Scapegoat trigger — "Suspect one of those creatures?" */
     const val SUSPECT_ONE_OF_THOSE_CREATURES = 12761
 
     /** Ninjutsu activation cost — "Return an unblocked attacking creature you control to its owner's hand." */
     const val NINJUTSU_RETURN_UNBLOCKED_ATTACKER_COST = 8580
+
+    /** Web-slinging additional cost: return a tapped creature you control. */
+    const val WEB_SLINGING_RETURN_TAPPED_CREATURE_COST = 15006
 
     /** sourceId on SelectNReq for legend rule. */
     const val SELECT_N_LEGEND_RULE_SOURCE = 15168

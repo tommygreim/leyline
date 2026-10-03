@@ -194,10 +194,11 @@ internal class MatchModalChoiceRuntime(
         pending: Window,
         selectedGrpIds: List<Int>,
     ) {
-        if (selectedGrpIds.singleOrNull() != null) {
-            owner.bridge.recordSelectedModalAbilityGrpId(
+        if (selectedGrpIds.isNotEmpty()) {
+            owner.bridge.recordSelectedModalAbilityGrpIds(
                 pending.value.sourceForgeCardId,
-                selectedGrpIds.single(),
+                pending.value.sourceForgeAbilityId,
+                selectedGrpIds,
             )
         }
     }

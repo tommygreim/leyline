@@ -256,6 +256,37 @@ class MechanicAnnotationPipelineTest :
             }
         }
 
+        test("permanentRegeneratedProducesOneAnnotationPerForgeEvent") {
+            val events =
+                listOf(
+                    GameEvent.PermanentRegenerated(ForgeCardId(88)),
+                    GameEvent.PermanentRegenerated(ForgeCardId(89)),
+                )
+            val annotations = MechanicAnnotations.mechanicAnnotations(events, idResolver = ::testResolver).transient
+
+            assertSoftly {
+                annotations.map { it.typeList.single() } shouldBe
+                    listOf(AnnotationType.PermanentRegenerated, AnnotationType.PermanentRegenerated)
+                annotations.map { it.affectedIdsList.single() } shouldBe listOf(1088, 1089)
+                annotations.all { it.affectorId == 0 } shouldBe true
+            }
+        }
+
+        test("ordinaryDamageEventDoesNotProduceRegeneratedAnnotation") {
+            val events =
+                listOf(
+                    GameEvent.DamageDealtToCard(
+                        sourceCardId = ForgeCardId(1),
+                        targetCardId = ForgeCardId(88),
+                        amount = 1,
+                        sourceKind = DamageSourceKind.Combat,
+                    ),
+                )
+            val annotations = MechanicAnnotations.mechanicAnnotations(events, idResolver = ::testResolver).transient
+
+            annotations.none { AnnotationType.PermanentRegenerated in it.typeList } shouldBe true
+        }
+
         // -- PowerToughnessChanged --
 
         test("powerToughnessChangedBothAnnotations") {
