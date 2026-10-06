@@ -14,7 +14,6 @@ import leyline.bridge.types.ResolvedAbilityIdentity
 import leyline.game.bundle.BundleBuilder
 import leyline.game.bundle.LogicalSequencePlanner
 import leyline.game.bundle.TargetingWindowMaterializer
-import leyline.game.mapping.FrameIdResolver
 import leyline.game.snapshot.BoundCard
 import leyline.game.state.ProjectionState
 import java.util.UUID
@@ -107,6 +106,11 @@ internal class MatchTargetingInteractionRuntime(
         gameStateId: Int,
     ): TargetingCommandReceipt? = submit(TargetingCommand.Cancel(interactionId, gameStateId))
 
+    fun undo(
+        interactionId: String,
+        gameStateId: Int,
+    ): TargetingCommandReceipt? = submit(TargetingCommand.Undo(interactionId, gameStateId))
+
     fun acknowledgeDelivery(
         interactionId: String,
         token: Long,
@@ -181,12 +185,7 @@ internal class MatchTargetingInteractionRuntime(
                         entitiesByOptionIndex = capture.resolveEntities(value),
                         stackAbilitiesByOptionIndex = capture.resolveStackAbilities(value),
                         instanceIdByOptionIndex = capture.resolveInstanceIds(value, projection),
-                        sourceInstanceId =
-                            value.forgeAbilityId
-                                .takeIf { (value.isTriggeredAbility || value.isActivatedAbility) && it != 0 }
-                                ?.let(FrameIdResolver::triggerStackAbilityForgeId)
-                                ?.let(projection.identities.forgeIdToInstanceId::get)
-                                ?: value.sourceForgeCardId?.let(projection.identities.forgeIdToInstanceId::get),
+                        sourceInstanceId = TargetingWindowMaterializer.projectedSourceInstanceId(value, projection, runtimeSeat.value),
                         exchange =
                             InteractiveCommandExchange(
                                 deadlineNanos = timeoutMs?.let { System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(it) },
@@ -208,6 +207,12 @@ internal class MatchTargetingInteractionRuntime(
             when (command) {
                 is TargetingCommand.Toggle -> {
                     applyToggles(pending, command)
+                    publishRePrompt(pending, command)
+                }
+                is TargetingCommand.Undo -> {
+                    if (pending.selectedOptionIndices.isNotEmpty()) {
+                        pending.selectedOptionIndices.removeAt(pending.selectedOptionIndices.lastIndex)
+                    }
                     publishRePrompt(pending, command)
                 }
                 is TargetingCommand.Submit -> {
@@ -245,7 +250,7 @@ internal class MatchTargetingInteractionRuntime(
 
     private fun publishRePrompt(
         pending: TargetingWindow,
-        command: TargetingCommand.Toggle,
+        command: TargetingCommand,
     ) {
         val selected = pending.selectedOptionIndices.toSet()
         val legal =
@@ -262,7 +267,7 @@ internal class MatchTargetingInteractionRuntime(
                 val prior = owner.bridge.projectionStateSnapshot()
                 val planner = LogicalSequencePlanner(prior.sequence)
                 val current =
-                    matching(pending.interactionId, command.gameStateId, requireIdle = false)
+                    matching(pending.interactionId, commandGameStateId(command), requireIdle = false)
                         ?: owner.fail(IllegalStateException("Targeting window changed during re-prompt"))
                 val feed = owner.feed(runtimeSeat)
                 val value =
@@ -445,6 +450,7 @@ internal class MatchTargetingInteractionRuntime(
             is TargetingCommand.Toggle -> command.interactionId
             is TargetingCommand.Submit -> command.interactionId
             is TargetingCommand.Cancel -> command.interactionId
+            is TargetingCommand.Undo -> command.interactionId
             is TargetingCommand.Terminal -> "terminal"
         }
 
@@ -453,6 +459,7 @@ internal class MatchTargetingInteractionRuntime(
             is TargetingCommand.Toggle -> command.gameStateId
             is TargetingCommand.Submit -> command.gameStateId
             is TargetingCommand.Cancel -> command.gameStateId
+            is TargetingCommand.Undo -> command.gameStateId
             is TargetingCommand.Terminal -> 0
         }
 }

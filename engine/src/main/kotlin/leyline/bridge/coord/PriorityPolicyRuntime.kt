@@ -25,6 +25,7 @@ internal data class PriorityWindowObservation(
     val turn: Int = 0,
     val playerId: Int = 1,
     val stack: List<PriorityStackObject> = emptyList(),
+    val ownStackTargetsOwnPermanent: Boolean = false,
 )
 
 internal sealed interface PriorityWindowDecision {
@@ -48,7 +49,13 @@ private enum class PriorityWindowReason(
     TURN_YIELD(false),
     STACK_YIELD(false),
     NO_EXECUTABLE_ACTION(false),
-    OWN_STACK(true),
+
+    OWN_TARGET_RESPONSE(true),
+
+    // AutoPassPriority.Yes does not describe the server's smart-stop policy.
+    // Ordinary own-stack effects auto-resolve unless a response-worthy state,
+    // Full Control, an explicit hold, or a phase/transient stop takes precedence.
+    OWN_STACK(false),
     OPPONENT_STACK(true),
     ENABLED_PHASE(true),
     PHASE_NOT_ENABLED(false),
@@ -250,6 +257,8 @@ class PriorityPolicyRuntime(
                     settings.autoPassOption == AutoPassOption.UnlessOpponentAction -> PriorityWindowReason.TURN_YIELD
                     settings.stackAutoPassOption == AutoPassOption.ResolveAll -> PriorityWindowReason.STACK_YIELD
                     !observation.hasMeaningfulAction -> PriorityWindowReason.NO_EXECUTABLE_ACTION
+                    settings.smartStopsSetting == SmartStopsSetting.Enable_a188 &&
+                        observation.ownStackTargetsOwnPermanent -> PriorityWindowReason.OWN_TARGET_RESPONSE
                     !observation.stackEmpty &&
                         observation.stack.firstOrNull()?.controllerId == observation.playerId -> PriorityWindowReason.OWN_STACK
                     !observation.stackEmpty -> PriorityWindowReason.OPPONENT_STACK

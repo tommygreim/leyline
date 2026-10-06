@@ -591,10 +591,10 @@ private fun expectedPersistentShapes(
             affectorId = keywordAffectorIid,
             details =
                 listOf(
-                    "grpid" to 8,
                     "effect_id" to 7010,
-                    "originalAbilityObjectZcid" to keywordAffectorIid,
+                    "grpid" to 8,
                     "UniqueAbilityId" to 7011,
+                    "originalAbilityObjectZcid" to keywordAffectorIid,
                 ),
         ),
         expectedAnnotation(

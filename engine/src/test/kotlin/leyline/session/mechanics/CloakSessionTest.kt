@@ -43,6 +43,13 @@ class CloakSessionTest :
             val coat = human.getZone(ZoneType.Battlefield).cards.single { it.name == "Cryptic Coat" }
             val cloakedIid = bridge.instanceId(cloaked)
             val coatIid = bridge.instanceId(coat)
+            lastSelectNReq().idsList shouldBe listOf(cloakedIid)
+            respondToSelectN(listOf(cloakedIid))
+            passUntil(maxPasses = 6) {
+                allMessages.allActions().any {
+                    it.actionType == ActionType.SpecialTurnFaceUp_add3 && it.instanceId == cloakedIid
+                }
+            } shouldBe true
             val offer =
                 allMessages
                     .allActions()

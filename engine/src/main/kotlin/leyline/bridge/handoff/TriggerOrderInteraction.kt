@@ -13,6 +13,7 @@ data class TriggerOrderOptionValue(
     val sourceCardGrpId: Int,
     val ownerSeatId: SeatId,
     val controllerSeatId: SeatId,
+    val abilityOriginalCardGrpId: Int = 0,
 )
 
 /**

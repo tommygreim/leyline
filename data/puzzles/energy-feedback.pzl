@@ -1,0 +1,16 @@
+[metadata]
+Name:Energy counter feedback from a resolving permanent
+Goal:Survive
+Turns:3
+Difficulty:Easy
+Description:Cast Glint-Sleeve Siphoner and observe its entry energy gain.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanbattlefield=Swamp;Swamp
+humanhand=Glint-Sleeve Siphoner
+humanlibrary=Forest;Forest;Forest;Forest
+ailibrary=Mountain;Mountain;Mountain;Mountain

@@ -14,6 +14,7 @@ import leyline.testkit.BundleBuilderTestSupport
 import leyline.testkit.haveManaCost
 import wotc.mtgo.gre.external.messaging.Messages.Action
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
+import wotc.mtgo.gre.external.messaging.Messages.ManaColor
 
 /**
  * `ActionMapper.buildNaiveActionsFromSnapshot` — the action list embedded in
@@ -66,7 +67,8 @@ class NaiveActionsTest :
                 startWithBoard { _, human, _ ->
                     val crab = addCard("Eddymurk Crab", human, ZoneType.Hand)
                     crabId = crab.id
-                    repeat(5) { addCard("Lightning Bolt", human, ZoneType.Graveyard) }
+                    repeat(4) { addCard("Lightning Bolt", human, ZoneType.Graveyard) }
+                    addCard("Island", human, ZoneType.Battlefield)
                     addCard("Island", human, ZoneType.Battlefield)
                     addCard("Island", human, ZoneType.Battlefield)
                 }
@@ -93,10 +95,27 @@ class NaiveActionsTest :
                     .action
 
             assertSoftly {
-                // Printed {5}{U}{U}; five graveyard instants reduce it to {U}{U}.
-                legalAction should haveManaCost(blue = 2)
-                naiveAction should haveManaCost(blue = 2)
-                embeddedGsmAction should haveManaCost(blue = 2)
+                // Printed {5}{U}{U}; four graveyard instants reduce it to {1}{U}{U}.
+                legalAction should haveManaCost(generic = 1, blue = 2)
+                naiveAction should haveManaCost(generic = 1, blue = 2)
+                embeddedGsmAction should haveManaCost(generic = 1, blue = 2)
+                // The Arena client renders the generic component first. Keep
+                // the ordering stable across live, naive, and embedded rails.
+                legalAction.manaCostList.map { it.colorList to it.count } shouldBe
+                    listOf(
+                        listOf(ManaColor.Generic) to 1,
+                        listOf(ManaColor.Blue_afc9) to 2,
+                    )
+                naiveAction.manaCostList.map { it.colorList to it.count } shouldBe
+                    listOf(
+                        listOf(ManaColor.Generic) to 1,
+                        listOf(ManaColor.Blue_afc9) to 2,
+                    )
+                embeddedGsmAction.manaCostList.map { it.colorList to it.count } shouldBe
+                    listOf(
+                        listOf(ManaColor.Generic) to 1,
+                        listOf(ManaColor.Blue_afc9) to 2,
+                    )
             }
         }
 

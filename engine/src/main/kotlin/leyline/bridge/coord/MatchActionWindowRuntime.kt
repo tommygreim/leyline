@@ -1,5 +1,6 @@
 package leyline.bridge.coord
 
+import forge.game.Game
 import leyline.bridge.handoff.DeclarationAnswer
 import leyline.bridge.handoff.GameActionBridge
 import leyline.bridge.handoff.PendingActionKind
@@ -544,19 +545,12 @@ internal class MatchActionWindowRuntime(
             if (hasAmbiguousActionCatalog(result.actionOffers)) {
                 owner.fail(IllegalStateException("Ambiguous action offer catalog"))
             }
-            val created =
+            val initialTransition = checkNotNull(actionPrepared.transition)
+            // Deferred-cost hints may resolve new token/source identities. Keep
+            // those edits in this cut, not in the already-committed projection.
+            val (created, catalogProjection) =
                 try {
-                    createRuntimeActionWindow(
-                        seatId,
-                        pending,
-                        actionPrepared,
-                        messages,
-                        promptGsId,
-                        nextToken = { nextActionToken++ },
-                        materializeDeferredCost = { _, offer ->
-                            DeferredCastCostPlanMaterializer.materialize(owner.bridge, offer) { nextActionToken++ }
-                        },
-                    ).copy(combat = RuntimeCombatWindow.capture(owner, game, messages))
+                    captureRuntimeCatalog(seatId, pending, actionPrepared, messages, promptGsId, game)
                 } catch (ex: Exception) {
                     nextActionToken = tokenBefore
                     owner.fail(ex)
@@ -574,7 +568,7 @@ internal class MatchActionWindowRuntime(
                         prior,
                         planner,
                         outputs,
-                        actionPrepared.transition,
+                        initialTransition.copy(nextState = catalogProjection),
                         actionPrepared.closesPlaybackFrame,
                         playbackOwnerSeatId = seatId,
                     )
@@ -592,6 +586,30 @@ internal class MatchActionWindowRuntime(
             feed.requestedCut = null
             beforePublished?.invoke()
             created.status = ActionWindowStatus.Published
+        }
+    }
+
+    private fun captureRuntimeCatalog(
+        seatId: SeatId,
+        pending: GameActionBridge.PendingAction,
+        prepared: BundleBuilder.ActionWindowPrepared,
+        messages: List<GREToClientMessage>,
+        promptGsId: Int,
+        game: Game,
+    ): Pair<RuntimeActionWindow, ProjectionState> {
+        val transition = checkNotNull(prepared.transition)
+        return owner.bridge.editProjection(transition.nextState.copy(revision = transition.expectedRevision)) {
+            createRuntimeActionWindow(
+                seatId,
+                pending,
+                prepared,
+                messages,
+                promptGsId,
+                nextToken = { nextActionToken++ },
+                materializeDeferredCost = { _, offer ->
+                    DeferredCastCostPlanMaterializer.materialize(owner.bridge, offer) { nextActionToken++ }
+                },
+            ).copy(combat = RuntimeCombatWindow.capture(owner, game, messages))
         }
     }
 

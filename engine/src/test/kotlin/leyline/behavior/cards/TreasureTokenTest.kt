@@ -22,7 +22,10 @@ import leyline.testkit.beOnBattlefieldOf
 import leyline.testkit.gsm
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
+import wotc.mtgo.gre.external.messaging.Messages.ClientMessageType
+import wotc.mtgo.gre.external.messaging.Messages.ClientToGREMessage
 import wotc.mtgo.gre.external.messaging.Messages.ManaSpecType
+import wotc.mtgo.gre.external.messaging.Messages.PerformAutoTapActionsResp
 import leyline.testkit.StateMapperShell as StateMapper
 
 /**
@@ -150,6 +153,16 @@ class TreasureTokenTest :
 
             // Target opponent (seatId 2)
             selectTargets(listOf(OPPONENT_SEAT))
+
+            val payment = allMessages.last { it.hasPayCostsReq() }.payCostsReq
+            payment.autoTapActionsReq.autoTapSolutionsCount shouldBe 1
+            submitGameplayResponse(
+                ClientToGREMessage
+                    .newBuilder()
+                    .setType(ClientMessageType.PerformAutoTapActionsResp_097b)
+                    .setPerformAutoTapActionsResp(PerformAutoTapActionsResp.newBuilder().setIndex(0))
+                    .build(),
+            ).shouldBeTrue()
 
             // Resolve bolt → lethal
             repeat(10) {

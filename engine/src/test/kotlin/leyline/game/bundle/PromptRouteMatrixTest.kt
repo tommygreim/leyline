@@ -42,12 +42,15 @@ class PromptRouteMatrixTest :
                     PromptSemantic.GroupingScry to
                         ResolvedPromptRoute.Grouping(PromptSemantic.GroupingScry, GroupingContext.Scry_a0f6),
                     PromptSemantic.ModalChoice to ResolvedPromptRoute.ModalChoice(PromptSemantic.ModalChoice),
+                    PromptSemantic.VoteChoice to ResolvedPromptRoute.ModalChoice(PromptSemantic.VoteChoice),
                     PromptSemantic.SelectNLegendRule to
                         cardSelect(PromptSemantic.SelectNLegendRule, CardSelectKind.LegendRule),
                     PromptSemantic.SelectNDiscard to
                         cardSelect(PromptSemantic.SelectNDiscard, CardSelectKind.Discard, sentiment = 1),
                     PromptSemantic.SelectNDiscardEffect to
                         cardSelect(PromptSemantic.SelectNDiscardEffect, CardSelectKind.DiscardEffect, sentiment = 1),
+                    PromptSemantic.SelectNDiscardCreatureOptional to
+                        cardSelect(PromptSemantic.SelectNDiscardCreatureOptional, CardSelectKind.DiscardCreatureOptional, sentiment = 1),
                     PromptSemantic.Search to ResolvedPromptRoute.Search(PromptSemantic.Search),
                     PromptSemantic.GroupedSearch to ResolvedPromptRoute.Search(PromptSemantic.GroupedSearch),
                     PromptSemantic.SelectReplacement to
@@ -96,6 +99,12 @@ class PromptRouteMatrixTest :
                             PayCostsRouteKind.SelectCostReturnAttacker,
                             "return-unblocked-attacker",
                         ),
+                    PromptSemantic.ReturnTappedCreatureCost to
+                        payCosts(
+                            PromptSemantic.ReturnTappedCreatureCost,
+                            PayCostsRouteKind.SelectCostReturnTappedCreature,
+                            "return-tapped-creature",
+                        ),
                     PromptSemantic.ConvokeCost to
                         payCosts(
                             PromptSemantic.ConvokeCost,
@@ -122,15 +131,29 @@ class PromptRouteMatrixTest :
                     PromptSemantic.LearnLesson to
                         cardSelect(PromptSemantic.LearnLesson, CardSelectKind.Learn),
                     PromptSemantic.StaticColorChoice to staticChoice(PromptSemantic.StaticColorChoice, StaticChoiceKind.Color),
+                    PromptSemantic.StaticManaColorChoice to
+                        staticChoice(PromptSemantic.StaticManaColorChoice, StaticChoiceKind.ManaColor),
+                    PromptSemantic.StaticBasicLandTypeChoice to
+                        staticChoice(PromptSemantic.StaticBasicLandTypeChoice, StaticChoiceKind.BasicLandType),
                     PromptSemantic.StaticCardColorChoice to
                         staticChoice(PromptSemantic.StaticCardColorChoice, StaticChoiceKind.CardColor),
                     PromptSemantic.StaticSubtypeChoice to staticChoice(PromptSemantic.StaticSubtypeChoice, StaticChoiceKind.Subtype),
+                    PromptSemantic.StaticCounterTypeChoice to
+                        staticChoice(PromptSemantic.StaticCounterTypeChoice, StaticChoiceKind.CounterType),
                     PromptSemantic.StaticParityChoice to
                         staticChoice(PromptSemantic.StaticParityChoice, StaticChoiceKind.Parity),
+                    PromptSemantic.StaticBinaryChoice to
+                        staticChoice(PromptSemantic.StaticBinaryChoice, StaticChoiceKind.Binary),
                     PromptSemantic.StaticKeywordChoice to
                         staticChoice(PromptSemantic.StaticKeywordChoice, StaticChoiceKind.Keyword),
                     PromptSemantic.StaticCardTypeChoice to
                         staticChoice(PromptSemantic.StaticCardTypeChoice, StaticChoiceKind.CardType),
+                    PromptSemantic.StaticCardNameChoice to
+                        staticChoice(PromptSemantic.StaticCardNameChoice, StaticChoiceKind.CardName),
+                    PromptSemantic.StaticDungeonChoice to
+                        staticChoice(PromptSemantic.StaticDungeonChoice, StaticChoiceKind.Dungeon),
+                    PromptSemantic.StaticDungeonRoomChoice to
+                        staticChoice(PromptSemantic.StaticDungeonRoomChoice, StaticChoiceKind.DungeonRoom),
                 )
 
             PromptSemantic.entries

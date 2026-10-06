@@ -1,0 +1,32 @@
+name: mana-action-projection
+description: Non-hand action projections retain multi-mana production and payment restrictions.
+scenarios:
+  - id: restricted-flashback
+    puzzle: restricted-mana-flashback
+    run: flash back an instant with Tablet's two restricted red mana and one Island
+    expect: Think Twice draws a card and leaves the graveyard for exile
+    steps:
+      - expect:
+          action: { type: cast, card: Think Twice }
+      - cast: { card: Think Twice, zone: graveyard }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: hand, card: Plains }
+            - zone_contains: { side: ours, zone: exile, card: Think Twice }
+            - zone_not_contains: { side: ours, zone: graveyard, card: Think Twice }
+            - stack_empty: true
+  - id: double-mana-activation
+    puzzle: double-mana-activation
+    run: activate Cryptic Coat's return ability with Sol Ring and one Island
+    expect: Cryptic Coat returns to hand without a payment stall
+    steps:
+      - expect:
+          action: { type: activate, card: Cryptic Coat }
+      - activate: Cryptic Coat
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: hand, card: Cryptic Coat }
+            - zone_not_contains: { side: ours, zone: battlefield, card: Cryptic Coat }
+            - stack_empty: true

@@ -18,6 +18,7 @@ import leyline.game.grp
 import leyline.game.iid
 import leyline.game.mapping.ZoneIds
 import leyline.game.sid
+import leyline.game.snapshot.DungeonStateSnapshot
 import leyline.game.wid
 import leyline.testkit.detail
 import leyline.testkit.detailInt
@@ -345,6 +346,27 @@ class AnnotationBuilderTest :
             }
         }
 
+        test("dungeonStatus carries Arena's player and dungeon state keys") {
+            val ann =
+                AnnotationBuilder.dungeonStatus(
+                    2.sid,
+                    DungeonStateSnapshot(
+                        currentDungeonGrpId = 78768,
+                        currentDungeonInstanceId = 420,
+                        currentRoomGrpId = 110001,
+                        completedDungeonGrpIds = listOf(78770),
+                    ),
+                )
+            assertSoftly {
+                ann.typeList shouldBe listOf(AnnotationType.DungeonStatus)
+                ann.affectorId shouldBe 2
+                ann.detailInt(DetailKeys.CURRENT_DUNGEON) shouldBe 78768
+                ann.detailInt(DetailKeys.CURRENT_DUNGEON_ZCID) shouldBe 420
+                ann.detailInt(DetailKeys.CURRENT_ROOM) shouldBe 110001
+                ann.detailIntList(DetailKeys.ALL_DUNGEONS_COMPLETED) shouldBe listOf(78770)
+            }
+        }
+
         // --- ManaPaid ---
 
         test("manaPaidFields") {
@@ -598,6 +620,16 @@ class AnnotationBuilderTest :
             }
         }
 
+        test("permanentRegeneratedFields") {
+            val ann = AnnotationBuilder.permanentRegenerated(instanceId = 1151.iid)
+            assertSoftly {
+                ann.typeList shouldContain AnnotationType.PermanentRegenerated
+                ann.affectedIdsList shouldContain 1151
+                ann.affectorId shouldBe 0
+                ann.detailsCount shouldBe 0
+            }
+        }
+
         // --- TemporaryPermanent (persistent) ---
 
         test("temporaryPermanentFields") {
@@ -786,6 +818,7 @@ class AnnotationBuilderTest :
                 CounterTypes.counterTypeId("STUN") shouldBe 172
                 CounterTypes.counterTypeId("POISON") shouldBe 3
                 CounterTypes.counterTypeId("LORE") shouldBe 108
+                CounterTypes.counterTypeId("PLAN") shouldBe 211
                 // Unknown falls back to 0
                 CounterTypes.counterTypeId("NONEXISTENT") shouldBe 0
             }

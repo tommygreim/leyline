@@ -348,6 +348,7 @@ class MatchCardSelectInteractionRuntimeTest :
                             CardSelectKind.ResolutionMapped,
                             -> 0
                             CardSelectKind.DiscardEffect,
+                            CardSelectKind.DiscardCreatureOptional,
                             CardSelectKind.SacrificeEffect,
                             CardSelectKind.Suspect,
                             CardSelectKind.MutateTopBottom,

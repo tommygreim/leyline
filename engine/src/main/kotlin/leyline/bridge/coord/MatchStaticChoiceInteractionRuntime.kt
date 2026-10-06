@@ -119,6 +119,9 @@ internal class MatchStaticChoiceInteractionRuntime(
         pending: Window,
         selectedValues: List<Int>,
     ) {
+        // Dynamic parameter indices are not values in an Arena StaticList.
+        // Do not announce index 0/1 as a type/color/name choice.
+        if (pending.value.kind == StaticChoiceKind.Binary) return
         val source = pending.value.sourceForgeCardId ?: return
         selectedValues.forEach { value ->
             owner.bridge
@@ -144,10 +147,17 @@ internal class MatchStaticChoiceInteractionRuntime(
     private fun StaticChoiceKind.choiceDomain(): Int =
         when (this) {
             StaticChoiceKind.Color -> StaticList.Colors.number
+            StaticChoiceKind.ManaColor -> StaticList.ManaColors.number
+            StaticChoiceKind.BasicLandType -> StaticList.BasicLandTypes.number
             StaticChoiceKind.CardColor -> StaticList.CardColors.number
             StaticChoiceKind.Subtype -> StaticList.SubTypes.number
+            StaticChoiceKind.CounterType -> StaticList.CounterTypes.number
             StaticChoiceKind.Parity -> StaticList.Parities.number
+            StaticChoiceKind.Binary -> 0
             StaticChoiceKind.Keyword -> StaticList.Keywords.number
             StaticChoiceKind.CardType -> StaticList.CardTypes.number
+            StaticChoiceKind.CardName -> StaticList.CardNames.number
+            StaticChoiceKind.Dungeon -> StaticList.None_a56d.number
+            StaticChoiceKind.DungeonRoom -> StaticList.None_a56d.number
         }
 }

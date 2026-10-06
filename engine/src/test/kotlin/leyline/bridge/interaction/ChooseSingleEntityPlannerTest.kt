@@ -41,14 +41,27 @@ class ChooseSingleEntityPlannerTest :
             }
         }
 
-        test("mandatory single option auto-returns without prompt refs") {
+        test("mandatory single card remains an explicit selection") {
             val plan = planFor(genericSa(), optionCount = 1, isOptional = false)
 
             assertSoftly(plan) {
-                routePolicy shouldBe ChooseSingleEntityRoutePolicy.AutoReturnFirst
-                candidateRefsPolicy shouldBe CandidateRefsPolicy.None
-                candidateRefsPolicy.candidateRefs(refs).shouldBeEmpty()
+                routePolicy shouldBe ChooseSingleEntityRoutePolicy.Prompt
+                candidateRefsPolicy shouldBe CandidateRefsPolicy.SelectableAndUnfilteredForResolution
             }
+        }
+
+        test("a mandatory card already selected as the spell target does not prompt again") {
+            val target = Card(10, null).also { it.name = "Target" }
+            val ability = genericSa().also { it.targets.add(target) }
+
+            planFor(ability, optionCount = 1).routePolicy shouldBe ChooseSingleEntityRoutePolicy.AutoReturnFirst
+            planFor(ability, optionCount = 1, isOptional = true).routePolicy shouldBe ChooseSingleEntityRoutePolicy.Prompt
+        }
+
+        test("mandatory single player retains automatic selection") {
+            val candidates = listOf(PromptCandidateRefDto(index = 0, kind = PromptCandidateKind.Player, entityId = 1))
+            planFor(genericSa(), optionCount = 1, candidateRefs = candidates).routePolicy shouldBe
+                ChooseSingleEntityRoutePolicy.AutoReturnFirst
         }
 
         test("regular prompted semantics follow spell ability shape") {

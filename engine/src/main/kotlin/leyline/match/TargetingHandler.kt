@@ -1,6 +1,7 @@
 package leyline.match
 
 import leyline.DevCheck
+import leyline.bridge.handoff.BlockingInteraction
 import leyline.bridge.handoff.InteractivePromptBridge
 import leyline.bridge.handoff.PromptSideEffect
 import leyline.bridge.handoff.TargetToggleValue
@@ -155,19 +156,67 @@ class TargetingHandler(
      * Native PayCostsReq mana-payment UIs answer through PerformActionResp.
      * Waterbend reducer clicks are MakePayment actions; the Done button is Pass.
      */
-    internal fun tryHandlePayCostsPerformAction(greMsg: ClientToGREMessage): HandlerResult =
-        manaSourcePaymentHandler.tryHandlePerformAction(greMsg)
+    internal fun tryHandlePayCostsPerformAction(greMsg: ClientToGREMessage): HandlerResult {
+        val runtime =
+            ctx.bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .blocking
+        val pending =
+            runtime.current()?.takeIf { it.interaction is BlockingInteraction.ManaPayment }
+                ?: return manaSourcePaymentHandler.tryHandlePerformAction(greMsg)
+        val actions = greMsg.performActionResp.actionsList
+        val accepted =
+            if (actions.size == 1 && actions.single().actionType == ActionType.Pass) {
+                runtime.submitManaPayment(pending.interactionId, greMsg.gameStateId, 0)
+            } else {
+                runtime.submitManaSources(pending.interactionId, greMsg.gameStateId, actions)
+            }
+        return if (accepted) HandlerResult.Resume else HandlerResult.Waiting
+    }
 
-    /**
-     * Handle UndoReq: the player released the last mana source they tapped. Only the
-     * iterative payment window advertises `allowUndo`, so nothing else can own this.
-     */
+    internal fun onPerformAutoTap(greMsg: ClientToGREMessage): HandlerResult {
+        val runtime =
+            ctx.bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .blocking
+        val pending = runtime.current() ?: return HandlerResult.NotHandled
+        return if (runtime.submitManaPayment(pending.interactionId, greMsg.gameStateId, greMsg.performAutoTapActionsResp.index)) {
+            HandlerResult.Resume
+        } else {
+            HandlerResult.Waiting
+        }
+    }
+
+    /** Undo the most recent reversible mana activation or target selection in its owning window. */
     internal fun onUndo(greMsg: ClientToGREMessage): HandlerResult {
+        val blocking =
+            ctx.bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .blocking
+        val manaPayment = blocking.current()?.takeIf { it.interaction is BlockingInteraction.ManaPayment }
+        if (manaPayment != null) {
+            return if (blocking.submitManaUndo(manaPayment.interactionId, greMsg.gameStateId)) {
+                HandlerResult.Resume
+            } else {
+                HandlerResult.Waiting
+            }
+        }
         val payment = manaSourcePaymentHandler.tryHandleUndo(greMsg)
         if (payment != HandlerResult.NotHandled) return payment
-        // Targeting, distribution, gather-counters, top-ordering and one-shot PayCosts
-        // also advertise allowUndo but carry no undo command yet. Say so rather than
-        // leaving the client waiting on a response that never comes.
+        val compatibility =
+            ctx.bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .compatibilityCostSelection
+        compatibility.current()?.let { pending ->
+            compatibility.undo(pending.interactionId, greMsg.gameStateId)?.let { return deliverCompatibilityReceipt(it) }
+        }
+        val targeting =
+            ctx.bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .targeting
+        targeting.current()?.let { pending ->
+            targeting.undo(pending.interactionId, greMsg.gameStateId)?.let { return deliverTargetingReceipt(it) }
+        }
         log.warn("TargetingHandler: UndoReq but no coordinator-owned window accepts undo")
         DevCheck.failOnAutoPass { "UndoReq but no coordinator-owned window accepts undo" }
         return HandlerResult.NotHandled
@@ -184,6 +233,15 @@ class TargetingHandler(
      */
     internal fun onCancelAction(greMsg: ClientToGREMessage): HandlerResult {
         val bridge = ctx.bridge
+        val blocking = bridge.cutCoordinator.promptRuntimes(ctx.seatId).blocking
+        val paymentWindow = blocking.current()?.takeIf { it.interaction is BlockingInteraction.ManaPayment }
+        if (paymentWindow != null) {
+            return if (blocking.submitManaPayment(paymentWindow.interactionId, greMsg.gameStateId, null)) {
+                HandlerResult.Resume
+            } else {
+                HandlerResult.Waiting
+            }
+        }
         if (bridge.cutCoordinator.deferredCast.hasPrompt()) {
             return cancelDeferredCast(greMsg.gameStateId)
         }

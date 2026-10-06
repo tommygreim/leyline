@@ -154,6 +154,8 @@ interface ActionReceiver {
 
     fun onEffectCost(greMsg: ClientToGREMessage) {}
 
+    fun onPerformAutoTap(greMsg: ClientToGREMessage) {}
+
     fun onCancelAction(greMsg: ClientToGREMessage) {}
 
     fun onUndo(greMsg: ClientToGREMessage) {}

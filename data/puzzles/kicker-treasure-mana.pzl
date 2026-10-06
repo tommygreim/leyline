@@ -1,0 +1,16 @@
+[metadata]
+Name:Chosen cost paid with Treasures
+Goal:Survive
+Turns:3
+Difficulty:Easy
+Description:Choose kicked Burst Lightning. Pay {4}{R} must wait for confirmation before sacrificing any Treasure. Cancel first, then try again and pay.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanbattlefield=Mountain;Mountain;T:c_a_treasure_sac;T:c_a_treasure_sac;T:c_a_treasure_sac
+humanhand=Burst Lightning;Burst Lightning
+humanlibrary=Mountain;Mountain;Mountain;Mountain
+ailibrary=Forest;Forest;Forest;Forest

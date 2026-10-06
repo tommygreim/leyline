@@ -13,9 +13,11 @@ import forge.game.mana.ManaCostBeingPaid
 import forge.game.player.Player
 import forge.game.spellability.OptionalCostValue
 import forge.game.spellability.SpellAbility
+import leyline.bridge.handoff.BlockingInteraction
 import leyline.bridge.handoff.FinalManaSourcePaymentEntryValue
 import leyline.bridge.handoff.FinalManaSourcePaymentValue
 import leyline.bridge.handoff.InteractivePromptBridge
+import leyline.bridge.handoff.ManaPaymentDecision
 import leyline.bridge.handoff.OptionalActionGate
 import leyline.bridge.handoff.PromptRequest
 import leyline.bridge.handoff.PromptRouteResolver
@@ -28,6 +30,7 @@ import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.ManaColorMapping
 import leyline.bridge.types.ManaCostText
 import leyline.bridge.types.toCandidateRefs
+import leyline.game.mapping.PromptIds
 import org.slf4j.LoggerFactory
 import wotc.mtgo.gre.external.messaging.Messages.ManaColor
 
@@ -53,8 +56,22 @@ class CostPaymentCoordinator(
     private val bridge: InteractivePromptBridge,
     private val player: Player,
     private val optionalActionGate: OptionalActionGate,
+    private val useManualManaPayment: () -> Boolean = { false },
 ) {
     private val log = LoggerFactory.getLogger(CostPaymentCoordinator::class.java)
+
+    /** Resolution-time energy payment uses the native amount-specific optional prompt. */
+    fun confirmEnergyPayment(
+        sa: SpellAbility,
+        amount: Int,
+    ): Boolean =
+        optionalActionGate.await(
+            hostCard = sa.hostCard,
+            defaultOnTimeout = false,
+            logContext = "confirmPayment:Energy",
+            customPromptId = PromptIds.OPTIONAL_PAY_ENERGY[amount],
+            costText = if (amount in PromptIds.OPTIONAL_PAY_ENERGY) null else "$amount {oE}",
+        )
 
     /**
      * Convoke / improvise — prompt for a subset of untapped cards and map each
@@ -153,11 +170,70 @@ class CostPaymentCoordinator(
         toPay: ManaCostBeingPaid,
         ability: SpellAbility,
         effect: Boolean,
+        requireSourceChoice: Boolean = false,
     ): Boolean {
-        log.debug("applyManaToCost [AI]: {} for {}", toPay, ability.hostCard?.name)
+        log.debug("applyManaToCost: {} for {}", toPay, ability.hostCard?.name)
         applyHybridManaChoices(toPay, ability)
         if (player.controller is PlayerControllerAi) {
             return ComputerUtilMana.payManaCost(toPay, ability, player, effect)
+        }
+        // ComputerUtilMana's AI payment path calls AiCostDecision directly,
+        // bypassing PlayerController.confirmPayment. Preflight its dry-run
+        // source plan before any sacrifice, discard, exile, or life-payment
+        // mana ability can mutate the game. Ordinary tap-only sources keep
+        // the existing automatic payment behavior.
+        var plan = ComputerUtilMana.getManaPaymentPlan(ManaCostBeingPaid(toPay), ability, player, effect)
+        // An optional cost already accepted by the player must decline immediately
+        // when Forge proves it unpayable; otherwise a resolution-time payment
+        // could remain suspended in an empty, uncompletable PayCosts window.
+        if (effect && plan == null) return false
+        val undoFloor = player.game.stack.undoStackSize
+        val manuallyActivated = mutableListOf<SpellAbility>()
+        if (requireSourceChoice || useManualManaPayment() || plan == null || plan.any(ManaActivationConfirmation::requiresConfirmation)) {
+            val executor = SpellExecutor(player.game, player, bridge)
+            while (true) {
+                val decision =
+                    optionalActionGate.awaitManaPayment(
+                        BlockingInteraction.ManaPayment(
+                            sourceId = ForgeCardId(ability.hostCard.id),
+                            manaCost = toPay.toManaCost().toColorCounts(),
+                            canAutoPay = plan != null,
+                            canUndo = player.game.stack.canUndo(player) && player.game.stack.undoStackSize > undoFloor,
+                        ),
+                        toPay.toManaCost(),
+                        ability,
+                    )
+                when (decision) {
+                    is ManaPaymentDecision.Sources -> {
+                        decision.actions.forEach { source ->
+                            if (executor.activateMana(source.cardId, source.abilityId, source.selectedColor, source.ability)) {
+                                source.ability?.let(manuallyActivated::add)
+                            }
+                        }
+                    }
+                    ManaPaymentDecision.Undo -> {
+                        if (player.game.stack.canUndo(player) &&
+                            player.game.stack.undoStackSize > undoFloor &&
+                            player.game.stack.undo()
+                        ) {
+                            if (manuallyActivated.isNotEmpty()) manuallyActivated.removeAt(manuallyActivated.lastIndex)
+                        }
+                    }
+                    ManaPaymentDecision.Cancel -> {
+                        while (player.game.stack.canUndo(player) &&
+                            player.game.stack.undoStackSize > undoFloor &&
+                            player.game.stack.undo()
+                        ) {
+                            // Refund reversible sources activated while this payment was pending.
+                        }
+                        return false
+                    }
+                    ManaPaymentDecision.AutoPay -> {
+                        break
+                    }
+                }
+                plan = ComputerUtilMana.getManaPaymentPlan(ManaCostBeingPaid(toPay), ability, player, effect)
+            }
         }
         // GameBridge keeps the bridged controller at Long.MAX_VALUE - 1, so
         // Forge's timestamp-based runWithController cannot put an AI controller
@@ -170,7 +246,24 @@ class CostPaymentCoordinator(
             false,
         )
         return try {
-            ComputerUtilMana.payManaCost(toPay, ability, player, effect)
+            val paid = ComputerUtilMana.payManaCost(toPay, ability, player, effect)
+            if (paid) {
+                // Forge records mana drawn from the pool in payingMana, but its
+                // AI payment path cannot see the abilities activated earlier in
+                // our interactive window. Attach only abilities whose mana was
+                // actually spent on this cost; excess floating mana must not
+                // be undone if the spell is later cancelled.
+                val spentParts = ability.payingMana.mapNotNull { it.manaAbility }.toSet()
+                manuallyActivated
+                    .filter { source -> source.allManaParts.any(spentParts::contains) }
+                    .filterNot(ability.payingManaAbilities::contains)
+                    .forEach(ability.payingManaAbilities::add)
+            } else {
+                while (player.game.stack.canUndo(player) && player.game.stack.undoStackSize > undoFloor && player.game.stack.undo()) {
+                    // A failed payment must not strand sources tapped during the manual phase.
+                }
+            }
+            paid
         } finally {
             player.removeController(Long.MAX_VALUE, false)
         }
@@ -181,35 +274,32 @@ class CostPaymentCoordinator(
         ability: SpellAbility,
     ) {
         val choices = bridge.journal.consumeHybridManaStash() ?: return
-        val hybridShards = toPay.getUnpaidShards().filter { it.isOr2Generic }
+        val hybridShards =
+            toPay.getUnpaidShards().filter {
+                it.isOr2Generic || it.isPhyrexian() || ManaColorMapping.standardHybridColors(it).size > 1
+            }
         if (hybridShards.isEmpty()) return
 
         for ((index, shard) in hybridShards.withIndex()) {
-            val coloredChoice = colorForTwoGenericShard(shard) ?: continue
+            val coloredChoices = ManaColorMapping.paymentColors(shard)
+            val coloredChoice = coloredChoices.firstOrNull() ?: continue
             val choice = choices.getOrNull(index) ?: coloredChoice
             toPay.decreaseShard(shard, 1)
-            if (choice == ManaColor.TwoGeneric) {
+            if (shard.isPhyrexian() && choice == ManaColor.Phyrexian_afc9) {
+                ability.setSpendPhyrexianMana(true)
+                player.payLife(2, ability, false)
+                continue
+            }
+            if (shard.isOr2Generic && choice == ManaColor.TwoGeneric) {
                 toPay.increaseGenericMana(2)
                 continue
             }
-            val replacement = monoColorShard(choice.takeIf { it == coloredChoice } ?: coloredChoice)
+            val replacement = monoColorShard(choice.takeIf { it in coloredChoices } ?: coloredChoice)
             if (replacement != null) {
                 toPay.increaseShard(replacement, 1)
             }
         }
         log.info("applyManaToCost: applied hybrid mana choices {} for {}", choices, ability.hostCard?.name)
-    }
-
-    private fun colorForTwoGenericShard(shard: ManaCostShard): ManaColor? {
-        if (!shard.isOr2Generic || !shard.isMonoColor) return null
-        return when {
-            shard.isWhite -> ManaColor.White_afc9
-            shard.isBlue -> ManaColor.Blue_afc9
-            shard.isBlack -> ManaColor.Black_afc9
-            shard.isRed -> ManaColor.Red_afc9
-            shard.isGreen -> ManaColor.Green_afc9
-            else -> null
-        }
     }
 
     private fun monoColorShard(color: ManaColor): ManaCostShard? =
@@ -360,7 +450,7 @@ class CostPaymentCoordinator(
             return false
         }
         val toPay = ManaCostBeingPaid(manaPart.mana)
-        val paid = applyManaToCost(toPay, sa, effect = true)
+        val paid = applyManaToCost(toPay, sa, effect = true, requireSourceChoice = true)
         if (!paid) {
             log.warn("Optional mana cost: auto-tap could not pay {} for {}", cost, hostCard?.name)
         }

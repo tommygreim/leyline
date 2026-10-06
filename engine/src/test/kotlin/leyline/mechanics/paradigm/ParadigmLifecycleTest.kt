@@ -10,6 +10,7 @@ import leyline.testkit.MatchFlowHarness
 import leyline.testkit.SessionTest
 import leyline.testkit.detailInt
 import leyline.testkit.detailString
+import leyline.tooling.headless.ClientAccumulator
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationInfo
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
@@ -98,6 +99,13 @@ class ParadigmLifecycleTest :
             sawCopySelfExile.shouldBeTrue()
 
             val allGsms = gsms()
+            val client = ClientAccumulator()
+            allMessages.forEach { message ->
+                client.process(message)
+                if (message.hasGameStateMessage()) {
+                    client.assertConsistent("Paradigm frame ${message.gameStateMessage.gameStateId}")
+                }
+            }
             val allAnnotations = allGsms.flatMap { it.annotationsList }
             val originalStackToExile = allAnnotations.first { it.isStackToExileParadigmTransfer() }
             val originalExileIid = originalStackToExile.affectedIdsList.single()
@@ -109,7 +117,24 @@ class ParadigmLifecycleTest :
             val copyStackIid = copyCastAction.affectedIdsList.single()
             val copyTransfer = allAnnotations.first { it.isExileToStackParadigmCastTransfer(copyStackIid) }
             val triggerIid = copyTransfer.affectorId
+            val creationFrame =
+                allGsms.first { gsm ->
+                    gsm.annotationsList.any { AnnotationType.TokenCreated in it.typeList && copyStackIid in it.affectedIdsList }
+                }
             assertSoftly {
+                val createIndex =
+                    creationFrame.annotationsList.indexOfFirst {
+                        AnnotationType.TokenCreated in it.typeList && copyStackIid in it.affectedIdsList
+                    }
+                val castIndex = creationFrame.annotationsList.indexOfFirst { it.isExileToStackParadigmCastTransfer(copyStackIid) }
+                (createIndex < castIndex).shouldBeTrue()
+                creationFrame.gameObjectsList
+                    .any {
+                        it.instanceId == copyStackIid && it.zoneId == ZoneIds.STACK && it.isCopy
+                    }.shouldBeTrue()
+                // The parent callback still runs inside Forge, but it must
+                // not remain as a second visible stack item above/below the copy.
+                (triggerIid in creationFrame.zonesList.single { it.zoneId == ZoneIds.STACK }.objectInstanceIdsList) shouldBe false
                 allAnnotations
                     .count { it.isStackToExileParadigmTransfer() }
                     .let { it >= 2 }
@@ -122,11 +147,10 @@ class ParadigmLifecycleTest :
                 allAnnotations.firstOrNull { it.isParadigmCopyCastAction() } shouldNotBe null
                 copyTransfer.affectorId shouldBe triggerIid
                 allAnnotations
-                    .firstOrNull { it.isObjectIdChangedTo(copyStackIid) }
-                    ?.let { objectIdChanged ->
-                        objectIdChanged.affectorId shouldBe triggerIid
-                        objectIdChanged.detailInt("orig_id") shouldNotBe copyStackIid
-                    } shouldNotBe null
+                    .firstOrNull {
+                        AnnotationType.TokenCreated in it.typeList && copyStackIid in it.affectedIdsList
+                    }?.affectorId shouldBe triggerIid
+                allAnnotations.none { it.isObjectIdChangedTo(copyStackIid) }.shouldBeTrue()
                 allMessages.none { it.hasOptionalActionMessage() }.shouldBeTrue()
             }
         }

@@ -1,0 +1,67 @@
+name: Usher of the Fallen boast activation
+scenario: {suite: mechanics-protocol, id: boast-usher-of-the-fallen}
+frames:
+  - id: activation
+    events:
+      - id: ability
+        type: Ability
+        lane: object
+        op: create
+        fields: {raw.zoneId: 27}
+      - id: created
+        type: AbilityInstanceCreated
+        lane: transient
+        keys: [source_zone]
+        fields: {details.source_zone: [28], affectedIds.length: 1}
+        equals: {"affectedIds[0]": ability.affectorId}
+      - id: action
+        type: UserActionTaken
+        lane: transient
+        where: {fields: {details.actionType: [2]}}
+        keys: [actionType, abilityGrpId]
+        fields: {details.actionType: [2]}
+        equals: {"affectedIds[0]": ability.affectorId, "details.abilityGrpId[0]": ability.raw.grpId}
+      - id: exhausted
+        type: AbilityExhausted
+        lane: persistent
+        op: create
+        keys: [AbilityGrpId, UniqueAbilityId, UsesRemaining]
+        fields: {details.UsesRemaining: [0], detailTypes.UsesRemaining: Int32}
+        equals:
+          affectorId: created.affectorId
+          "affectedIds[0]": created.affectorId
+          "details.AbilityGrpId[0]": ability.raw.grpId
+  - id: resolution
+    events:
+      - id: warrior
+        type: Token
+        lane: object
+        op: create
+        fields: {raw.zoneId: 28, raw.controllerSeatId: 1}
+        equals: {raw.parentId: ability.affectorId, raw.objectSourceGrpId: ability.raw.objectSourceGrpId}
+      - id: started
+        type: ResolutionStart
+        lane: transient
+        keys: [grpid]
+        equals: {affectorId: ability.affectorId, "details.grpid[0]": ability.raw.grpId}
+      - id: token-created
+        type: TokenCreated
+        lane: transient
+        keys: []
+        fields: {affectedIds.length: 1}
+        equals: {affectorId: ability.affectorId, "affectedIds[0]": warrior.affectorId}
+      - id: resolved
+        type: ResolutionComplete
+        lane: transient
+        keys: [grpid]
+        equals: {affectorId: ability.affectorId, "details.grpid[0]": ability.raw.grpId}
+      - id: retired
+        type: AbilityInstanceDeleted
+        lane: transient
+        keys: []
+        equals: {affectorId: created.affectorId, affectedIds: created.affectedIds}
+counts:
+  - match: {type: TokenCreated, lane: transient}
+    exactly: 1
+  - match: {type: AbilityExhausted, lane: persistent, op: create}
+    exactly: 1

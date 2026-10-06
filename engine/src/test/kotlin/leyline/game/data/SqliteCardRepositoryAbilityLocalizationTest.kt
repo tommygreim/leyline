@@ -22,7 +22,7 @@ class SqliteCardRepositoryAbilityLocalizationTest :
                         """
                         CREATE TABLE Abilities(
                           Id INT PRIMARY KEY, BaseId INT DEFAULT 0, TextId INT DEFAULT 0,
-                          OldSchoolManaText TEXT, ModalChildIds TEXT,
+                          OldSchoolManaText TEXT, HiddenAbilityIds TEXT, ModalChildIds TEXT,
                           Category INT DEFAULT 0, SubCategory INT DEFAULT 0
                         );
                         """.trimIndent(),
@@ -38,7 +38,7 @@ class SqliteCardRepositoryAbilityLocalizationTest :
                     connection.createStatement().use { statement ->
                         statement.executeUpdate("INSERT INTO Localizations_enUS VALUES (21, 0, 'Internal template');")
                         statement.executeUpdate("INSERT INTO Localizations_enUS VALUES (21, 1, 'Choose one');")
-                        statement.executeUpdate("INSERT INTO Abilities VALUES (7, 0, 21, 'o2oU', NULL, 8, 0);")
+                        statement.executeUpdate("INSERT INTO Abilities VALUES (7, 0, 21, 'o2oU', NULL, NULL, 8, 0);")
                     }
                 }
 
@@ -54,12 +54,24 @@ class SqliteCardRepositoryAbilityLocalizationTest :
             withRepository { repository, url ->
                 DriverManager.getConnection(url).use { connection ->
                     connection.createStatement().use { statement ->
-                        statement.executeUpdate("INSERT INTO Abilities VALUES (7, 0, 21, NULL, NULL, 8, 0);")
+                        statement.executeUpdate("INSERT INTO Abilities VALUES (7, 0, 21, NULL, NULL, NULL, 8, 0);")
                     }
                 }
 
                 repository.findAbilityLocalization(7) shouldBe null
                 repository.findAbilityLocalization(8) shouldBe null
+            }
+        }
+
+        test("ability metadata retains hidden child rows") {
+            withRepository { repository, url ->
+                DriverManager.getConnection(url).use { connection ->
+                    connection.createStatement().use { statement ->
+                        statement.executeUpdate("INSERT INTO Abilities VALUES (7, 0, 21, NULL, '8,9', NULL, 2, 0);")
+                    }
+                }
+
+                repository.findAbilityInfo(7)?.hiddenAbilityIds shouldBe listOf(8, 9)
             }
         }
     })

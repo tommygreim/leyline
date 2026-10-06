@@ -1,0 +1,17 @@
+[metadata]
+Name:Free combat damage assignment
+Goal:Survive
+Turns:3
+Difficulty:Easy
+Description:Leave the Forest in hand, advance to combat, and attack with Nessian Boar. Both opposing Bears must block. Divide 10 combat damage as 1 and 9, submit, and verify combat advances immediately rather than after a 30-second pause.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanbattlefield=Nessian Boar;Forest;Forest;Forest
+humanhand=Forest
+humanlibrary=Mountain;Mountain;Mountain;Mountain;Mountain
+aibattlefield=Grizzly Bears;Runeclaw Bear
+ailibrary=Plains;Plains;Plains;Plains;Plains

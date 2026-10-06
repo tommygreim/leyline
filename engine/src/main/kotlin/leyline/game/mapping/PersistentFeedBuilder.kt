@@ -13,17 +13,21 @@ import leyline.game.event.GameEvent
 import leyline.game.snapshot.GsmSnapshot
 import leyline.game.snapshot.PreparedRole
 import leyline.game.state.AbilityWordActiveKind
+import leyline.game.state.BattleProtectorDesignationKind
+import leyline.game.state.CitysBlessingDesignationKind
 import leyline.game.state.ClassLevelKind
 import leyline.game.state.ColorProductionKind
 import leyline.game.state.CommanderDesignationKind
 import leyline.game.state.DayNightDesignationKind
 import leyline.game.state.DelayedTriggerAffecteesKind
+import leyline.game.state.DungeonStatusKind
 import leyline.game.state.FaceDownCloakKind
 import leyline.game.state.FaceDownDisguiseKind
 import leyline.game.state.FaceDownForetellKind
 import leyline.game.state.FaceDownManifestDreadKind
 import leyline.game.state.HolderRecord
 import leyline.game.state.LinkInfoChoiceKind
+import leyline.game.state.PendingEffectKind
 import leyline.game.state.PersistentAnnotationKind
 import leyline.game.state.PersistentFeedFacts
 import leyline.game.state.PlayerSpeedDesignationKind
@@ -66,6 +70,7 @@ internal object PersistentFeedBuilder {
         promptFacts: PromptProjectionFacts = PromptProjectionFacts(),
         persistentFeedFacts: PersistentFeedFacts = PersistentFeedFacts(),
         references: ProjectionCardReferences,
+        replacementChoices: List<ProjectionSupplement.EnterAsCopyChoice> = emptyList(),
     ): PersistentFeedBuildResult {
         val qualification = buildQualificationAnnotations(snap, frameIds, persistentFeedFacts)
         val temporaryPermanent =
@@ -105,6 +110,25 @@ internal object PersistentFeedBuilder {
                             FaceDownManifestDreadKind to faceDownManifestDread,
                             ColorProductionKind to colorProduction,
                             ClassLevelKind to classLevel,
+                            PendingEffectKind to
+                                replacementChoices.map { choice ->
+                                    AnnotationBuilder.pendingEffect(
+                                        frameIds.cardIid(choice.sourceForgeId),
+                                        checkNotNull(snap.boundCards[choice.sourceForgeId]).snapshot.controller,
+                                        GrpId(choice.abilityGrpId),
+                                    )
+                                },
+                            leyline.game.state.CopiedPermanentKind to
+                                snap.objects.values
+                                    .filter { it.copiedFromGrpId != 0 }
+                                    .map { card ->
+                                        AnnotationBuilder.copiedPermanent(frameIds.cardIid(card.forgeCardId), GrpId(card.copiedFromGrpId))
+                                    },
+                            DungeonStatusKind to
+                                snap.dungeonStates.entries
+                                    .sortedBy { it.key.value }
+                                    .filter { (_, state) -> state.isActive || state.completedDungeonGrpIds.isNotEmpty() }
+                                    .map { (seat, state) -> AnnotationBuilder.dungeonStatus(seat, state) },
                             LinkInfoChoiceKind to linkInfo,
                         ) + designations,
                 ),
@@ -258,6 +282,17 @@ internal object PersistentFeedBuilder {
                 PreparedDesignationKind to prepared,
                 CommanderDesignationKind to commander,
                 PlayerSpeedDesignationKind to playerSpeed,
+                CitysBlessingDesignationKind to
+                    snap.seats.filter { it.hasBlessing }.map { AnnotationBuilder.citysBlessingDesignation(it.seatId) },
+                BattleProtectorDesignationKind to
+                    snap.objects.values.mapNotNull { card ->
+                        val protector = card.battleProtectorSeatId ?: return@mapNotNull null
+                        AnnotationBuilder
+                            .designation(protector, AnnotationConstants.DESIGNATION_TYPE_BATTLE_PROTECTOR)
+                            .toBuilder()
+                            .setAffectorId(frameIds.cardIid(card.forgeCardId).value)
+                            .build()
+                    },
             )
     }
 

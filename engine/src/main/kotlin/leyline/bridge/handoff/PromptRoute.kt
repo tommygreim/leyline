@@ -112,6 +112,7 @@ enum class CardSelectKind {
     ManifestDread,
     Discard,
     DiscardEffect,
+    DiscardCreatureOptional,
     SacrificeEffect,
     Suspect,
     MutateTopBottom,
@@ -182,11 +183,24 @@ data class SelectNShape(
 
 enum class StaticChoiceKind {
     Color,
+
+    /** Mana produced by an ability; Arena uses the ManaColors static domain. */
+    ManaColor,
+
+    /** Basic land names; Arena's workflow uses the WUBRG/ManaColor ids. */
+    BasicLandType,
     CardColor,
     Subtype,
+
+    /** A concrete Forge CounterType, represented by Arena's CounterTypes domain. */
+    CounterType,
     Parity,
+    Binary,
     Keyword,
     CardType,
+    CardName,
+    Dungeon,
+    DungeonRoom,
 }
 
 data class StaticChoicePromptRoute(
@@ -203,6 +217,7 @@ enum class PayCostsRouteKind {
     Sacrifice,
     SelectCostExileFromGrave,
     SelectCostReturnAttacker,
+    SelectCostReturnTappedCreature,
     CollectEvidence,
     StationTapCost,
     EnlistCost,
@@ -291,7 +306,7 @@ object PromptRouteResolver {
             PromptSemantic.TargetSelection -> ResolvedPromptRoute.Targeting(semantic)
             PromptSemantic.GroupingSurveil -> ResolvedPromptRoute.Grouping(semantic, GroupingContext.Surveil)
             PromptSemantic.GroupingScry -> ResolvedPromptRoute.Grouping(semantic, GroupingContext.Scry_a0f6)
-            PromptSemantic.ModalChoice -> ResolvedPromptRoute.ModalChoice(semantic)
+            PromptSemantic.ModalChoice, PromptSemantic.VoteChoice -> ResolvedPromptRoute.ModalChoice(semantic)
             PromptSemantic.Search -> ResolvedPromptRoute.Search(semantic)
             PromptSemantic.GroupedSearch -> ResolvedPromptRoute.Search(semantic)
             PromptSemantic.SelectReplacement -> ResolvedPromptRoute.SelectReplacement(semantic)
@@ -303,6 +318,8 @@ object PromptRouteResolver {
             PromptSemantic.SelectNLegendRule -> cardSelect(semantic, CardSelectKind.LegendRule)
             PromptSemantic.SelectNDiscard -> cardSelect(semantic, CardSelectKind.Discard, choiceResultSentiment = 1)
             PromptSemantic.SelectNDiscardEffect -> cardSelect(semantic, CardSelectKind.DiscardEffect, choiceResultSentiment = 1)
+            PromptSemantic.SelectNDiscardCreatureOptional ->
+                cardSelect(semantic, CardSelectKind.DiscardCreatureOptional, choiceResultSentiment = 1)
             PromptSemantic.RevealChoose -> ResolvedPromptRoute.RevealChoice(semantic)
             PromptSemantic.SelectNResolution ->
                 when {
@@ -321,16 +338,30 @@ object PromptRouteResolver {
             PromptSemantic.LearnLesson -> cardSelect(semantic, CardSelectKind.Learn)
             PromptSemantic.StaticColorChoice ->
                 staticChoice(semantic, StaticChoiceKind.Color)
+            PromptSemantic.StaticManaColorChoice ->
+                staticChoice(semantic, StaticChoiceKind.ManaColor)
+            PromptSemantic.StaticBasicLandTypeChoice ->
+                staticChoice(semantic, StaticChoiceKind.BasicLandType)
             PromptSemantic.StaticCardColorChoice ->
                 staticChoice(semantic, StaticChoiceKind.CardColor)
             PromptSemantic.StaticSubtypeChoice ->
                 staticChoice(semantic, StaticChoiceKind.Subtype)
+            PromptSemantic.StaticCounterTypeChoice ->
+                staticChoice(semantic, StaticChoiceKind.CounterType)
             PromptSemantic.StaticParityChoice ->
                 staticChoice(semantic, StaticChoiceKind.Parity)
+            PromptSemantic.StaticBinaryChoice ->
+                staticChoice(semantic, StaticChoiceKind.Binary)
             PromptSemantic.StaticKeywordChoice ->
                 staticChoice(semantic, StaticChoiceKind.Keyword)
             PromptSemantic.StaticCardTypeChoice ->
                 staticChoice(semantic, StaticChoiceKind.CardType)
+            PromptSemantic.StaticCardNameChoice ->
+                staticChoice(semantic, StaticChoiceKind.CardName)
+            PromptSemantic.StaticDungeonChoice ->
+                staticChoice(semantic, StaticChoiceKind.Dungeon)
+            PromptSemantic.StaticDungeonRoomChoice ->
+                staticChoice(semantic, StaticChoiceKind.DungeonRoom)
             PromptSemantic.SelectNCostSacrifice -> payCosts(semantic, PayCostsRouteKind.Sacrifice, "sacrifice")
             PromptSemantic.SelectNCostExileFromGrave ->
                 payCosts(semantic, PayCostsRouteKind.SelectCostExileFromGrave, "exile-from-grave")
@@ -347,6 +378,8 @@ object PromptRouteResolver {
             PromptSemantic.StationTapCost -> payCosts(semantic, PayCostsRouteKind.StationTapCost, "station")
             PromptSemantic.ReturnUnblockedAttackerCost ->
                 payCosts(semantic, PayCostsRouteKind.SelectCostReturnAttacker, "return-unblocked-attacker")
+            PromptSemantic.ReturnTappedCreatureCost ->
+                payCosts(semantic, PayCostsRouteKind.SelectCostReturnTappedCreature, "return-tapped-creature")
             PromptSemantic.ConvokeCost ->
                 payCosts(semantic, PayCostsRouteKind.ConvokeCost, "convoke", ManaSourcePaymentKind.Convoke)
             PromptSemantic.ImproviseCost ->

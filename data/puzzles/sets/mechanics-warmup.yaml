@@ -46,6 +46,30 @@ scenarios:
           all:
             - opponent_life: 16
             - stack_empty: true
+  - id: kicker-unaffordable-recovery
+    puzzle: kicker-unaffordable
+    run: choose the unaffordable kicker branch, cancel payment, then cast normally
+    expect: cancellation restores the spell and an empty stack; the subsequent normal cast deals two damage
+    steps:
+      - cast: Burst Lightning
+      - choose: { optional_cost: kicker }
+      - target: opponent
+      - cancel_action: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: hand, card: Burst Lightning }
+            - zone_count_at_least: { side: ours, zone: hand, count: 2 }
+            - action: { type: cast, card: Burst Lightning }
+            - opponent_life: 30
+            - stack_empty: true
+      - cast: Burst Lightning
+      - choose: { cto_id: 0 }
+      - target: opponent
+      - resolve_stack: {}
+      - expect:
+          all:
+            - opponent_life: 28
+            - stack_empty: true
   - id: cycling-activate
     puzzle: mechanic-cycling-miscalculation
     run: activate Miscalculation cycling
@@ -83,6 +107,7 @@ scenarios:
       - wait:
           action: { type: cast, card: Cram Session }
       - cast: Cram Session
+      - mana_type_choices: [black]
       - pass_until:
           prompt: SelectNReq
       - select_card: { side: ours, zone: sideboard, card: Environmental Sciences }

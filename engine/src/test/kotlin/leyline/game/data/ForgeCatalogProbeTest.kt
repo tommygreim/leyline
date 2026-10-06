@@ -410,6 +410,42 @@ class ForgeCatalogProbeTest :
                 }
             }
         }
+        test("Ugin Eye of the Storms plus two pays, resolves, and draws") {
+            probe("ugin-eye-of-the-storms", "humanbattlefield=Ugin, Eye of the Storms|Counters:LOYALTY=7") { repo ->
+                val card = human.battlefield.card("Ugin, Eye of the Storms")
+                val handBefore = human.hand.cards.size
+                val lifeBefore = human.life
+                val messageBefore = allMessages.size
+
+                activateAbility("Ugin, Eye of the Storms", 0).shouldBeTrue()
+                passUntil(10) {
+                    card.getCounters(forge.game.card.CounterEnumType.LOYALTY) == 9 &&
+                        human.life == lifeBefore + 3 &&
+                        human.hand.cards.size == handBefore + 1
+                }.shouldBeTrue()
+
+                card.getCounters(forge.game.card.CounterEnumType.LOYALTY) shouldBe 9
+                human.life shouldBe lifeBefore + 3
+                human.hand.cards.size shouldBe handBefore + 1
+                val uginGrpId = repo.findGrpIdByName("Ugin, Eye of the Storms")!!
+                val uginAbilityObjects =
+                    allMessages
+                        .drop(messageBefore)
+                        .filter { it.hasGameStateMessage() }
+                        .flatMap { it.gameStateMessage.gameObjectsList }
+                        .filter { it.type == GameObjectType.Ability && it.objectSourceGrpId == uginGrpId }
+                check(uginAbilityObjects.isNotEmpty()) { "Ugin activation did not project an Ability object" }
+                check(uginAbilityObjects.all { it.grpId != uginGrpId }) {
+                    "an unresolved Ugin ability was published with the source card grpId=$uginGrpId"
+                }
+                check(
+                    allMessages.drop(messageBefore).any { message ->
+                        message.hasGameStateMessage() &&
+                            message.gameStateMessage.gameObjectsList.any { it.type == GameObjectType.Ability }
+                    },
+                )
+            }
+        }
         test("every catalog definition resolves or reports an explicit unsupported card shape") {
             val names =
                 StaticData

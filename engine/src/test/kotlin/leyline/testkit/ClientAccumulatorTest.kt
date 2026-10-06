@@ -13,6 +13,95 @@ class ClientAccumulatorTest :
 
         tags(UnitTag)
 
+        test("persistent annotations survive unrelated diffs and apply keyed replacements and deletions") {
+            val acc = ClientAccumulator()
+            val original =
+                AnnotationInfo
+                    .newBuilder()
+                    .setId(1)
+                    .setAffectorId(1)
+                    .addType(AnnotationType.DungeonStatus)
+                    .build()
+            val replacement = original.toBuilder().setId(2).build()
+            acc.process(
+                greMessage(
+                    msgId = 1,
+                    gsm =
+                        GameStateMessage
+                            .newBuilder()
+                            .setType(GameStateType.Full)
+                            .addPersistentAnnotations(original)
+                            .build(),
+                ),
+            )
+            acc.process(greMessage(msgId = 2, gsm = GameStateMessage.newBuilder().setType(GameStateType.Diff).build()))
+            acc.persistentAnnotations.values.toList() shouldBe listOf(original)
+
+            acc.process(
+                greMessage(
+                    msgId = 3,
+                    gsm =
+                        GameStateMessage
+                            .newBuilder()
+                            .setType(GameStateType.Diff)
+                            .addDiffDeletedPersistentAnnotationIds(1)
+                            .addPersistentAnnotations(replacement)
+                            .build(),
+                ),
+            )
+            acc.persistentAnnotations shouldBe mapOf(2 to replacement)
+            val updated = replacement.toBuilder().setAffectorId(2).build()
+            acc.process(
+                greMessage(
+                    msgId = 4,
+                    gsm =
+                        GameStateMessage
+                            .newBuilder()
+                            .setType(GameStateType.Diff)
+                            .addPersistentAnnotations(updated)
+                            .build(),
+                ),
+            )
+            acc.persistentAnnotations shouldBe mapOf(2 to updated)
+            acc.process(
+                greMessage(
+                    msgId = 5,
+                    gsm =
+                        GameStateMessage
+                            .newBuilder()
+                            .setType(GameStateType.Diff)
+                            .addDiffDeletedPersistentAnnotationIds(2)
+                            .build(),
+                ),
+            )
+            acc.persistentAnnotations shouldBe emptyMap()
+        }
+
+        test("a full state replaces the persistent annotation baseline") {
+            val acc = ClientAccumulator()
+            val annotation =
+                AnnotationInfo
+                    .newBuilder()
+                    .setId(1)
+                    .addType(AnnotationType.DungeonStatus)
+                    .setAffectorId(1)
+                    .build()
+            acc.process(
+                greMessage(
+                    msgId = 1,
+                    gsm =
+                        GameStateMessage
+                            .newBuilder()
+                            .setType(GameStateType.Full)
+                            .addPersistentAnnotations(annotation)
+                            .build(),
+                ),
+            )
+            acc.persistentAnnotations shouldBe mapOf(1 to annotation)
+            acc.process(greMessage(msgId = 2, gsm = GameStateMessage.newBuilder().setType(GameStateType.Full).build()))
+            acc.persistentAnnotations shouldBe emptyMap()
+        }
+
         test("fullStateReplacesAllObjects") {
             val acc = ClientAccumulator()
 

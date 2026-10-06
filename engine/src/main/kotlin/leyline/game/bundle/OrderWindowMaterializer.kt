@@ -38,7 +38,6 @@ internal class OrderWindowMaterializer {
                     it.orderReq = request
                     it.prompt = promptWithCardId(promptId(window.kind), sourceId)
                     it.allowCancel = AllowCancel.No_a526
-                    if (window.kind == OrderRouteKind.Top) it.allowUndo = true
                 },
             )
         return context.prepared(messages, awaitedRequest = messages.last())

@@ -64,9 +64,17 @@ data class StackEntry(
     /** Forge identity of the source card behind an engine effect helper. */
     val effectSourceForgeCardId: ForgeCardId? = null,
     /**
+     * Selected modes for a modal spell, when known at snapshot time. Arena
+     * replaces the spell's parent modal ability with the selected mode
+     * abilities on the public stack object after the modal response.
+     */
+    val selectedModalAbilityGrpIds: List<Int> = emptyList(),
+    /**
      * True for a pre-stack ability shown to the client before Forge puts it on the stack: it
      * appears in the frame's objects, but its lifecycle annotations wait for the events that
      * describe the trigger going on the stack.
      */
     val deferAnnouncement: Boolean = false,
+    /** Printing that owns the ability's localized text when it was copied/granted. */
+    val abilityOriginalCardGrpId: Int = 0,
 )

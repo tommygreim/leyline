@@ -1,8 +1,11 @@
 package leyline.game.state
 
+import forge.StaticData
+import forge.card.GamePieceType
 import forge.game.Game
 import forge.game.ability.ApiType
 import forge.game.card.Card
+import forge.game.card.CardFactory
 import forge.game.card.CardTraitChanges
 import forge.game.cost.Cost
 import forge.game.keyword.Keyword
@@ -19,17 +22,150 @@ import io.kotest.matchers.types.shouldNotBeSameInstanceAs
 import leyline.bridge.types.AbilityDefinitionRef
 import leyline.bridge.types.AbilityKeywordFamily
 import leyline.bridge.types.ForgeCardId
+import leyline.game.InMemoryCardRepository
 import leyline.game.codes.SlotKind
 import leyline.game.data.BasicLandAbilities
 import leyline.game.data.CardData
+import leyline.game.data.ForgeCardRepository
 import leyline.game.event.GameEvent
 import leyline.game.event.Zone
 import leyline.testkit.BoardTest
 import leyline.testkit.CardDataDeriver
 import leyline.testkit.TestCardInjector
+import leyline.tooling.headless.FixtureCardLoader
 
 class AbilityRegistryTest :
     BoardTest({
+        beforeSpec { leyline.testkit.registerUpstreamCatalogCards("Lithoform Blight") }
+
+        test("a static granting two abilities resolves each catalog row") {
+            val (_, game, _) =
+                startWithBoard { _, human, _ ->
+                    val land = addCard("Mountain", human, ZoneType.Battlefield)
+                    addCard("Lithoform Blight", human, ZoneType.Battlefield).attachToEntity(land, null, true)
+                    human.game.action.checkStaticAbilities(false)
+                }
+            val source =
+                game.players[0]
+                    .getZone(ZoneType.Battlefield)
+                    .cards
+                    .single { it.name == "Lithoform Blight" }
+            val land =
+                game.players[0]
+                    .getZone(ZoneType.Battlefield)
+                    .cards
+                    .single { it.name == "Mountain" }
+            val repository = ForgeCardRepository.open()
+            val data = checkNotNull(repository.findByGrpId(checkNotNull(repository.findGrpIdByName(source.name))))
+            val registry = AbilityRegistry.build(source, data)
+            val grants = land.manaAbilities.filter { it.grantorStatic != null }
+            assertSoftly {
+                grants.shouldHaveSize(2)
+                data.hiddenAbilityIds.shouldHaveSize(2)
+                grants.map { registry.forSpellAbility(it) } shouldBe data.hiddenAbilityIds.map { it.first }
+                grants.map { registry.forSpellAbility(it.copy()) } shouldBe data.hiddenAbilityIds.map { it.first }
+            }
+        }
+
+        test("sole intrinsic trigger fallback refuses ambiguous source definitions") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Trufflesnout", human, ZoneType.Hand)
+                    addCard("Ugin, Eye of the Storms", human, ZoneType.Hand)
+                }
+            val sole = board.human.hand.card("Trufflesnout")
+            val ambiguous = board.human.hand.card("Ugin, Eye of the Storms")
+            val soleData =
+                checkNotNull(board.bridge.cardRepository.findByGrpId(checkNotNull(board.bridge.cardRepository.findGrpIdByName(sole.name))))
+            val ambiguousData = checkNotNull(board.bridge.cardRepository.findByGrpId(95516))
+            val definition = AbilityDefinitionRef.Trigger(Int.MAX_VALUE)
+            assertSoftly {
+                AbilityRegistry.build(sole, soleData).resolveSoleIntrinsicTrigger(definition)?.abilityGrpId shouldBe
+                    soleData.abilityIds.first().first
+                AbilityRegistry.build(ambiguous, ambiguousData).resolveSoleIntrinsicTrigger(definition).shouldBeNull()
+                AbilityRegistry.EMPTY.resolveSoleIntrinsicTrigger(definition).shouldBeNull()
+            }
+        }
+
+        test("Equipment keyword activation keeps its identity separate from an explicit hand activation") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Mjölnir, Hammer of Thor", human, ZoneType.Battlefield)
+                }
+            val card = board.human.battlefield.card("Mjölnir, Hammer of Thor")
+            val data = checkNotNull(board.bridge.cardRepository.findByGrpId(105041))
+            val activated = card.spellAbilities.filter { it.isActivatedAbility && !it.isManaAbility() }
+            val equip = activated.single { it.api == ApiType.Attach }
+            val discard = activated.single { it.api == ApiType.DamageAll }
+            val registry = AbilityRegistry.build(card, data)
+
+            assertSoftly {
+                registry.forSpellAbility(equip) shouldBe 206227
+                registry.forSpellAbility(equip.copy()) shouldBe 206227
+                registry.forSpellAbility(discard) shouldBe 206228
+                registry.forSpellAbility(discard.copy()) shouldBe 206228
+            }
+        }
+
+        test("a keyword printed after triggers binds by BaseId rather than taking their first row") {
+            val board = startWithBoard { _, human, _ -> addCard("Deceit", human, ZoneType.Hand) }
+            val card = board.human.hand.card("Deceit")
+            val data = checkNotNull(board.bridge.cardRepository.findByGrpId(98534))
+            val registry = AbilityRegistry.build(card, data)
+            val evoke = card.keywords.single { it.keyword == Keyword.EVOKE }
+            assertSoftly {
+                evoke.triggers.forEach { registry.forTrigger(it.definitionId) shouldBe 194051 }
+                card.triggers.filter { it !in evoke.triggers }.map { registry.forTrigger(it.definitionId) } shouldBe
+                    listOf(194049, 194050)
+            }
+        }
+
+        test("interleaved keyword metadata survives row reordering without changing explicit trigger identity") {
+            val board = startWithBoard { _, human, _ -> addCard("Deceit", human, ZoneType.Hand) }
+            val card = board.human.hand.card("Deceit")
+            val original = checkNotNull(board.bridge.cardRepository.findByGrpId(98534))
+            val order = listOf(0, 2, 1)
+            val data =
+                original.copy(
+                    abilityIds = order.map { original.abilityIds[it] },
+                    abilityBaseIds = order.map { original.abilityBaseIds[it] },
+                    abilityKinds = order.map { original.abilityKinds[it] },
+                    abilityCategories = order.map { original.abilityCategories[it] },
+                )
+            val registry = AbilityRegistry.build(card, data)
+            val evoke = card.keywords.single { it.keyword == Keyword.EVOKE }
+            assertSoftly {
+                evoke.triggers.forEach { registry.forTrigger(it.definitionId) shouldBe 194051 }
+                card.triggers.filter { it !in evoke.triggers }.map { registry.forTrigger(it.definitionId) } shouldBe
+                    listOf(194049, 194050)
+            }
+        }
+
+        test("all enterable dungeons bind each room trigger and effect to its own ability row") {
+            val (bridge, game, _) = startWithBoard { _, _, _ -> }
+            val scripts = listOf("dungeon_of_the_mad_mage", "lost_mine_of_phandelver", "tomb_of_annihilation")
+            for (script in scripts) {
+                val token = StaticData.instance().allTokens.getToken(script, "AFR")
+                val dungeon = CardFactory.getCard(token, game.players[0], game)
+                dungeon.gamePieceType = GamePieceType.DUNGEON
+                FixtureCardLoader.ensureCardRegistered(bridge.cardRepository as InMemoryCardRepository, dungeon.name)
+                val grpId = checkNotNull(bridge.cardRepository.findPresentationGrpIdByName(dungeon.name))
+                val data = checkNotNull(bridge.cardRepository.findByGrpId(grpId))
+                val registry = AbilityRegistry.build(dungeon, data)
+                val rooms = dungeon.triggers.filter { it.overridingAbility?.hasParam("RoomName") == true }
+
+                rooms.shouldHaveSize(data.abilityIds.size)
+                data.abilityIds
+                    .map { it.first }
+                    .distinct()
+                    .shouldHaveSize(rooms.size)
+                for ((trigger, row) in rooms.zip(data.abilityIds)) {
+                    registry.forTrigger(trigger.definitionId) shouldBe row.first
+                    registry.forSpellAbility(trigger.overridingAbility) shouldBe row.first
+                    bridge.resolveAbilityIdentity(dungeon, trigger.overridingAbility)?.abilityGrpId shouldBe row.first
+                }
+            }
+        }
 
         test("type-derived dual-land mana definitions retain their shared color identities") {
             val (bridge, game, _) =
@@ -156,6 +292,8 @@ class AbilityRegistryTest :
             assertSoftly {
                 registry.forSpellAbility(first) shouldBe 179264
                 registry.forSpellAbility(second) shouldBe 179264
+                AbilityRegistry.grantedUniqueAbilityId(first) shouldBe 10_000
+                AbilityRegistry.grantedUniqueAbilityId(second) shouldBe 10_001
             }
         }
 
@@ -382,6 +520,44 @@ class AbilityRegistryTest :
                 cardData.abilityCategories shouldBe listOf(3, 3, 2, 1)
                 registry.forStaticAbility(devotionStatic.id) shouldBe 100654
                 registry.forTrigger(lifeGainTrigger.id) shouldBe 136666
+            }
+        }
+
+        test("secondary event definitions share a row without displacing an independent upkeep trigger") {
+            val (bridge, _, _) = startWithBoard { _, _, _ -> }
+            val card = TestCardInjector.inject(bridge, 1, "Glint-Sleeve Siphoner", ZoneType.Battlefield).card
+            val data = CardDataDeriver.fromForgeCard(card, card.name)
+            val registry = AbilityRegistry.build(card, data)
+            val energyTriggers = card.triggers.filter { it.getParam("Execute") == "TrigEnergy" }
+            val upkeep = card.triggers.single { it.getParam("Execute") == "TrigDraw" }
+            assertSoftly {
+                energyTriggers shouldHaveSize 2
+                energyTriggers.map { registry.forTrigger(it.definitionId) }.toSet() shouldBe setOf(900105)
+                registry.forTrigger(upkeep.definitionId) shouldBe 900106
+            }
+        }
+
+        test("one printed enters-or-attacks row maps every Forge event trigger") {
+            val cardName = "Overlord of the Boilerbilges"
+            val (bridge, _, _) = startWithBoard { _, _, _ -> }
+            val card = TestCardInjector.inject(bridge, 1, cardName, ZoneType.Battlefield).card
+            val cardData = CardDataDeriver.fromForgeCard(card, cardName)
+            val printedTriggerGrpId =
+                cardData
+                    .abilityIds
+                    .zip(cardData.abilityCategories)
+                    .single { (_, category) -> category == 2 }
+                    .first.first
+            val printedTriggers =
+                card.triggers.filter {
+                    it.isIntrinsic && it.toString().startsWith("Whenever Overlord of the Boilerbilges enters or attacks")
+                }
+
+            val registry = AbilityRegistry.build(card, cardData)
+
+            assertSoftly {
+                printedTriggers shouldHaveSize 2
+                printedTriggers.map { registry.forTrigger(it.id) }.toSet() shouldBe setOf(printedTriggerGrpId)
             }
         }
 

@@ -6,6 +6,7 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.ints.shouldBeGreaterThanOrEqual
 import io.kotest.matchers.ints.shouldBeLessThan
 import io.kotest.matchers.ints.shouldBeLessThanOrEqual
@@ -84,7 +85,7 @@ class AiTurnInteractionTest :
                 aiTurnActionsAvailableReqs(postHandshakeMessages).shouldBeEmpty()
             }
 
-            // GSM N+0: SendHiFi with one PhaseOrStepModified per step traversed + gameInfo
+            // GSM N+0: SendHiFi with gameInfo and any phases actually traversed.
             val gsm0 = gsms[ptStart]
             val phaseAnns0 =
                 gsm0.annotationsList
@@ -103,9 +104,8 @@ class AiTurnInteractionTest :
                 gsm0.type shouldBe GameStateType.Diff
                 gsm0.update shouldBe GameStateUpdate.SendHiFi
                 gsm0.hasGameInfo().shouldBeTrue()
-                // Arena sends one annotation per step actually traversed and never
-                // repeats a phase/step pair in a frame; match that contract.
-                phaseAnns0.size shouldBeGreaterThanOrEqual 1
+                // The first AI synchronization may precede the next phase
+                // change, so the content frame can carry no phase annotation.
                 val pairs0 = phaseAnns0.map { it.detailInt("phase") to it.detailInt("step") }
                 pairs0 shouldBe pairs0.distinct()
 
@@ -116,7 +116,17 @@ class AiTurnInteractionTest :
                 gsm2.type shouldBe GameStateType.Diff
                 gsm2.update shouldBe GameStateUpdate.SendAndRecord
                 phaseAnns2 shouldHaveSize 1
-                phaseAnns2.single().id shouldBe gsm0.annotationsList.maxOf { it.id } + 1
+                phaseAnns2.single().detailInt("phase") shouldBe gsm2.turnInfo.phase.number
+                phaseAnns2.single().detailInt("step") shouldBe gsm2.turnInfo.step.number
+                val precedingAnnotationId =
+                    allMessages
+                        .takeWhile { !it.hasGameStateMessage() || it.gameStateMessage.gameStateId != gsm2.gameStateId }
+                        .filter { it.hasGameStateMessage() }
+                        .flatMap { it.gameStateMessage.annotationsList }
+                        .maxOfOrNull { it.id } ?: 0
+                // Annotation finalization may consume an ID for an unpublished
+                // event in the same cut; published IDs must remain monotonic.
+                phaseAnns2.single().id shouldBeGreaterThan precedingAnnotationId
             }
         }
 

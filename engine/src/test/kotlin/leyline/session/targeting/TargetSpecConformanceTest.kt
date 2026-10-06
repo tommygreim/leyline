@@ -80,7 +80,7 @@ class TargetSpecConformanceTest :
         }
 
         session(
-            "generic target prompt id is shared by request and TargetSpec",
+            "land target prompt id is shared by request and TargetSpec",
             puzzle = """
                 ActivePlayer=Human
                 ActivePhase=Main1
@@ -102,7 +102,7 @@ class TargetSpecConformanceTest :
                     .selectTargetsReq.targetsList
                     .single()
                     .prompt.promptId
-            requestPromptId shouldBe PromptIds.SELECT_TARGETS
+            requestPromptId shouldBe PromptIds.TARGET_LAND
 
             selectTargets(listOf(targetIid))
             val targetSpec = allMessages.persistentAnnotationsOfType(AnnotationType.TargetSpec).single()
@@ -130,7 +130,111 @@ class TargetSpecConformanceTest :
             val targetSpec = allMessages.persistentAnnotationsOfType(AnnotationType.TargetSpec).single()
             assertSoftly {
                 targetSpec.affectedIdsList shouldBe listOf(OPPONENT_SEAT)
-                targetSpec.detailInt("promptId") shouldBe PromptIds.SELECT_TARGETS
+                targetSpec.detailInt("promptId") shouldBe PromptIds.TARGET_OPPONENT
+            }
+        }
+
+        session(
+            "chained draw and damage effects show distinct target prompts",
+            puzzle = """
+                ActivePlayer=Human
+                ActivePhase=Main1
+                HumanLife=20
+                AILife=20
+
+                humanhand=Together as One
+                humanbattlefield=Plains;Island;Swamp;Mountain;Forest;Mountain
+                humanlibrary=Mountain
+                aibattlefield=Grizzly Bears
+                ailibrary=Mountain
+                """,
+        ) {
+            castSpellByName("Together as One") shouldBe true
+            val drawSelection =
+                allMessages
+                    .last { it.hasSelectTargetsReq() }
+                    .selectTargetsReq.targetsList
+                    .single()
+            assertSoftly {
+                drawSelection.targetIdx shouldBe 1
+                drawSelection.prompt.promptId shouldBe PromptIds.TARGET_PLAYER_DRAWS_X
+            }
+
+            selectTargets(listOf(OPPONENT_SEAT))
+            val damageSelection =
+                allMessages
+                    .last { it.hasSelectTargetsReq() }
+                    .selectTargetsReq.targetsList
+                    .single()
+            assertSoftly {
+                damageSelection.targetIdx shouldBe 2
+                damageSelection.prompt.promptId shouldBe PromptIds.DEAL_X_DAMAGE_TO_ANY_TARGET
+            }
+        }
+
+        session(
+            "chained bounce and fixed damage effects show distinct target prompts",
+            puzzle = """
+                ActivePlayer=Human
+                ActivePhase=Main1
+                HumanLife=20
+                AILife=20
+
+                humanhand=Jeskai Revelation
+                humanbattlefield=Plains;Island;Mountain;Mountain;Mountain;Mountain;Mountain
+                humanlibrary=Mountain
+                aibattlefield=Grizzly Bears
+                ailibrary=Mountain
+                """,
+        ) {
+            val creatureIid = ai.battlefield.iid("Grizzly Bears")
+            castSpellByName("Jeskai Revelation") shouldBe true
+            val bounceSelection =
+                allMessages
+                    .last { it.hasSelectTargetsReq() }
+                    .selectTargetsReq.targetsList
+                    .single()
+            assertSoftly {
+                bounceSelection.targetIdx shouldBe 1
+                bounceSelection.prompt.promptId shouldBe PromptIds.RETURN_TARGET_SPELL_OR_PERMANENT_TO_HAND
+            }
+
+            selectTargets(listOf(creatureIid))
+            val damageSelection =
+                allMessages
+                    .last { it.hasSelectTargetsReq() }
+                    .selectTargetsReq.targetsList
+                    .single()
+            assertSoftly {
+                damageSelection.targetIdx shouldBe 2
+                damageSelection.prompt.promptId shouldBe PromptIds.DEAL_FOUR_DAMAGE_TO_ANY_TARGET
+            }
+        }
+
+        session(
+            "AI-cast targeted spell emits TargetSpec from the live stack",
+            fullControl = true,
+            puzzle = """
+                ActivePlayer=AI
+                ActivePhase=Main1
+                HumanLife=2
+                AILife=20
+
+                humanhand=Negate
+                humanbattlefield=Island;Island
+                humanlibrary=Island;Island;Island
+                aihand=Burst Lightning
+                aibattlefield=Mountain
+                ailibrary=Mountain;Mountain;Mountain
+                """,
+        ) {
+            val targetSpec =
+                allMessages
+                    .persistentAnnotationsOfType(AnnotationType.TargetSpec)
+                    .first { HUMAN_SEAT in it.affectedIdsList }
+            assertSoftly {
+                targetSpec.detailInt("index") shouldBe 1
+                targetSpec.detailInt("promptId") shouldBe PromptIds.CHOOSE_ANY_TARGET
             }
         }
     })

@@ -1,0 +1,16 @@
+[metadata]
+Name:Spree payment confirmation
+Goal:Survive
+Turns:3
+Difficulty:Easy
+Description:Choose Three Steps Ahead's draw-two mode. Its base blue plus additional two mana must use two Treasures. Cancel the Pay prompt, then cast again and pay.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanbattlefield=Island;T:c_a_treasure_sac;T:c_a_treasure_sac
+humanhand=Three Steps Ahead;Mountain
+humanlibrary=Island;Mountain;Island;Mountain;Island;Mountain
+ailibrary=Forest;Forest;Forest;Forest

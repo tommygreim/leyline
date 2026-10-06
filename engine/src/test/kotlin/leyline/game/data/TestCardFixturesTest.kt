@@ -96,4 +96,15 @@ class TestCardFixturesTest :
         test("missing card returns null, not error") {
             TestCardFixtures.findFixture("This Card Does Not Exist").shouldBeNull()
         }
+
+        test("fixture grpIds are globally unique") {
+            val duplicateNamesByGrpId =
+                TestCardFixtures.all.values
+                    .distinctBy { it.identity.name }
+                    .groupBy { it.identity.grpId }
+                    .filterValues { fixtures -> fixtures.size > 1 }
+                    .mapValues { (_, fixtures) -> fixtures.map { it.identity.name }.sorted() }
+
+            duplicateNamesByGrpId shouldBe emptyMap()
+        }
     })

@@ -1,0 +1,12 @@
+name: "Superior Spider-Man"
+grpId: 97973
+titleId: 1118622
+abilities:
+  - id: 206630
+    textId: 1118621
+    category: 3
+hiddenAbilities:
+  - id: 206677
+    textId: 1103420
+    category: 2
+expansionCode: "SPM"

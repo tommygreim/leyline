@@ -76,7 +76,16 @@ internal class TargetingWindowMaterializer(
                 .setGameStateId(link.gsId)
                 .setPrevGameStateId(link.prevGsId)
                 .setUpdate(GameStateUpdate.Send)
-                .build()
+                // A target toggle changes selection, not cast permissions.
+                // GRE replaces its hypothetical-action rail even on a bare
+                // diff, so echo the current rail or exile/graveyard cards
+                // jump back to their zones after the first target is picked.
+                .addAllActions(
+                    projection.viewerCursors[SeatId(seatId)]
+                        ?.fullState
+                        ?.actionsList
+                        .orEmpty(),
+                ).build()
         val req = selectTargetsReq(window, projection, selectedOptionIndices, legalOptionIndices)
         return Prepared(
             BundleBuilder.BundleResult(
@@ -127,16 +136,7 @@ internal class TargetingWindowMaterializer(
         selectedOptionIndices: Set<Int>,
         legalOptionIndices: Set<Int>,
     ): SelectTargetsReq {
-        val sourceInstanceId =
-            window.forgeAbilityId
-                .takeIf { (window.isTriggeredAbility || window.isActivatedAbility) && it != 0 }
-                ?.let(FrameIdResolver::triggerStackAbilityForgeId)
-                ?.let(projection.identities.forgeIdToInstanceId::get)
-                ?.value
-                ?: window.sourceForgeCardId
-                    ?.let(projection.identities.forgeIdToInstanceId::get)
-                    ?.value
-                ?: 0
+        val sourceInstanceId = projectedSourceInstanceId(window, projection, seatId)?.value ?: 0
         val selection =
             TargetSelection
                 .newBuilder()
@@ -188,8 +188,32 @@ internal class TargetingWindowMaterializer(
             it.selectTargetsReq = request
             it.prompt = Prompt.newBuilder().setPromptId(PromptIds.SELECT_TARGETS).build()
             it.allowCancel = AllowCancel.Abort
-            it.allowUndo = true
+            it.allowUndo = request.targetsList.any { target -> target.selectedTargets > 0 }
         }
+
+    companion object {
+        /** A reserved ability iid is not usable until the GSM actually contains it. */
+        internal fun projectedSourceInstanceId(
+            window: TargetingWindowValue,
+            projection: ProjectionState,
+            seatId: Int,
+        ): InstanceId? {
+            val abilityId =
+                window.forgeAbilityId
+                    .takeIf {
+                        (window.isTriggeredAbility || window.isActivatedAbility) && it != 0 && window.stackAbilityGrpId != 0
+                    }?.let(FrameIdResolver::triggerStackAbilityForgeId)
+                    ?.let(projection.identities.forgeIdToInstanceId::get)
+            val visibleIds =
+                projection.viewerCursors[SeatId(seatId)]
+                    ?.fullState
+                    ?.gameObjectsList
+                    ?.map { it.instanceId }
+                    ?.toSet()
+            if (abilityId != null && (visibleIds == null || abilityId.value in visibleIds)) return abilityId
+            return window.sourceForgeCardId?.let(projection.identities.forgeIdToInstanceId::get)
+        }
+    }
 
     private fun TargetingCandidateValue.instanceId(projection: ProjectionState): Int? =
         when (this) {

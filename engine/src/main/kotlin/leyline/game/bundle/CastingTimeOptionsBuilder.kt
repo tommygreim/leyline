@@ -36,6 +36,7 @@ object CastingTimeOptionsBuilder {
         ctoId: Int = 2,
         playerIdToPrompt: Int? = null,
         excludedOptions: List<ModalOptionSpec> = emptyList(),
+        allowRepeat: Boolean = false,
     ): CastingTimeOptionsReq {
         val modalReq =
             ModalReq
@@ -43,6 +44,7 @@ object CastingTimeOptionsBuilder {
                 .setAbilityGrpId(parentGrpId)
                 .setMinSel(minSel)
                 .setMaxSel(maxSel)
+                .setRepeatedSelectAllowed(allowRepeat)
         var modeCostId = 1
         for (option in modalOptions) {
             val opt = ModalOption.newBuilder().setGrpId(option.grpId)
@@ -105,6 +107,9 @@ object CastingTimeOptionsBuilder {
         optionalCosts: List<Pair<CastingTimeOptionType, Int>>,
         playerIdToPrompt: Int,
         baseManaCost: List<Pair<ManaColor, Int>>,
+        optionManaCosts: List<List<Pair<ManaColor, Int>>?> = emptyList(),
+        baseAutoTapSolution: AutoTapSolution? = null,
+        optionAutoTapSolutions: List<AutoTapSolution?> = emptyList(),
     ): Pair<CastingTimeOptionsReq, List<Int>> {
         val manaRequirements =
             baseManaCost.map { (color, count) ->
@@ -129,7 +134,16 @@ object CastingTimeOptionsBuilder {
                     .setAffectorId(instanceId)
                     .setGrpId(cost.second)
                     .setPlayerIdToPrompt(playerIdToPrompt)
-                    .addAllManaCost(manaRequirements),
+                    .addAllManaCost(
+                        optionManaCosts.getOrNull(i)?.map { (color, count) ->
+                            ManaRequirement
+                                .newBuilder()
+                                .addColor(color)
+                                .setCount(count)
+                                .setObjectId(instanceId)
+                                .build()
+                        } ?: manaRequirements,
+                    ).apply { optionAutoTapSolutions.getOrNull(i)?.let(::setAutoTapSolution) },
             )
         }
         ctoReqBuilder.addCastingTimeOptionReq(
@@ -139,7 +153,8 @@ object CastingTimeOptionsBuilder {
                 .setCastingTimeOptionType(CastingTimeOptionType.Done)
                 .setIsRequired(true)
                 .setPlayerIdToPrompt(playerIdToPrompt)
-                .addAllManaCost(manaRequirements),
+                .addAllManaCost(manaRequirements)
+                .apply { baseAutoTapSolution?.let(::setAutoTapSolution) },
         )
         return Pair(ctoReqBuilder.build(), costCtoIds)
     }
@@ -150,6 +165,8 @@ object CastingTimeOptionsBuilder {
         playerIdToPrompt: Int,
         hybridColors: List<ManaColor>,
         manaCost: List<ManaRequirementSpec>,
+        manaTypes: List<ManaColor> = hybridColors.map { ManaColor.TwoGeneric },
+        colorOptions: List<List<ManaColor>> = hybridColors.map(::listOf),
     ): Pair<CastingTimeOptionsReq, List<Int>> {
         val manaRequirements = manaCost.map { it.toProto(instanceId) }
         val ctoReqBuilder = CastingTimeOptionsReq.newBuilder()
@@ -157,6 +174,14 @@ object CastingTimeOptionsBuilder {
         for ((index, color) in hybridColors.withIndex()) {
             val ctoId = index + 2
             ctoIds.add(ctoId)
+            val alternative = manaTypes.getOrNull(index) ?: ManaColor.TwoGeneric
+            val options = colorOptions.getOrNull(index).orEmpty().ifEmpty { listOf(color) }
+            val requestColors =
+                if (alternative == ManaColor.Phyrexian_afc9) {
+                    options + alternative
+                } else {
+                    listOf(alternative) + options
+                }
             ctoReqBuilder.addCastingTimeOptionReq(
                 CastingTimeOptionReq
                     .newBuilder()
@@ -170,8 +195,7 @@ object CastingTimeOptionsBuilder {
                     .setSelectManaTypeReq(
                         SelectManaTypeReq
                             .newBuilder()
-                            .addManaColors(ManaColor.TwoGeneric)
-                            .addManaColors(color)
+                            .addAllManaColors(requestColors.distinct())
                             .setSourceId(instanceId),
                     ).addAllManaCost(manaRequirements),
             )

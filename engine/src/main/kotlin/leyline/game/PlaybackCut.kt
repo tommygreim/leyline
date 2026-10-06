@@ -15,6 +15,7 @@ internal enum class PlaybackCutReason {
     PoisonChanged,
     TurnBegan,
     PhaseChanged,
+    DrawStep,
     AttackersDeclared,
     BlockersDeclared,
     CombatEnded,

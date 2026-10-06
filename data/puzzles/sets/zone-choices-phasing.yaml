@@ -1,0 +1,45 @@
+name: zone-choices-phasing
+description: Library destinations and identity-preserving phasing through ordinary game actions.
+scenarios:
+  - id: gust-top
+    puzzle: zone-choices-phasing
+    headless: { full_control: true }
+    run: Put your own Grizzly Bears on top using Aether Gust.
+    expect: The top choice resolves and the permanent enters the library.
+    steps:
+      - cast: Aether Gust
+      - target: { side: ours, zone: battlefield, card: Grizzly Bears }
+      - pass_until: { prompt: OptionalActionMessage, max_passes: 8 }
+      - optional_action: { accept: true }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: library, card: Grizzly Bears }
+            - zone_not_contains: { side: ours, zone: battlefield, card: Grizzly Bears }
+  - id: gust-bottom
+    puzzle: zone-choices-phasing
+    headless: { full_control: true }
+    run: Put your own Grizzly Bears on bottom using Aether Gust.
+    expect: The bottom choice resolves without cancelling the effect.
+    steps:
+      - cast: Aether Gust
+      - target: { side: ours, zone: battlefield, card: Grizzly Bears }
+      - pass_until: { prompt: OptionalActionMessage, max_passes: 8 }
+      - optional_action: { accept: false }
+      - resolve_stack: {}
+      - expect:
+          zone_contains: { side: ours, zone: library, card: Grizzly Bears }
+  - id: own-gust-phasing-response
+    puzzle: zone-choices-phasing
+    run: Respond to your own Aether Gust with Slip Out the Back without Full Control.
+    expect: Slip phases the target out and Gust cannot move it into the library.
+    steps:
+      - cast: Aether Gust
+      - target: { side: ours, zone: battlefield, card: Grizzly Bears }
+      - cast: Slip Out the Back
+      - target: { side: ours, zone: battlefield, card: Grizzly Bears }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - annotation_seen: PhasedOut_af5a
+            - zone_not_contains: { side: ours, zone: library, card: Grizzly Bears }

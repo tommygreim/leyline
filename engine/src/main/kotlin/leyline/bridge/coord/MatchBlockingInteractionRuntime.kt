@@ -1,18 +1,27 @@
 package leyline.bridge.coord
 
+import forge.card.mana.ManaCost
 import forge.game.Game
 import forge.game.GameEntity
 import forge.game.card.Card
 import forge.game.card.CardCollectionView
+import forge.game.spellability.SpellAbility
+import leyline.bridge.handoff.ActionResponseKey
 import leyline.bridge.handoff.BlockingInteraction
 import leyline.bridge.handoff.BlockingInteractionRuntime
 import leyline.bridge.handoff.DamageAssignmentCommand
+import leyline.bridge.handoff.GameActionBridge
+import leyline.bridge.handoff.ManaPaymentDecision
+import leyline.bridge.handoff.PlayerAction
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.opponent
 import leyline.game.PendingPromptCut
 import leyline.game.bundle.BlockingInteractionMaterializer
 import leyline.game.bundle.BundleBuilder
 import leyline.game.bundle.LogicalSequencePlanner
+import wotc.mtgo.gre.external.messaging.Messages.Action
+import wotc.mtgo.gre.external.messaging.Messages.ActionType
+import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutionException
@@ -32,8 +41,20 @@ internal class MatchBlockingInteractionRuntime(
 ) : BlockingInteractionRuntime,
     PromptTerminalCutOwner {
     private sealed interface Answer {
+        data class ManaPayment(
+            val decision: ManaPaymentDecision,
+        ) : Answer
+
         data class Optional(
             val accepted: Boolean,
+        ) : Answer
+
+        data class ResolutionCast(
+            val selectedId: ForgeCardId?,
+        ) : Answer
+
+        data class TopOrBottom(
+            val putOnTop: Boolean,
         ) : Answer
 
         data class Numeric(
@@ -70,6 +91,7 @@ internal class MatchBlockingInteractionRuntime(
         val future: CompletableFuture<Answer>,
         val damageCards: Map<ForgeCardId, Card> = emptyMap(),
         val damageAssigners: List<PublishedDamageAssigner> = emptyList(),
+        val manaOffers: List<GameActionBridge.ActionOffer> = emptyList(),
     )
 
     private var window: Window? = null
@@ -78,6 +100,71 @@ internal class MatchBlockingInteractionRuntime(
     internal var beforeInstall: (() -> Unit)? = null
     internal var afterMaterialization: (() -> Unit)? = null
     internal var beforeTimeoutClaim: (() -> Unit)? = null
+
+    override fun awaitManaPayment(
+        interaction: BlockingInteraction.ManaPayment,
+        manaCost: ManaCost,
+        ability: SpellAbility,
+    ): ManaPaymentDecision {
+        val pending =
+            publish(interaction, manaCost = manaCost, manaAbility = ability) { _, _, _ ->
+                error("Mana payment requires a state-bearing viewer cut")
+            }
+        return try {
+            (await(pending, null) as Answer.ManaPayment).decision
+        } finally {
+            clear(pending)
+        }
+    }
+
+    fun submitManaPayment(
+        interactionId: String,
+        gameStateId: Int,
+        solutionIndex: Int?,
+    ): Boolean =
+        synchronized(owner.feedLock) {
+            val pending = matching(interactionId, gameStateId) ?: return false
+            val payment = pending.published.interaction as? BlockingInteraction.ManaPayment ?: return false
+            if (solutionIndex != null && (solutionIndex != 0 || !payment.canAutoPay)) return false
+            pending.future.complete(
+                Answer.ManaPayment(if (solutionIndex == null) ManaPaymentDecision.Cancel else ManaPaymentDecision.AutoPay),
+            )
+        }
+
+    /** Admit Undo only for a payment source activated within this cast's payment transaction. */
+    fun submitManaUndo(
+        interactionId: String,
+        gameStateId: Int,
+    ): Boolean =
+        synchronized(owner.feedLock) {
+            val pending = matching(interactionId, gameStateId) ?: return false
+            val payment = pending.published.interaction as? BlockingInteraction.ManaPayment ?: return false
+            if (!payment.canUndo) return false
+            pending.future.complete(Answer.ManaPayment(ManaPaymentDecision.Undo))
+        }
+
+    fun submitManaSources(
+        interactionId: String,
+        gameStateId: Int,
+        actions: List<Action>,
+    ): Boolean =
+        synchronized(owner.feedLock) {
+            val pending = matching(interactionId, gameStateId) ?: return false
+            if (pending.published.interaction !is BlockingInteraction.ManaPayment || actions.isEmpty()) return false
+            val sources =
+                actions.map { action ->
+                    if (action.actionType != ActionType.ActivateMana) return false
+                    val offers =
+                        pending.manaOffers
+                            .mapIndexed { index, offer -> index.toLong() to offer }
+                            .groupBy { ActionResponseKey.from(it.second.action) }
+                    val offer = resolveActionOffer(offers, action)?.second ?: return false
+                    val source = offer.command as? PlayerAction.ActivateMana ?: return false
+                    source.copy(selectedColor = selectedManaColor(action))
+                }
+            if (sources.map { it.cardId }.distinct().size != sources.size) return false
+            pending.future.complete(Answer.ManaPayment(ManaPaymentDecision.Sources(sources)))
+        }
 
     override fun awaitOptional(
         interaction: BlockingInteraction.Optional,
@@ -105,6 +192,41 @@ internal class MatchBlockingInteractionRuntime(
             (await(pending, timeoutMs ?: 45_000L) as Answer.Optional).accepted
         } catch (_: TimeoutException) {
             defaultOnTimeout
+        } finally {
+            clear(pending)
+        }
+    }
+
+    override fun awaitTopOrBottom(
+        interaction: BlockingInteraction.TopOrBottom,
+        timeoutMs: Long?,
+        defaultOnTimeout: Boolean,
+    ): Boolean {
+        val pending =
+            publish(interaction) { feed, _, planner ->
+                feed.builder.topOrBottomInteractionBundle(planner, interaction)
+            }
+        return try {
+            (await(pending, timeoutMs) as Answer.TopOrBottom).putOnTop
+        } catch (_: TimeoutException) {
+            defaultOnTimeout
+        } finally {
+            clear(pending)
+        }
+    }
+
+    override fun awaitResolutionCast(
+        interaction: BlockingInteraction.ResolutionCast,
+        timeoutMs: Long?,
+    ): ForgeCardId? {
+        val pending =
+            publish(interaction) { _, _, _ ->
+                error("Resolution cast requires a state-bearing viewer cut")
+            }
+        return try {
+            (await(pending, timeoutMs ?: 45_000L) as Answer.ResolutionCast).selectedId
+        } catch (_: TimeoutException) {
+            if (interaction.optional) null else interaction.candidateIds.firstOrNull()
         } finally {
             clear(pending)
         }
@@ -217,11 +339,82 @@ internal class MatchBlockingInteractionRuntime(
             pending.future.complete(Answer.Optional(accepted))
         }
 
+    fun submitResolutionCast(
+        interactionId: String,
+        gameStateId: Int,
+        selectedId: ForgeCardId?,
+    ): Boolean =
+        synchronized(owner.feedLock) {
+            val pending = matching(interactionId, gameStateId) ?: return false
+            val cast = pending.published.interaction as? BlockingInteraction.ResolutionCast ?: return false
+            if (selectedId == null && !cast.optional) return false
+            if (selectedId != null && selectedId !in cast.candidateIds) return false
+            pending.future.complete(Answer.ResolutionCast(selectedId))
+        }
+
+    fun submitTopOrBottom(
+        interactionId: String,
+        gameStateId: Int,
+        putOnTop: Boolean,
+    ): Boolean =
+        synchronized(owner.feedLock) {
+            val pending = matching(interactionId, gameStateId) ?: return false
+            if (pending.published.interaction !is BlockingInteraction.TopOrBottom) return false
+            pending.future.complete(Answer.TopOrBottom(putOnTop))
+        }
+
     fun submitNumeric(
         interactionId: String,
         gameStateId: Int,
         value: Int,
     ): Boolean = complete(interactionId, gameStateId, Answer.Numeric(value))
+
+    /** Admit a numeric child response used by Arena's typed casting-time workflow. */
+    fun submitCastingTimeOption(
+        gameStateId: Int,
+        ctoId: Int,
+        type: CastingTimeOptionType,
+        value: Int,
+    ): Boolean =
+        synchronized(owner.feedLock) {
+            val pending = window ?: return@synchronized false
+            val numeric = pending.published.interaction as? BlockingInteraction.Numeric ?: return@synchronized false
+            if (pending.future.isDone ||
+                pending.published.gameStateId != gameStateId ||
+                numeric.presentation.castingTimeOptionType != type ||
+                ctoId != REPLICATE_CTO_ID ||
+                value !in numeric.min..numeric.max
+            ) {
+                return@synchronized false
+            }
+            pending.future.complete(Answer.Numeric(value))
+        }
+
+    /** Arena's Replicate workflow submits Done, not a numeric zero, for no copies. */
+    fun submitReplicateDone(
+        gameStateId: Int,
+        ctoId: Int,
+    ): Boolean =
+        synchronized(owner.feedLock) {
+            val pending = window ?: return@synchronized false
+            val numeric = pending.published.interaction as? BlockingInteraction.Numeric ?: return@synchronized false
+            if (pending.future.isDone ||
+                pending.published.gameStateId != gameStateId ||
+                numeric.presentation != BlockingInteraction.NumericPresentation.Replicate ||
+                ctoId != 0 ||
+                0 !in numeric.min..numeric.max
+            ) {
+                return@synchronized false
+            }
+            pending.future.complete(Answer.Numeric(0))
+        }
+
+    /** Backwards-compatible convenience for callers that only admit Replicate. */
+    fun submitReplicate(
+        gameStateId: Int,
+        ctoId: Int,
+        value: Int,
+    ): Boolean = submitCastingTimeOption(gameStateId, ctoId, CastingTimeOptionType.Replicate, value)
 
     fun submitDamageCommand(
         interactionId: String,
@@ -231,21 +424,37 @@ internal class MatchBlockingInteractionRuntime(
         synchronized(owner.feedLock) {
             val pending = matching(interactionId, gameStateId) ?: return false
             if (pending.damageAssigners.isEmpty()) return false
-            if (commands.map { it.attackerInstanceId } != pending.damageAssigners.map { it.attackerInstanceId }) return false
+            val commandsByAttacker = commands.associateBy { it.attackerInstanceId }
+            if (commandsByAttacker.size != commands.size ||
+                commandsByAttacker.keys != pending.damageAssigners.map { it.attackerInstanceId }.toSet()
+            ) {
+                return false
+            }
             val assignments =
-                commands.zip(pending.damageAssigners).map { (command, published) ->
+                pending.damageAssigners.map { published ->
+                    val command = commandsByAttacker.getValue(published.attackerInstanceId)
                     if (command.totalDamage != 0 && command.totalDamage != published.totalDamage) return false
-                    if (command.assignments.map { it.targetInstanceId } != published.slots.map { it.instanceId }) return false
-                    val amounts = command.assignments.map { it.assignedDamage }
+                    val rows = command.assignments.associateBy { it.targetInstanceId }
+                    if (rows.size != command.assignments.size || rows.keys != published.slots.map { it.instanceId }.toSet()) return false
+                    // Arena returns rows in its visual order, not necessarily request order.
+                    val amounts = published.slots.map { rows.getValue(it.instanceId).assignedDamage }
                     if (amounts.any { it < 0 }) return false
                     if (amounts.sumOf(Int::toLong) != published.totalDamage.toLong()) return false
                     if (published.slots.zip(amounts).any { (slot, amount) -> slot.maxDamage > 0 && amount > slot.maxDamage }) {
                         return false
                     }
-                    if (published.slots.indices.any { index ->
-                            amounts.drop(index + 1).any { it > 0 } && amounts[index] < published.slots[index].minDamage
+                    // Foundations removed combat-damage assignment order. A player may
+                    // divide damage among blockers freely; only trample still requires
+                    // lethal damage on every blocker before assigning any to the defender.
+                    val defenderDamage =
+                        published.slots.zip(amounts).sumOf { (slot, amount) ->
+                            if (slot.targetId == null) amount else 0
                         }
-                    ) {
+                    val belowTrampleLethal =
+                        published.slots.zip(amounts).any { (slot, amount) ->
+                            slot.targetId != null && amount < slot.minDamage
+                        }
+                    if (defenderDamage > 0 && belowTrampleLethal) {
                         return false
                     }
                     DamageAssignmentValue(
@@ -285,6 +494,8 @@ internal class MatchBlockingInteractionRuntime(
         interaction: BlockingInteraction,
         damageCards: Map<ForgeCardId, Card> = emptyMap(),
         sourceCard: Card? = null,
+        manaCost: ManaCost? = null,
+        manaAbility: SpellAbility? = null,
         build: (MatchCutCoordinator.ViewerFeed, Game, LogicalSequencePlanner) -> BlockingInteractionMaterializer.Prepared,
     ): Window {
         owner.beforePublicationLock?.invoke()
@@ -300,20 +511,51 @@ internal class MatchBlockingInteractionRuntime(
                 val prepared =
                     try {
                         viewerPrepared =
-                            (interaction as? BlockingInteraction.Optional)
-                                ?.takeIf {
-                                    it.commanderReturn != null ||
-                                        it.forceSnapshotBeforePrompt ||
-                                        it.etbPayLifeReplacement
-                                }?.let { optional ->
-                                    feed.builder.optionalInteractionBundle(
+                            when (interaction) {
+                                is BlockingInteraction.ManaPayment ->
+                                    feed.builder.manaPaymentInteractionBundle(
                                         game,
                                         planner,
-                                        optional,
+                                        interaction,
+                                        checkNotNull(manaCost),
+                                        checkNotNull(manaAbility),
                                         owner.viewerRoutes(runtimeSeat),
-                                        sourceCard,
                                     )
-                                }
+                                is BlockingInteraction.Optional ->
+                                    interaction
+                                        .takeIf {
+                                            it.commanderReturn != null ||
+                                                it.forceSnapshotBeforePrompt ||
+                                                it.etbPayLifeReplacement
+                                        }?.let { optional ->
+                                            feed.builder.optionalInteractionBundle(
+                                                game,
+                                                planner,
+                                                optional,
+                                                owner.viewerRoutes(runtimeSeat),
+                                                sourceCard,
+                                            )
+                                        }
+                                is BlockingInteraction.Numeric ->
+                                    interaction.sourceId?.let {
+                                        feed.builder.numericInteractionBundle(
+                                            game,
+                                            planner,
+                                            interaction,
+                                            owner.viewerRoutes(runtimeSeat),
+                                        )
+                                    }
+                                is BlockingInteraction.ResolutionCast ->
+                                    feed.builder.resolutionCastInteractionBundle(
+                                        game,
+                                        planner,
+                                        interaction,
+                                        owner.viewerRoutes(runtimeSeat),
+                                    )
+                                is BlockingInteraction.Damage,
+                                is BlockingInteraction.TopOrBottom,
+                                -> null
+                            }
                         (viewerPrepared?.player ?: build(feed, game, planner)).also { afterMaterialization?.invoke() }
                     } catch (ex: Exception) {
                         owner.fail(ex)
@@ -365,6 +607,7 @@ internal class MatchBlockingInteractionRuntime(
                         CompletableFuture(),
                         damageCards,
                         damageAssigners,
+                        prepared.manaOffers,
                     )
                 val cut =
                     if (viewerPrepared == null) {
@@ -406,10 +649,10 @@ internal class MatchBlockingInteractionRuntime(
 
     private fun await(
         pending: Window,
-        timeoutMs: Long,
+        timeoutMs: Long?,
     ): Answer =
         try {
-            pending.future.get(timeoutMs, TimeUnit.MILLISECONDS)
+            if (timeoutMs == null) pending.future.get() else pending.future.get(timeoutMs, TimeUnit.MILLISECONDS)
         } catch (timeout: TimeoutException) {
             beforeTimeoutClaim?.invoke()
             synchronized(owner.feedLock) {
@@ -460,4 +703,8 @@ internal class MatchBlockingInteractionRuntime(
         cards: Map<ForgeCardId, Card>,
         assignments: Map<ForgeCardId?, Int>,
     ): MutableMap<Card?, Int> = assignments.entries.associateTo(linkedMapOf()) { (id, amount) -> id?.let(cards::get) to amount }
+
+    private companion object {
+        const val REPLICATE_CTO_ID = 1
+    }
 }

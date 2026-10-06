@@ -7,6 +7,7 @@ import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.shouldBe
 import leyline.testkit.SessionTest
+import wotc.mtgo.gre.external.messaging.Messages.*
 
 /**
  * "Unless [player] pays {N}" with a plain mana cost. Forge routes these through
@@ -64,6 +65,20 @@ class UnlessManaCostTest :
 
         fun leyline.tooling.headless.MatchFlowHarness.optionalPrompts() = allMessages.count { it.hasOptionalActionMessage() }
 
+        fun leyline.tooling.headless.MatchFlowHarness.autoPayOptionalMana() {
+            allMessages
+                .last { it.hasPayCostsReq() }
+                .payCostsReq.manaCostList
+                .sumOf { it.count } shouldBe 1
+            submitGameplayResponse(
+                ClientToGREMessage
+                    .newBuilder()
+                    .setType(ClientMessageType.PerformAutoTapActionsResp_097b)
+                    .setPerformAutoTapActionsResp(PerformAutoTapActionsResp.newBuilder().setIndex(0))
+                    .build(),
+            ).shouldBeTrue()
+        }
+
         // Responding resumes the game up to the human's next decision, which is a turn
         // later, so lands have untapped by then: assert on what persists (zones, cards
         // drawn), not on tapped state.
@@ -77,6 +92,7 @@ class UnlessManaCostTest :
             prompt.promptId shouldBe leyline.game.mapping.PromptIds.PAY_COSTS
             prompt.parametersList.map { it.parameterName to it.stringValue } shouldBe listOf("Cost" to "o1")
             respondToOptionalAction(accept = true)
+            autoPayOptionalMana()
 
             assertSoftly {
                 human.getZone(ZoneType.Battlefield).cards.map { it.name } shouldContain "Rupture Spire"
@@ -95,6 +111,36 @@ class UnlessManaCostTest :
                 human.getZone(ZoneType.Battlefield).cards.map { it.name } shouldNotContain "Rupture Spire"
                 human.getZone(ZoneType.Graveyard).cards.map { it.name } shouldContain "Rupture Spire"
             }
+        }
+
+        session("Rupture Spire — chosen land can be undone before optional payment commits", puzzle = spirePuzzle(islands = 2)) {
+            holdNextOptionalAction()
+            playLand("Rupture Spire").shouldBeTrue()
+            respondToOptionalAction(accept = true)
+            val first = allMessages.last { it.hasPayCostsReq() }
+            val source =
+                first.payCostsReq.paymentActions.actionsList
+                    .first { it.actionType == ActionType.ActivateMana }
+            submitGameplayResponse(
+                ClientToGREMessage
+                    .newBuilder()
+                    .setType(ClientMessageType.PerformActionResp_097b)
+                    .setPerformActionResp(PerformActionResp.newBuilder().addActions(source))
+                    .build(),
+            ).shouldBeTrue()
+            assertSoftly {
+                human.getZone(ZoneType.Battlefield).cards.count { it.name == "Island" && it.isTapped } shouldBe 1
+                allMessages.last { it.hasPayCostsReq() }.allowUndo shouldBe true
+            }
+            submitGameplayResponse(
+                ClientToGREMessage.newBuilder().setType(ClientMessageType.UndoReq).build(),
+            ).shouldBeTrue()
+            assertSoftly {
+                human.getZone(ZoneType.Battlefield).cards.count { it.name == "Island" && it.isTapped } shouldBe 0
+                human.manaPool.totalMana() shouldBe 0
+            }
+            autoPayOptionalMana()
+            human.getZone(ZoneType.Battlefield).cards.map { it.name } shouldContain "Rupture Spire"
         }
 
         session("Rupture Spire — no mana available means no prompt", puzzle = spirePuzzle(islands = 0)) {
@@ -118,6 +164,7 @@ class UnlessManaCostTest :
             castSpellByName("Grizzly Bears").shouldBeTrue()
             passUntil(maxPasses = 6) { optionalPrompts() > prior }.shouldBeTrue()
             respondToOptionalAction(accept = true)
+            autoPayOptionalMana()
 
             ai.getZone(ZoneType.Library).cards.size shouldBe library - 1
         }

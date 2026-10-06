@@ -28,17 +28,18 @@ class KeywordGrantOverrunTest :
             passUntilResolved()
 
             // Find AddAbility persistent annotation
-            val addAbility =
+            val addAbilities =
                 allMessages
                     .filter { it.hasGameStateMessage() }
                     .flatMap { it.gameStateMessage.persistentAnnotationsList }
-                    .firstOrNull { AnnotationType.AddAbility_af5a in it.typeList }
+                    .filter { AnnotationType.AddAbility_af5a in it.typeList && it.detailUint("grpid") == 14 }
+                    .distinctBy { it.id }
             assertSoftly {
-                addAbility.shouldNotBeNull()
-                // grpId 14 = Trample
-                addAbility.detailUint("grpid") shouldBe 14
-                // Both Grizzly Bears affected
-                addAbility.affectedIdsList.size shouldBe 2
+                // Each recipient owns its effect lifecycle; neither row can
+                // survive when that recipient's keyword grant is destroyed.
+                addAbilities.size shouldBe 2
+                addAbilities.forEach { it.affectedIdsList.size shouldBe 1 }
+                addAbilities.flatMap { it.affectedIdsList }.distinct().size shouldBe 2
             }
         }
 

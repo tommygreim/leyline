@@ -10,6 +10,7 @@ import leyline.bridge.bootstrap.GameBootstrap
 import leyline.game.mapping.ZoneIds
 import leyline.testkit.SessionTest
 import leyline.testkit.TestCardRegistry
+import leyline.testkit.detailInt
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
 
 /**
@@ -139,13 +140,19 @@ class RoleTokenTest :
                     allMessages
                         .filter { it.hasGameStateMessage() }
                         .flatMap { it.gameStateMessage.annotationsList }
+                val retiredRoleIid =
+                    allAnns
+                        .last {
+                            AnnotationType.ObjectIdChanged in it.typeList &&
+                                it.detailInt("orig_id") == monsterRoleIid
+                        }.detailInt("new_id")
 
                 // The SBA-removed Monster Role must show up on the wire: its
                 // attachment link to Grizzly Bears is explicitly severed...
                 val detached =
                     allAnns.filter { ann ->
                         AnnotationType.RemoveAttachment in ann.typeList &&
-                            ann.affectorId == monsterRoleIid &&
+                            ann.affectorId == retiredRoleIid &&
                             bearsIid in ann.affectedIdsList
                     }
                 detached.shouldNotBeEmpty()
@@ -154,7 +161,7 @@ class RoleTokenTest :
                 // the same way any other Aura TOKEN falling off would.
                 val deleted =
                     allAnns.filter { ann ->
-                        AnnotationType.TokenDeleted in ann.typeList && monsterRoleIid in ann.affectedIdsList
+                        AnnotationType.TokenDeleted in ann.typeList && retiredRoleIid in ann.affectedIdsList
                     }
                 deleted.shouldNotBeEmpty()
             }

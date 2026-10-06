@@ -108,6 +108,20 @@ class MechanicAnnotationPipelineTest :
             }
         }
 
+        test("Plan counter retains authoritative persistent state") {
+            val events =
+                listOf(
+                    GameEvent.CountersChanged(cardId = ForgeCardId(42), counterType = "PLAN", oldCount = 0, newCount = 1),
+                )
+            val result = MechanicAnnotations.mechanicAnnotations(events, idResolver = ::testResolver)
+
+            assertSoftly {
+                result.transient.single().detailInt("counter_type") shouldBe 211
+                result.persistent.single().detailInt("counter_type") shouldBe 211
+                result.persistent.single().detailInt("count") shouldBe 1
+            }
+        }
+
         test("counterUnchangedSkipped") {
             val events =
                 listOf(
@@ -240,6 +254,37 @@ class MechanicAnnotationPipelineTest :
                 annotations[0].affectorId shouldBe 1088
                 annotations[0].affectedIdsList shouldContain 1088
             }
+        }
+
+        test("permanentRegeneratedProducesOneAnnotationPerForgeEvent") {
+            val events =
+                listOf(
+                    GameEvent.PermanentRegenerated(ForgeCardId(88)),
+                    GameEvent.PermanentRegenerated(ForgeCardId(89)),
+                )
+            val annotations = MechanicAnnotations.mechanicAnnotations(events, idResolver = ::testResolver).transient
+
+            assertSoftly {
+                annotations.map { it.typeList.single() } shouldBe
+                    listOf(AnnotationType.PermanentRegenerated, AnnotationType.PermanentRegenerated)
+                annotations.map { it.affectedIdsList.single() } shouldBe listOf(1088, 1089)
+                annotations.all { it.affectorId == 0 } shouldBe true
+            }
+        }
+
+        test("ordinaryDamageEventDoesNotProduceRegeneratedAnnotation") {
+            val events =
+                listOf(
+                    GameEvent.DamageDealtToCard(
+                        sourceCardId = ForgeCardId(1),
+                        targetCardId = ForgeCardId(88),
+                        amount = 1,
+                        sourceKind = DamageSourceKind.Combat,
+                    ),
+                )
+            val annotations = MechanicAnnotations.mechanicAnnotations(events, idResolver = ::testResolver).transient
+
+            annotations.none { AnnotationType.PermanentRegenerated in it.typeList } shouldBe true
         }
 
         // -- PowerToughnessChanged --

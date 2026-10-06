@@ -3,7 +3,7 @@ package leyline.game.bundle
 import leyline.bridge.handoff.SearchWindowValue
 import leyline.bridge.types.SeatId
 import leyline.game.mapping.FrameIdResolver
-import leyline.game.mapping.PromptIds
+import leyline.game.mapping.SearchPromptResolver
 import leyline.game.mapping.ZoneIds
 import leyline.game.state.ProjectionState
 import leyline.game.state.ProjectionTransition
@@ -33,12 +33,7 @@ internal class SearchWindowMaterializer(
                 ?.takeIf { it.abilityOnStack && it.forgeAbilityId != 0 }
                 ?.let { context.requiredInstanceId(FrameIdResolver.triggerStackAbilityForgeId(it.forgeAbilityId), "Search card") }
                 ?: hostId
-        val promptId =
-            if (window.source?.let { it.abilityOnStack && it.typeCycling } == true) {
-                PromptIds.SEARCH_TYPECYCLING
-            } else {
-                PromptIds.SEARCH
-            }
+        val promptId = SearchPromptResolver.resolve(window.source?.changeType, window.maxFind)
         val request =
             if (window.groups.isNotEmpty()) {
                 context.message(GREMessageType.SearchFromGroupsReq_695e) {
@@ -46,7 +41,7 @@ internal class SearchWindowMaterializer(
                         SearchFromGroupsReq
                             .newBuilder()
                             .setMaxFind(window.maxFind)
-                            .addZonesToSearch(ZoneIds.libraryOf(SeatId(context.seatId)))
+                            .addZonesToSearch(ZoneIds.libraryOf(window.libraryOwnerSeatId ?: SeatId(context.seatId)))
                             .addAllGroups(
                                 window.groups.map { group ->
                                     Group
@@ -67,7 +62,7 @@ internal class SearchWindowMaterializer(
                     it.prompt =
                         Prompt
                             .newBuilder()
-                            .setPromptId(PromptIds.SEARCH_FROM_GROUPS)
+                            .setPromptId(promptId)
                             .addParameters(cardIdPromptParameter(hostId))
                             .build()
                 }
@@ -76,7 +71,7 @@ internal class SearchWindowMaterializer(
                     it.searchReq =
                         RequestBuilder.buildSearchRequest(
                             sourceInstanceId = sourceId,
-                            libraryZoneId = ZoneIds.libraryOf(SeatId(context.seatId)),
+                            libraryZoneId = ZoneIds.libraryOf(window.libraryOwnerSeatId ?: SeatId(context.seatId)),
                             allLibraryIds = libraryIds,
                             validTargetIds = validIds,
                             maxFind = window.maxFind,

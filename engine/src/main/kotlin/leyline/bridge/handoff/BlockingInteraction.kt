@@ -2,10 +2,20 @@ package leyline.bridge.handoff
 
 import leyline.bridge.types.ForgeCardId
 import wotc.mtgo.gre.external.messaging.Messages.CardMechanicType
+import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
+import wotc.mtgo.gre.external.messaging.Messages.ManaColor
 import kotlin.ConsistentCopyVisibility
 
 /** Immutable engine-thread request presented before a blocking interaction waits. */
 sealed interface BlockingInteraction {
+    /** The adjusted, chosen cost, after optional costs, modes and X have been decided. */
+    data class ManaPayment(
+        val sourceId: ForgeCardId,
+        val manaCost: List<Pair<ManaColor, Int>>,
+        val canAutoPay: Boolean,
+        val canUndo: Boolean = false,
+    ) : BlockingInteraction
+
     data class Optional(
         val sourceId: ForgeCardId?,
         val forceSnapshotBeforePrompt: Boolean,
@@ -17,9 +27,25 @@ sealed interface BlockingInteraction {
          *  Explore routes to a dedicated browser only when this is set. Null keeps
          *  the message tag-free, same as before this field existed. */
         val mechanicType: CardMechanicType? = null,
+        /** Cards displayed alongside [sourceId] by mechanic-specific workflows (e.g. Mutate). */
+        val recipientIds: List<ForgeCardId> = emptyList(),
         /** Client mana-cost text (`o1`, `oUoB`, ...) shown as "Pay {cost}." instead of the
          *  generic "Choose options." prompt. Null keeps the generic prompt. */
         val costText: String? = null,
+    ) : BlockingInteraction
+
+    /**
+     * Choose whether a card is put on top of or bottom of its owner's library.
+     *
+     * This is deliberately not [Optional]: Arena selects a Scryish workflow
+     * from [CardMechanicType.PutTopOrBottom] and uses the recipient card to
+     * render the affected object.  The response remains the GRE optional
+     * boolean (yes = top, no = bottom), but the prompt's identity and
+     * workflow are no longer lost in the generic optional-action rail.
+     */
+    data class TopOrBottom(
+        val sourceId: ForgeCardId,
+        val recipientId: ForgeCardId,
     ) : BlockingInteraction
 
     data class FreeCast(
@@ -29,12 +55,41 @@ sealed interface BlockingInteraction {
         val alternativeSourceForgeCardId: ForgeCardId,
     )
 
+    /** A Play effect's exact remaining castable cards during resolution. */
+    data class ResolutionCast(
+        val sourceId: ForgeCardId,
+        val sourceAbilityForgeId: Int?,
+        val candidateIds: List<ForgeCardId>,
+        val optional: Boolean,
+        val withoutManaCost: Boolean,
+        val promptId: Int,
+    ) : BlockingInteraction
+
     data class Numeric(
         val sourceId: ForgeCardId?,
         val min: Int,
         val max: Int,
         val defaultValue: Int,
+        /**
+         * The generic X picker is a different client workflow from keyword
+         * repeat-count pickers. Arena carries the latter in a typed
+         * CastingTimeOptionsReq with a numeric child request.
+         */
+        val presentation: NumericPresentation = NumericPresentation.Generic,
     ) : BlockingInteraction
+
+    enum class NumericPresentation {
+        Generic(null),
+        Replicate(CastingTimeOptionType.Replicate),
+        Multikicker(CastingTimeOptionType.Multikicker),
+        ;
+
+        val castingTimeOptionType: CastingTimeOptionType?
+
+        constructor(castingTimeOptionType: CastingTimeOptionType?) {
+            this.castingTimeOptionType = castingTimeOptionType
+        }
+    }
 
     @ConsistentCopyVisibility
     data class Damage private constructor(
@@ -64,6 +119,19 @@ sealed interface BlockingInteraction {
                 )
         }
     }
+}
+
+/** A payment window returns a command, not a partially mutated Forge payment. */
+sealed interface ManaPaymentDecision {
+    data class Sources(
+        val actions: List<PlayerAction.ActivateMana>,
+    ) : ManaPaymentDecision
+
+    data object AutoPay : ManaPaymentDecision
+
+    data object Undo : ManaPaymentDecision
+
+    data object Cancel : ManaPaymentDecision
 }
 
 /** Immutable declaration response values; the coordinator resolves engine actions. */

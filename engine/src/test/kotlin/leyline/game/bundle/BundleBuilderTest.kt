@@ -11,7 +11,10 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.comparables.shouldBeGreaterThan
 import io.kotest.matchers.ints.shouldBeGreaterThan
+import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
+import leyline.bridge.handoff.CardSelectKind
+import leyline.bridge.handoff.CardSelectWindowValue
 import leyline.bridge.handoff.PromptSideEffect
 import leyline.bridge.handoff.TargetingCandidateValue
 import leyline.bridge.handoff.TargetingWindowValue
@@ -49,8 +52,11 @@ import leyline.game.state.ProjectionViewer
 import leyline.game.state.ProjectionViewerRole
 import leyline.game.state.PromptProjectionFacts
 import leyline.game.state.StaleProjectionTransitionException
+import leyline.testkit.Board
 import leyline.testkit.BoardTest
 import leyline.testkit.BundleBuilderTestSupport
+import leyline.testkit.TestCardInjector
+import leyline.testkit.haveManaCost
 import leyline.testkit.humanPlayer
 import wotc.mtgo.gre.external.messaging.Messages
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
@@ -396,6 +402,33 @@ class BundleBuilderTest :
             }
         }
 
+        test("buildManaTypeCastingTimeOptionsReq emits Phyrexian alternatives") {
+            val (req, _) =
+                CastingTimeOptionsBuilder.buildManaTypeCastingTimeOptionsReq(
+                    instanceId = 236,
+                    grpId = 95755,
+                    playerIdToPrompt = 2,
+                    hybridColors = listOf(Messages.ManaColor.Black_afc9, Messages.ManaColor.Black_afc9),
+                    manaTypes = listOf(Messages.ManaColor.Phyrexian_afc9, Messages.ManaColor.Phyrexian_afc9),
+                    colorOptions =
+                        listOf(
+                            listOf(Messages.ManaColor.Black_afc9),
+                            listOf(Messages.ManaColor.Black_afc9, Messages.ManaColor.Green_afc9),
+                        ),
+                    manaCost =
+                        listOf(
+                            leyline.bridge.handoff.ManaRequirementSpec.frozen(
+                                listOf(Messages.ManaColor.Black_afc9, Messages.ManaColor.Phyrexian_afc9),
+                            ),
+                        ),
+                )
+
+            req.getCastingTimeOptionReq(0).selectManaTypeReq.manaColorsList shouldBe
+                listOf(Messages.ManaColor.Black_afc9, Messages.ManaColor.Phyrexian_afc9)
+            req.getCastingTimeOptionReq(1).selectManaTypeReq.manaColorsList shouldBe
+                listOf(Messages.ManaColor.Black_afc9, Messages.ManaColor.Green_afc9, Messages.ManaColor.Phyrexian_afc9)
+        }
+
         test("buildOptionalCostCastingTimeOptionsReq — combined Bargain + Offspring shape (mixed ctoTypes)") {
             // Unified emit: an OptionalCost-enum cost (Bargain) and a
             // KeywordWithCost cost (Offspring) on the same cast surface as
@@ -662,6 +695,252 @@ class BundleBuilderTest :
             }
         }
 
+        test("targeting frames retain each player's own public graveyard rail") {
+            val (b, game, counter) =
+                startWithBoard { _, human, ai ->
+                    addCard("Think Twice", human, ZoneType.Graveyard)
+                    addCard("Think Twice", ai, ZoneType.Graveyard)
+                }
+            val builder = bundleBuilder(b)
+            val result =
+                builder
+                    .prepareTargetingWindow(
+                        game,
+                        counter,
+                        targetingWindow(source = null),
+                        routes = listOf(BundleBuilder.ViewerRoute(ProjectionViewer(SeatId(1), ProjectionViewerRole.Player), builder)),
+                    ).player.bundle
+            val actions =
+                result.messages
+                    .first()
+                    .gameStateMessage.actionsList
+            for (seat in 1..2) {
+                val iid =
+                    b.instanceId(
+                        game.players[seat - 1]
+                            .getZone(ZoneType.Graveyard)
+                            .cards
+                            .single(),
+                    )
+                actions.filter { it.action.instanceId == iid }.map { it.seatId }.distinct() shouldBe listOf(seat)
+            }
+        }
+
+        test("retained full state uses the same replacement action semantics as Arena") {
+            val first =
+                Messages.GameStateMessage
+                    .newBuilder()
+                    .addActions(
+                        Messages.ActionInfo
+                            .newBuilder()
+                            .setSeatId(1)
+                            .setAction(Messages.Action.newBuilder().setInstanceId(100)),
+                    ).build()
+            val replacement =
+                Messages.GameStateMessage
+                    .newBuilder()
+                    .addActions(
+                        Messages.ActionInfo
+                            .newBuilder()
+                            .setSeatId(2)
+                            .setAction(Messages.Action.newBuilder().setInstanceId(200)),
+                    ).build()
+            first.applyDiff(replacement).actionsList shouldBe replacement.actionsList
+            first.applyDiff(Messages.GameStateMessage.getDefaultInstance()).actionsCount shouldBe 0
+        }
+
+        test("synchronization phase frames keep both zone rails with no priority offers") {
+            var crabForgeId = 0
+            var hearthForgeId = 0
+            val (b, game, counter) =
+                startWithBoard { _, human, ai ->
+                    addCard("Think Twice", human, ZoneType.Graveyard)
+                    addCard("Think Twice", ai, ZoneType.Graveyard)
+                    crabForgeId = addCard("Eddymurk Crab", human, ZoneType.Hand).id
+                    hearthForgeId = addCard("Hearth Elemental", human, ZoneType.Hand).id
+                    repeat(4) { addCard("Lightning Bolt", human, ZoneType.Graveyard) }
+                }
+            val prepared =
+                bundleBuilder(b).preparePhaseTransitionDiff(
+                    game,
+                    counter,
+                    Messages.ActionsAvailableReq.getDefaultInstance(),
+                    includePriorityPrompt = false,
+                )
+            val frames =
+                prepared.bundle.messages
+                    .filter { it.hasGameStateMessage() }
+                    .map { it.gameStateMessage }
+            frames.size shouldBe 3
+            frames.forEach { frame ->
+                frame.actionsList.map { it.seatId }.toSet() shouldBe setOf(1, 2)
+                frame.actionsList shouldBe frames.first().actionsList
+                frame.pendingMessageCount shouldBe 0
+            }
+            val crabId = b.getOrAllocInstanceId(ForgeCardId(crabForgeId)).value
+            val hearthId = b.getOrAllocInstanceId(ForgeCardId(hearthForgeId)).value
+            frames
+                .first()
+                .actionsList
+                .single {
+                    it.seatId == 1 && it.action.instanceId == crabId && it.action.actionType == Messages.ActionType.Cast
+                }.action should haveManaCost(blue = 2)
+            frames
+                .first()
+                .actionsList
+                .single {
+                    it.seatId == 1 && it.action.instanceId == hearthId && it.action.actionType == Messages.ActionType.CastAdventure
+                }.action should haveManaCost(generic = 1, red = 1)
+        }
+
+        test("playback echoes preserve public zone display actions for both seats") {
+            val (b, game, counter) =
+                startWithBoard { _, human, ai ->
+                    addCard("Think Twice", human, ZoneType.Graveyard)
+                    addCard("Think Twice", ai, ZoneType.Graveyard)
+                }
+            val builder = bundleBuilder(b)
+            val cut = builder.materializePlaybackCut(game, counter, turnStarted = false, events = FrameEventLog.EMPTY)
+            val playback = builder.compilePlaybackCut(cut)
+            val frames =
+                playback.batches
+                    .flatten()
+                    .filter { it.hasGameStateMessage() }
+                    .map { it.gameStateMessage }
+            frames.size shouldBe 2
+            frames[1].actionsList shouldBe frames[0].actionsList
+            frames[1].actionsList.map { it.seatId }.toSet() shouldBe setOf(1, 2)
+        }
+
+        test("opponent-owned playback retains the viewing player's reduced hand costs") {
+            var crabForgeId = 0
+            var hearthForgeId = 0
+            val (b, game, counter) =
+                startWithBoard { g, human, ai ->
+                    crabForgeId = addCard("Eddymurk Crab", human, ZoneType.Hand).id
+                    hearthForgeId = addCard("Hearth Elemental", human, ZoneType.Hand).id
+                    repeat(5) { addCard("Lightning Bolt", human, ZoneType.Graveyard) }
+                    addCard("Grizzly Bears", ai, ZoneType.Hand)
+                    g.phaseHandler.devModeSet(PhaseType.COMBAT_END, human)
+                }
+            val humanBuilder = BundleBuilder(b, Board.TEST_MATCH_ID, 1)
+            val opponentBuilder = BundleBuilder(b, Board.TEST_MATCH_ID, 2)
+            val cut = opponentBuilder.materializePlaybackCut(game, counter, turnStarted = false, events = FrameEventLog.EMPTY)
+            val routes =
+                listOf(
+                    BundleBuilder.ViewerRoute(ProjectionViewer(SeatId(1), ProjectionViewerRole.Player), humanBuilder),
+                    BundleBuilder.ViewerRoute(ProjectionViewer(SeatId(2), ProjectionViewerRole.Player), opponentBuilder),
+                )
+            val playback = opponentBuilder.compilePlaybackCut(cut, routes)
+            val crabId = b.getOrAllocInstanceId(ForgeCardId(crabForgeId)).value
+            val hearthId = b.getOrAllocInstanceId(ForgeCardId(hearthForgeId)).value
+            val humanFrame =
+                playback.viewers
+                    .single { it.seatId == SeatId(1) }
+                    .batches
+                    .first()
+                    .first()
+                    .gameStateMessage
+            val humanActions = humanFrame.actionsList.filter { it.seatId == 1 }
+
+            fun handAction(
+                instanceId: Int,
+                type: Messages.ActionType,
+            ): Messages.Action =
+                humanActions
+                    .single { it.action.instanceId == instanceId && it.action.actionType == type }
+                    .action
+            assertSoftly {
+                handAction(crabId, Messages.ActionType.Cast) should haveManaCost(blue = 2)
+                handAction(hearthId, Messages.ActionType.Cast) should haveManaCost(red = 1)
+                handAction(hearthId, Messages.ActionType.CastAdventure) should haveManaCost(generic = 1, red = 1)
+            }
+        }
+
+        test("card selection retains existing hand costs without opening a cast window") {
+            var crabForgeId = 0
+            var hearthForgeId = 0
+            val (b, game, counter) =
+                startWithBoard { _, human, _ ->
+                    crabForgeId = addCard("Eddymurk Crab", human, ZoneType.Hand).id
+                    hearthForgeId = addCard("Hearth Elemental", human, ZoneType.Hand).id
+                    repeat(5) { addCard("Lightning Bolt", human, ZoneType.Graveyard) }
+                }
+            val builder = bundleBuilder(b)
+            val window =
+                CardSelectWindowValue(
+                    kind = CardSelectKind.Resolution,
+                    candidates = emptyList(),
+                    sourceForgeCardId = null,
+                    min = 0,
+                    max = 0,
+                    defaultOptionIndex = 0,
+                    choiceResultSentiment = null,
+                )
+            val prepared =
+                builder.prepareCardSelectWindow(
+                    game,
+                    counter,
+                    window,
+                    listOf(BundleBuilder.ViewerRoute(ProjectionViewer(SeatId(1), ProjectionViewerRole.Player), builder)),
+                )
+            val state =
+                prepared.player.bundle.messages
+                    .first()
+                    .gameStateMessage
+            val crabId = b.getOrAllocInstanceId(ForgeCardId(crabForgeId)).value
+            val hearthId = b.getOrAllocInstanceId(ForgeCardId(hearthForgeId)).value
+            val actions = state.actionsList.filter { it.seatId == 1 }
+
+            actions
+                .single { it.action.instanceId == crabId && it.action.actionType == Messages.ActionType.Cast }
+                .action should haveManaCost(blue = 2)
+            actions
+                .single { it.action.instanceId == hearthId && it.action.actionType == Messages.ActionType.CastAdventure }
+                .action should haveManaCost(generic = 1, red = 1)
+            prepared.player.bundle.messages
+                .none { it.hasActionsAvailableReq() } shouldBe true
+        }
+
+        test("selection frame does not advertise a newly drawn card before its draw settles") {
+            var hearthForgeId = 0
+            val (b, game, counter) =
+                startWithBoard { _, human, _ ->
+                    hearthForgeId = addCard("Hearth Elemental", human, ZoneType.Hand).id
+                    repeat(5) { addCard("Lightning Bolt", human, ZoneType.Graveyard) }
+                }
+            val drawn = TestCardInjector.inject(b, 1, "Lightning Bolt", ZoneType.Hand)
+            val builder = bundleBuilder(b)
+            val window =
+                CardSelectWindowValue(
+                    kind = CardSelectKind.Resolution,
+                    candidates = emptyList(),
+                    sourceForgeCardId = null,
+                    min = 0,
+                    max = 0,
+                    defaultOptionIndex = 0,
+                    choiceResultSentiment = null,
+                )
+            val prepared =
+                builder.prepareCardSelectWindow(
+                    game,
+                    counter,
+                    window,
+                    listOf(BundleBuilder.ViewerRoute(ProjectionViewer(SeatId(1), ProjectionViewerRole.Player), builder)),
+                )
+            val hearthId = b.getOrAllocInstanceId(ForgeCardId(hearthForgeId)).value
+            val actions =
+                prepared.player.bundle.messages
+                    .first()
+                    .gameStateMessage.actionsList
+
+            actions
+                .single {
+                    it.seatId == 1 && it.action.instanceId == hearthId && it.action.actionType == Messages.ActionType.CastAdventure
+                }.action should haveManaCost(generic = 1, red = 1)
+            actions.none { it.action.instanceId == drawn.instanceId } shouldBe true
+        }
+
         test("prepared targeting window shape") {
             val (b, game, counter) = startWithBoard { _, _, _ -> }
             val builder = bundleBuilder(b)
@@ -681,7 +960,7 @@ class BundleBuilderTest :
                 result.messages[1].type shouldBe GREMessageType.SelectTargetsReq_695e
                 result.messages[1].prompt.promptId shouldBe PromptIds.SELECT_TARGETS
                 result.messages[1].allowCancel shouldBe Messages.AllowCancel.Abort
-                result.messages[1].allowUndo.shouldBeTrue()
+                result.messages[1].allowUndo.shouldBeFalse()
             }
         }
 
@@ -1234,7 +1513,7 @@ class BundleBuilderTest :
             // board-only setup here it's expected to be empty, so no assertion is needed.
         }
 
-        test("echoBlockersBundle conformance — SendAndRecord, no combat state, actions present") {
+        test("echoBlockersBundle carries provisional block links without committing Forge combat") {
             val (b, game, counter) =
                 startWithBoard { _, human, _ ->
                     addCard("Llanowar Elves", human, ZoneType.Battlefield)
@@ -1272,9 +1551,10 @@ class BundleBuilderTest :
                 gsm.pendingMessageCount shouldBe 0
             }
 
-            // Conformance: no blockState on echo objects
+            // Selected blocks need object-level links in addition to the request.
             for (obj in gsm.gameObjectsList) {
-                obj.blockState shouldBe Messages.BlockState.None_aa2d
+                obj.blockState shouldBe Messages.BlockState.Declared_aa2d
+                obj.blockInfo.attackerIdsList shouldBe listOf(999)
                 obj.attackState shouldBe Messages.AttackState.None_a3a9
             }
         }

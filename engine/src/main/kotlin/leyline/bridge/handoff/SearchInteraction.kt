@@ -1,6 +1,13 @@
 package leyline.bridge.handoff
 
 import leyline.bridge.types.ForgeCardId
+import leyline.bridge.types.SeatId
+
+/** Exact library view supplied by Forge, independent of eligible search candidates. */
+data class SearchLibraryValue(
+    val ownerSeatId: SeatId,
+    val cardIds: List<ForgeCardId>,
+)
 
 /** Engine-thread source facts for a library-search interaction. */
 data class SearchSourceValue(
@@ -8,6 +15,7 @@ data class SearchSourceValue(
     val forgeAbilityId: Int,
     val abilityOnStack: Boolean,
     val typeCycling: Boolean,
+    val changeType: String? = null,
 )
 
 /** One ordered, disjoint candidate partition for a grouped library search. */
@@ -33,6 +41,7 @@ data class SearchWindowValue(
     val defaultIndex: Int,
     val source: SearchSourceValue?,
     val groups: List<SearchGroupValue> = emptyList(),
+    val libraryOwnerSeatId: leyline.bridge.types.SeatId? = null,
 ) {
     init {
         require(groups.map { it.groupId }.distinct().size == groups.size) { "Search group ids must be unique" }

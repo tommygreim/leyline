@@ -389,6 +389,32 @@ class LandManaTest :
             }
         }
 
+        test("an X spell can use a fixed blue source before a flexible blue-red source") {
+            // The flexible land is encountered first in battlefield order. A
+            // first-fit predictor would spend it on {U} and then fail {R},
+            // despite the Island making this cast legal at X=0.
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Traumatic Critique", human, ZoneType.Hand)
+                    addCard("Steam Vents", human, ZoneType.Battlefield)
+                    addCard("Island", human, ZoneType.Battlefield)
+                }
+
+            val cast =
+                ActionMapper
+                    .buildFromSnapshot(1, GsmSnapshot.capture(board.game, board.bridge, "test", 0), board.bridge)
+                    .ofType(ActionType.Cast)
+                    .single()
+
+            assertSoftly {
+                cast.hasAutoTapSolution().shouldBeTrue()
+                cast.autoTapSolution.autoTapActionsCount shouldBe 2
+                cast.autoTapSolution.autoTapActionsList
+                    .flatMap { it.manaPaymentOption.manaList }
+                    .map { it.color } shouldContainExactlyInAnyOrder listOf(ManaColor.Blue_afc9, ManaColor.Red_afc9)
+            }
+        }
+
         test("hybrid two-or-color autoTapSolution can use two generic for a missing color") {
             val board =
                 startWithBoard { _, human, _ ->

@@ -1,0 +1,7 @@
+name: "Searstep Pathway"
+grpId: 991002
+titleId: 0
+expansionCode: "KHM"
+linkedFaces:
+  - 991001
+isPrimaryCard: false

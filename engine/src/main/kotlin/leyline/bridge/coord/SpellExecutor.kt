@@ -6,7 +6,7 @@ import forge.game.cost.CostPayment
 import forge.game.player.Player
 import forge.game.spellability.LandAbility
 import forge.game.spellability.SpellAbility
-import leyline.bridge.buildMdfcBackLandAbility
+import leyline.bridge.buildLandPlayAbility
 import leyline.bridge.findCard
 import leyline.bridge.forge.PlayerController
 import leyline.bridge.getAllCastableAbilities
@@ -143,9 +143,9 @@ class SpellExecutor(
         try {
             val controller = player.controller as? PlayerController
             if (controller != null) {
-                controller.withManaColorChoice(selectedColor) { manaAbility.resolve() }
+                controller.withManaColorChoice(selectedColor) { game.stack.addAndUnfreeze(manaAbility) }
             } else {
-                manaAbility.resolve()
+                game.stack.addAndUnfreeze(manaAbility)
             }
         } catch (ex: Exception) {
             log.error("activateMana: resolve() failed for {}: {}", card.name, ex.message, ex)
@@ -156,15 +156,12 @@ class SpellExecutor(
     }
 
     /** Build the [LandAbility] for a land-drop action. */
-    fun playLand(cardId: ForgeCardId): List<SpellAbility>? {
+    fun playLand(
+        cardId: ForgeCardId,
+        selectedAbility: LandAbility? = null,
+    ): List<SpellAbility>? {
         val card = findCard(game, cardId) ?: return null
-        val landAbility =
-            if (card.isLand) {
-                LandAbility(card, card.currentState)
-            } else {
-                buildMdfcBackLandAbility(card) ?: return null
-            }
-        landAbility.activatingPlayer = player
+        val landAbility = selectedAbility?.takeIf { it.hostCard.id == card.id } ?: buildLandPlayAbility(card, player) ?: return null
         return listOf(landAbility)
     }
 

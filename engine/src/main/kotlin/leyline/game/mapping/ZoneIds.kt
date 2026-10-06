@@ -5,6 +5,8 @@ import leyline.bridge.types.SeatId
 
 /** Protocol zone IDs matching expected protocol layout (starting at 18). */
 object ZoneIds {
+    /** Arena's fixed shared zone for permanents currently phased out. */
+    const val PHASED_OUT = 12
     const val REVEALED_P1 = 18
     const val REVEALED_P2 = 19
     const val SUPPRESSED = 24

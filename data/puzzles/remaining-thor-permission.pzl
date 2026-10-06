@@ -1,0 +1,17 @@
+[metadata]
+Name:Remaining Thor exile permission duration
+Goal:Survive
+Turns:8
+Difficulty:Easy
+Description:Cast Thor and exile Lightning Bolt from the graveyard. Bounce Thor with Unsummon, target the opponent with Thor's resulting damage trigger, and verify Bolt remains available until the end of your next turn.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanbattlefield=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Island;Island
+humanhand=Thor, God of Thunder;Unsummon
+humangraveyard=Lightning Bolt
+humanlibrary=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

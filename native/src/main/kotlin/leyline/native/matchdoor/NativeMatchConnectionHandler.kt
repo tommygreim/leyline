@@ -4,9 +4,9 @@ import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.SimpleChannelInboundHandler
 import leyline.domain.PlayerId
 import leyline.infra.MatchOutput
-import leyline.match.MatchConnection
-import leyline.native.account.Account
-import leyline.native.account.LocalAccountAuthenticator
+import leyline.match.MatchConnectionPort
+import leyline.native.Account
+import leyline.native.AccountAuthenticator
 import leyline.native.matchmaking.LocalPairingService
 import org.slf4j.LoggerFactory
 import wotc.mtgo.gre.external.messaging.Messages.*
@@ -14,13 +14,13 @@ import java.util.UUID
 
 /** Netty lifecycle adapter; channel event-loop serialization stays at this edge. */
 internal class NativeMatchConnectionHandler(
-    private val connectionFactory: (MatchOutput, Account?) -> MatchConnection,
-    private val accountAuthenticator: LocalAccountAuthenticator? = null,
+    private val connectionFactory: (MatchOutput, Account?) -> MatchConnectionPort,
+    private val accountAuthenticator: AccountAuthenticator? = null,
     private val pairingService: LocalPairingService? = null,
 ) : SimpleChannelInboundHandler<ClientToMatchServiceMessage>() {
     private val log = LoggerFactory.getLogger(NativeMatchConnectionHandler::class.java)
     private lateinit var output: MatchOutput
-    private var connection: MatchConnection? = null
+    private var connection: MatchConnectionPort? = null
     private var account: Account? = null
     private var familiar = false
     private var roomBound = false

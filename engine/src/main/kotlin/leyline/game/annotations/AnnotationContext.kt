@@ -109,17 +109,20 @@ class AnnotationContext(
 
     /** Affector iid for a `PlayerCountersChanged` event, or null when none resolves. */
     fun playerCounterAffectorFor(
-        eventIndex: Int,
+        @Suppress("UNUSED_PARAMETER") eventIndex: Int,
         ev: GameEvent.PlayerCountersChanged,
     ): InstanceId? {
         if (CounterTypes.counterTypeId(ev.counterType) == 0) return null
-        for (next in events.asSequence().drop(eventIndex + 1)) {
-            when (next) {
-                is GameEvent.SpellResolved -> return InstanceId(stackAbilityIid(next.abilityForgeId, next.cardId))
-                else -> Unit
+        val sourceCardId = ev.sourceCardId ?: return null
+        // CounterProduced animation resolves its source against the current game
+        // state. Its card view can be on the stack, in limbo, or another visible
+        // zone; the client decides whether that view has an animation transform.
+        if (snap.boundCards[sourceCardId]?.snapshot?.isProjectable == true) return frameIds.cardIid(sourceCardId)
+        val liveStackAbility =
+            snap.stack.entries.firstOrNull {
+                !it.isSpell && it.forgeCardId == sourceCardId && it.forgeAbilityId == ev.sourceAbilityForgeId
             }
-        }
-        return null
+        return liveStackAbility?.let { InstanceId(stackAbilityIid(it.forgeAbilityId, sourceCardId)) }
     }
 
     /** Instance-scoped surrogate iid for a stack-resident trigger / activated ability. */

@@ -1,0 +1,8 @@
+name: "Kick in the Door"
+grpId: 77258
+titleId: 498859
+abilities:
+  - id: 143796
+    textId: 498861
+    category: 4
+    subCategory: 0

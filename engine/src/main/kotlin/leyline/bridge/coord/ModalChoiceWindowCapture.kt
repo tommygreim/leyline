@@ -1,5 +1,6 @@
 package leyline.bridge.coord
 
+import forge.game.ability.ApiType
 import forge.game.card.Card
 import forge.game.spellability.AbilitySub
 import forge.game.spellability.SpellAbility
@@ -7,6 +8,7 @@ import leyline.bridge.handoff.ModalChoiceAiContext
 import leyline.bridge.handoff.ModalChoiceOptionValue
 import leyline.bridge.handoff.ModalChoiceWindowValue
 import leyline.bridge.handoff.PromptRequest
+import leyline.bridge.handoff.PromptSemantic
 import leyline.bridge.handoff.ResolvedPromptRoute
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.manaTokenToPair
@@ -87,6 +89,11 @@ internal class ModalChoiceWindowCapture(
                 possible = possibleOptions,
                 excluded = excludedOptions,
                 triggered = sourceAbility.isTrigger,
+                isVote = request.route.semantic == PromptSemantic.VoteChoice,
+                allowCancel =
+                    request.route.semantic != PromptSemantic.VoteChoice &&
+                        sourceAbility.api != ApiType.GenericChoice &&
+                        sourceAbility.api != ApiType.VillainousChoice,
             ),
             handlesByOptionIndex = possible.indices.associateWith(possible::get),
             aiContext = ModalChoiceAiContext(sourceAbility, possible.toList(), possibleOptions.map { it.fullIndex }),

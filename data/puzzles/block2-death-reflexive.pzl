@@ -1,0 +1,17 @@
+[metadata]
+Name:Block 2 Death fourth-counter damage
+Goal:Survive
+Turns:5
+Difficulty:Easy
+Description:Death starts with three plan counters. Cast Lightning Bolt at the opponent, then divide Death's seven damage between their Bears and their portrait.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanhand=Lightning Bolt;Abrade
+humanbattlefield=Death to Our Enemies|Counters:PLAN=3;Mountain;Mountain;Mountain;Mountain
+humanlibrary=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+aibattlefield=Grizzly Bears
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

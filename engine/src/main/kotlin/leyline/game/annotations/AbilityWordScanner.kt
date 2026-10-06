@@ -35,12 +35,14 @@ object AbilityWordScanner {
         val abilityGrpId: Int? = null,
         /** Actual W/U/B/R/G mana-color ordinals spent for cast-payment state. */
         val colors: List<Int>? = null,
+        val hasBlessing: Boolean = false,
         /** Card-backed entry whose iid must follow this frame's zone reallocation. */
         val forgeCardId: ForgeCardId? = null,
         /** Override affectorId (default = instanceId). */
         val affectorId: Int? = null,
         /** Per-player entries: all permanent iids with this ability word for that player. */
         val affectedIds: List<Int> = emptyList(),
+        val affectedForgeCardIds: List<ForgeCardId> = emptyList(),
     )
 
     private data class ConditionSpec(
@@ -90,7 +92,6 @@ object AbilityWordScanner {
             "Ferocious" to ConditionSpec(),
             "Hellbent" to ConditionSpec(),
             "Desert" to ConditionSpec(),
-            "Blessing" to ConditionSpec(),
             // VERIFIED.
             "Morbid" to
                 ConditionSpec(
@@ -278,6 +279,23 @@ object AbilityWordScanner {
             ),
         )
 
+        battlefieldCards
+            .filter { !it.isPhasedOut && it.hasKeyword(Keyword.ASCEND) }
+            .groupBy { it.controller }
+            .forEach { (controller, sources) ->
+                val seat = controller.game.registeredPlayers.indexOf(controller) + 1
+                results.add(
+                    AbilityWordEntry(
+                        instanceId = seat,
+                        abilityWordName = "Ascend",
+                        value = battlefieldCards.count { it.controller == controller && !it.isPhasedOut },
+                        threshold = 10,
+                        affectorId = seat,
+                        affectedForgeCardIds = sources.map { ForgeCardId(it.id) },
+                        hasBlessing = controller.hasBlessing(),
+                    ),
+                )
+            }
         return results
     }
 

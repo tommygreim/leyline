@@ -1,0 +1,78 @@
+name: library-search
+description: Library searches preserve owner and visible scope when eligible cards are absent.
+scenarios:
+  - id: empty-own-library-search
+    puzzle: search-empty-library
+    headless: { forge_catalog: true, full_control: true }
+    run: accept Sylvan Ranger's search and fail to find a basic land
+    expect: the library search is shown and completes without changing the hand
+    steps:
+      - cast: Sylvan Ranger
+      - pass_until: { prompt: OptionalActionMessage, max_passes: 8 }
+      - optional_action: { accept: true }
+      - pass_until: { prompt: { type: SearchReq, prompt_id: 1065 }, max_passes: 8 }
+      - search_cards: { cards: [] }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: battlefield, card: Sylvan Ranger }
+            - zone_contains: { side: ours, zone: library, card: Lightning Bolt }
+            - zone_contains: { side: ours, zone: library, card: Abrade }
+            - stack_empty: true
+  - id: opponent-matches-and-empty-search
+    puzzle: search-opponent-library
+    headless: { forge_catalog: true, full_control: true }
+    run: extract both library Bolts, then search the same opponent's library for absent Abrade copies
+    expect: both searches complete and only the named cards are exiled
+    steps:
+      - cast: Surgical Extraction
+      - mana_type_choices: [black]
+      - target: { side: opponent, zone: graveyard, card: Lightning Bolt }
+      - pass_until: { prompt: SelectNReq, max_passes: 8 }
+      - select_card: { side: opponent, zone: graveyard, card: Lightning Bolt }
+      - pass_until: { prompt: SearchReq, max_passes: 8 }
+      - search_cards: { side: opponent, cards: [Lightning Bolt, Lightning Bolt] }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_not_contains: { side: opponent, zone: library, card: Lightning Bolt }
+            - zone_contains: { side: opponent, zone: graveyard, card: Abrade }
+            - stack_empty: true
+      - cast: Surgical Extraction
+      - mana_type_choices: [black]
+      - target: { side: opponent, zone: graveyard, card: Abrade }
+      - pass_until: { prompt: SelectNReq, max_passes: 8 }
+      - select_card: { side: opponent, zone: graveyard, card: Abrade }
+      - pass_until: { prompt: SearchReq, max_passes: 8 }
+      - search_cards: { side: opponent, cards: [] }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: opponent, zone: exile, card: Abrade }
+            - zone_contains: { side: opponent, zone: hand, card: Mountain }
+            - zone_contains: { side: opponent, zone: hand, card: Grizzly Bears }
+            - stack_empty: true
+  - id: filtered-one-quality-and-empty-search
+    puzzle: search-filtered-teachings
+    headless: { forge_catalog: true, full_control: true }
+    run: find the only instant, then finish a second instant-or-flash search with no eligible cards
+    expect: both searches use the same native filter prompt and complete without inventing an empty group
+    steps:
+      - cast: Mystical Teachings
+      - pass_until: { prompt: { type: SearchReq, prompt_id: 3713 }, max_passes: 8 }
+      - search_cards: { cards: [Lightning Bolt] }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: hand, card: Lightning Bolt }
+            - zone_contains: { side: ours, zone: library, card: Grizzly Bears }
+            - stack_empty: true
+      - cast: Mystical Teachings
+      - pass_until: { prompt: { type: SearchReq, prompt_id: 3713 }, max_passes: 8 }
+      - search_cards: { cards: [] }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: library, card: Grizzly Bears }
+            - zone_contains: { side: ours, zone: library, card: Forest }
+            - stack_empty: true

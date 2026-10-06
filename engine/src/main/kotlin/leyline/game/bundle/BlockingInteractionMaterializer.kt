@@ -3,9 +3,11 @@ package leyline.game.bundle
 import leyline.bridge.handoff.BlockingInteraction
 import leyline.bridge.handoff.CommanderReturnPromptContext
 import leyline.bridge.handoff.CommanderZone
+import leyline.bridge.handoff.GameActionBridge
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.GrpId
 import leyline.bridge.types.InstanceId
+import leyline.bridge.types.ManaCostText
 import leyline.bridge.types.SeatId
 import leyline.bridge.types.opponent
 import leyline.game.annotations.AnnotationBuilder
@@ -25,6 +27,7 @@ import leyline.game.state.ProjectionTransition
 import wotc.mtgo.gre.external.messaging.Messages.*
 
 /** Value-oriented message/state preparation for coordinator-owned blocking interactions. */
+@Suppress("LargeClass") // One protocol materializer intentionally owns all blocking prompt message shapes.
 internal class BlockingInteractionMaterializer(
     private val seatId: Int,
 ) {
@@ -32,7 +35,58 @@ internal class BlockingInteractionMaterializer(
         val bundle: BundleBuilder.BundleResult,
         val transition: ProjectionTransition?,
         val closesPlaybackFrame: Boolean = false,
+        val manaOffers: List<GameActionBridge.ActionOffer> = emptyList(),
     )
+
+    fun manaPayment(
+        stateMessages: List<GREToClientMessage>,
+        counter: LogicalSequencePlanner,
+        interaction: BlockingInteraction.ManaPayment,
+        transition: ProjectionTransition,
+        solution: AutoTapSolution?,
+        paymentActions: ActionsAvailableReq,
+    ): Prepared {
+        val gsId = stateMessages.last().gameStateId
+        val sourceId = checkNotNull(transition.nextState.identities.forgeIdToInstanceId[interaction.sourceId]).value
+        val prompt =
+            Prompt
+                .newBuilder()
+                .setPromptId(PromptIds.PAY_COSTS)
+                .addParameters(costPromptParameter(ManaCostText.clientText(interaction.manaCost)))
+                .build()
+        val pay =
+            PayCostsReq
+                .newBuilder()
+                .addAllManaCost(
+                    interaction.manaCost.map { (color, count) ->
+                        ManaRequirement
+                            .newBuilder()
+                            .addColor(color)
+                            .setCount(count)
+                            .setObjectId(sourceId)
+                            .build()
+                    },
+                ).setPaymentActions(paymentActions)
+                .setAutoTapActionsReq(
+                    AutoTapActionsAvailableReq.newBuilder().apply {
+                        if (interaction.canAutoPay) addAutoTapSolutions(solution ?: AutoTapSolution.getDefaultInstance())
+                    },
+                ).build()
+        return Prepared(
+            BundleBuilder.BundleResult(
+                stateMessages +
+                    makeGRE(GREMessageType.PayCostsReq_695e, gsId, counter.nextMsgId()) {
+                        it.payCostsReq = pay
+                        it.prompt = prompt
+                        it.allowCancel = AllowCancel.Abort
+                        it.allowUndo = interaction.canUndo
+                    },
+                actionGameStateId = gsId,
+            ),
+            transition,
+            closesPlaybackFrame = true,
+        )
+    }
 
     fun generalOptional(
         prior: ProjectionState,
@@ -56,6 +110,9 @@ internal class BlockingInteractionMaterializer(
                         } else {
                             addParameters(cardIdPromptParameter(sourceId))
                         }
+                        interaction.recipientIds.forEach { recipientId ->
+                            addParameters(cardIdPromptParameter(editor.identities.getOrAlloc(recipientId).value))
+                        }
                     }.build()
             val optional =
                 OptionalActionMessage
@@ -64,9 +121,12 @@ internal class BlockingInteractionMaterializer(
                     .setPrompt(prompt)
                     .apply {
                         interaction.mechanicType?.let { addOptionalActionTypes(it) }
+                        addAllRecipientIds(
+                            interaction.recipientIds.map { editor.identities.getOrAlloc(it).value },
+                        )
                     }.build()
             val link = counter.nextGameStateLink()
-            val pending = pendingMessage(link)
+            val pending = pendingMessage(link, presentationActions(prior))
             BundleBuilder.BundleResult(
                 listOf(
                     makeGRE(GREMessageType.GameStateMessage_695e, link.gsId, counter.nextMsgId()) { it.gameStateMessage = pending },
@@ -80,6 +140,49 @@ internal class BlockingInteractionMaterializer(
             )
         }
     }
+
+    fun topOrBottom(
+        prior: ProjectionState,
+        counter: LogicalSequencePlanner,
+        interaction: BlockingInteraction.TopOrBottom,
+    ): Prepared =
+        edit(prior) { editor ->
+            val sourceId = editor.identities.getOrAlloc(interaction.sourceId).value
+            val recipientId = editor.identities.getOrAlloc(interaction.recipientId).value
+            val prompt =
+                Prompt
+                    .newBuilder()
+                    .setPromptId(PromptIds.OPTIONAL_ACTION)
+                    .addParameters(cardIdPromptParameter(sourceId))
+                    // The scry workflow reads slots 1/2 as one-based library
+                    // positions, not card IDs. The affected card is in recipientIds.
+                    .addParameters(PromptParameter.newBuilder().setType(ParameterType.Number).setNumberValue(1))
+                    .addParameters(PromptParameter.newBuilder().setType(ParameterType.Number).setNumberValue(1))
+                    .build()
+            val optional =
+                OptionalActionMessage
+                    .newBuilder()
+                    .setSourceId(sourceId)
+                    .addOptionalActionTypes(CardMechanicType.PutTopOrBottom)
+                    .addRecipientIds(recipientId)
+                    .setPrompt(prompt)
+                    .build()
+            val link = counter.nextGameStateLink()
+            val pending = pendingMessage(link, presentationActions(prior))
+            BundleBuilder.BundleResult(
+                listOf(
+                    makeGRE(GREMessageType.GameStateMessage_695e, link.gsId, counter.nextMsgId()) {
+                        it.gameStateMessage = pending
+                    },
+                    makeGRE(GREMessageType.OptionalActionMessage_695e, link.gsId, counter.nextMsgId()) {
+                        it.optionalActionMessage = optional
+                        it.prompt = prompt
+                        it.allowCancel = AllowCancel.No_a526
+                    },
+                ),
+                actionGameStateId = link.gsId,
+            )
+        }
 
     fun etbPayLifeOptional(
         prior: ProjectionState,
@@ -108,7 +211,7 @@ internal class BlockingInteractionMaterializer(
                 )
             val link = counter.nextGameStateLink()
             val pending =
-                pendingMessage(link)
+                pendingMessage(link, presentationActions(prior))
                     .toBuilder()
                     .setUpdate(GameStateUpdate.Send)
                     .addGameObjects(
@@ -202,7 +305,7 @@ internal class BlockingInteractionMaterializer(
                     stateMessages +
                         listOf(
                             makeGRE(GREMessageType.GameStateMessage_695e, link.gsId, counter.nextMsgId()) {
-                                it.gameStateMessage = pendingMessage(link)
+                                it.gameStateMessage = pendingMessage(link, presentationActions(stateMessages))
                             },
                             makeGRE(GREMessageType.ActionsAvailableReq_695e, link.gsId, counter.nextMsgId()) {
                                 it.actionsAvailableReq = actions.build()
@@ -216,24 +319,35 @@ internal class BlockingInteractionMaterializer(
                 closesPlaybackFrame = true,
             )
         }
+        val recipientInstanceId: (ForgeCardId) -> Int = { recipientId ->
+            transition.nextState.identities.forgeIdToInstanceId[recipientId]
+                ?.value
+                ?: error("Optional interaction recipient has no projected identity")
+        }
         val prompt =
             Prompt
                 .newBuilder()
                 .setPromptId(interaction.customPromptId ?: PromptIds.OPTIONAL_ACTION)
                 .addParameters(cardIdPromptParameter(sourceId))
-                .build()
+                .addAllParameters(
+                    interaction.recipientIds.map { recipientId -> cardIdPromptParameter(recipientInstanceId(recipientId)) },
+                ).build()
         val optional =
             OptionalActionMessage
                 .newBuilder()
                 .setSourceId(sourceId)
-                .setPrompt(prompt)
+                .addAllRecipientIds(
+                    interaction.recipientIds.map(recipientInstanceId),
+                ).apply {
+                    interaction.mechanicType?.let { addOptionalActionTypes(it) }
+                }.setPrompt(prompt)
                 .build()
         return Prepared(
             BundleBuilder.BundleResult(
                 stateMessages +
                     listOf(
                         makeGRE(GREMessageType.GameStateMessage_695e, link.gsId, counter.nextMsgId()) {
-                            it.gameStateMessage = pendingMessage(link)
+                            it.gameStateMessage = pendingMessage(link, presentationActions(stateMessages))
                         },
                         makeGRE(GREMessageType.OptionalActionMessage_695e, link.gsId, counter.nextMsgId()) {
                             it.optionalActionMessage = optional
@@ -244,6 +358,71 @@ internal class BlockingInteractionMaterializer(
                 actionGameStateId = link.gsId,
             ),
             transition,
+            closesPlaybackFrame = true,
+        )
+    }
+
+    /** Arena selects ResolutionCastWorkflow only when every cast action names
+     * the current resolving object. Keep that source alive across repeated
+     * pickers without replaying its resolution-start animation. */
+    fun resolutionCast(
+        stateMessages: List<GREToClientMessage>,
+        counter: LogicalSequencePlanner,
+        interaction: BlockingInteraction.ResolutionCast,
+        transition: ProjectionTransition,
+    ): Prepared {
+        val editor = transition.nextState.copy(revision = transition.expectedRevision).editor()
+        val cursor = checkNotNull(editor.viewerCursors[SeatId(seatId)])
+        val objects = checkNotNull(cursor.fullState).gameObjectsList.associateBy { it.instanceId }
+
+        fun instanceId(id: ForgeCardId): Int = checkNotNull(transition.nextState.identities.forgeIdToInstanceId[id]).value
+        val sourceId =
+            instanceId(interaction.sourceAbilityForgeId?.let(FrameIdResolver::triggerStackAbilityForgeId) ?: interaction.sourceId)
+        val source = checkNotNull(objects[sourceId]) { "Resolution-cast source must be visible" }
+        val actions = ActionsAvailableReq.newBuilder()
+        interaction.candidateIds.forEach { id ->
+            val candidate = checkNotNull(objects[instanceId(id)]) { "Resolution-cast candidate must be visible" }
+            actions.addActions(
+                Action
+                    .newBuilder()
+                    .setActionType(ActionType.Cast)
+                    .setInstanceId(candidate.instanceId)
+                    .setGrpId(candidate.grpId)
+                    .setSourceId(sourceId)
+                    .apply {
+                        if (interaction.withoutManaCost) setAlternativeGrpId(149)
+                    },
+            )
+        }
+        if (interaction.optional) actions.addActions(Action.newBuilder().setActionType(ActionType.Pass))
+        val link = counter.nextGameStateLink()
+        val pending = pendingMessage(link, presentationActions(stateMessages)).toBuilder()
+        if (cursor.resolvingInstanceId != sourceId) {
+            pending.addAnnotations(
+                AnnotationBuilder
+                    .resolutionStart(InstanceId(sourceId), GrpId(source.grpId))
+                    .toBuilder()
+                    .setId(nextAnnotationId(editor)),
+            )
+            editor.viewerCursors[SeatId(seatId)] = cursor.copy(resolvingInstanceId = sourceId)
+        }
+        return Prepared(
+            BundleBuilder.BundleResult(
+                stateMessages +
+                    listOf(
+                        makeGRE(GREMessageType.GameStateMessage_695e, link.gsId, counter.nextMsgId()) {
+                            it.gameStateMessage =
+                                pending.build()
+                        },
+                        makeGRE(GREMessageType.ActionsAvailableReq_695e, link.gsId, counter.nextMsgId()) {
+                            it.actionsAvailableReq = actions.build()
+                            it.prompt = Prompt.newBuilder().setPromptId(interaction.promptId).build()
+                            it.allowCancel = AllowCancel.No_a526
+                        },
+                    ),
+                actionGameStateId = link.gsId,
+            ),
+            transition.copy(nextState = editor.freeze()),
             closesPlaybackFrame = true,
         )
     }
@@ -395,7 +574,7 @@ internal class BlockingInteractionMaterializer(
             val sourceId =
                 interaction.sourceId?.let { editor.identities.getOrAlloc(it).value }
                     ?: error("Numeric interaction requires a source")
-            val req =
+            val numericReq =
                 NumericInputReq
                     .newBuilder()
                     .setMaxValue(interaction.max)
@@ -411,20 +590,156 @@ internal class BlockingInteractionMaterializer(
                     .addParameters(cardIdPromptParameter(sourceId))
                     .build()
             val link = counter.nextGameStateLink()
+            val castingTimeOptionType = interaction.presentation.castingTimeOptionType
+            val requestMessage =
+                if (castingTimeOptionType != null) {
+                    val replicate =
+                        CastingTimeOptionReq
+                            .newBuilder()
+                            .setCtoId(REPLICATE_CTO_ID)
+                            .setCastingTimeOptionType(castingTimeOptionType)
+                            .setAffectedId(sourceId)
+                            .setAffectorId(sourceId)
+                            .setPlayerIdToPrompt(seatId)
+                            .setIsRequired(false)
+                            .setNumericInputReq(numericReq)
+                            .build()
+                    makeGRE(GREMessageType.CastingTimeOptionsReq_695e, link.gsId, counter.nextMsgId()) {
+                        it.castingTimeOptionsReq =
+                            CastingTimeOptionsReq
+                                .newBuilder()
+                                .addCastingTimeOptionReq(replicate)
+                                .also { options ->
+                                    if (castingTimeOptionType == CastingTimeOptionType.Replicate) {
+                                        options.addCastingTimeOptionReq(replicateDoneOption(seatId, sourceId))
+                                    }
+                                }.build()
+                        it.prompt = Prompt.newBuilder().setPromptId(PromptIds.CASTING_TIME_OPTIONS).build()
+                        it.allowCancel = AllowCancel.No_a526
+                        it.allowUndo = false
+                    }
+                } else {
+                    makeGRE(GREMessageType.NumericInputReq_695e, link.gsId, counter.nextMsgId()) {
+                        it.numericInputReq = numericReq
+                        it.prompt = prompt
+                        it.allowCancel = AllowCancel.No_a526
+                    }
+                }
             BundleBuilder.BundleResult(
                 listOf(
                     makeGRE(GREMessageType.GameStateMessage_695e, link.gsId, counter.nextMsgId()) {
-                        it.gameStateMessage = pendingMessage(link)
+                        it.gameStateMessage = pendingMessage(link, presentationActions(prior))
                     },
-                    makeGRE(GREMessageType.NumericInputReq_695e, link.gsId, counter.nextMsgId()) {
-                        it.numericInputReq = req
-                        it.prompt = prompt
-                        it.allowCancel = AllowCancel.No_a526
-                    },
+                    requestMessage,
                 ),
                 actionGameStateId = link.gsId,
             )
         }
+
+    /**
+     * Materialize a numeric casting-time prompt after the spell has been
+     * projected onto the stack.  Arena sends the stack snapshot and the
+     * numeric request as one prompt cut; the generic [numeric] path is still
+     * used for engine numbers that do not have a source spell to stage.
+     */
+    fun snapshotNumeric(
+        stateMessages: List<GREToClientMessage>,
+        counter: LogicalSequencePlanner,
+        interaction: BlockingInteraction.Numeric,
+        transition: ProjectionTransition,
+    ): Prepared {
+        val sourceId =
+            interaction.sourceId
+                ?.let {
+                    transition.nextState.identities.forgeIdToInstanceId[it]
+                        ?.value
+                }
+                ?: error("Numeric interaction requires a source in the post-cast projection")
+        val numericReq =
+            NumericInputReq
+                .newBuilder()
+                .setMaxValue(interaction.max)
+                .setStepSize(1)
+                .setSourceId(sourceId)
+                .setNumericInputType(NumericInputType.ChooseX_ad80)
+                .also { if (interaction.min > 0) it.minValue = interaction.min }
+                .build()
+        val prompt =
+            Prompt
+                .newBuilder()
+                .setPromptId(PromptIds.NUMERIC_INPUT)
+                .addParameters(cardIdPromptParameter(sourceId))
+                .build()
+        val link = counter.nextGameStateLink()
+        // The pending diff is a full replacement of the client's hypothetical
+        // action list. Preserve the post-cast presentation rail while the X
+        // picker is open (including temporarily playable exile/graveyard cards).
+        val presentationActions = presentationActions(stateMessages)
+        val requestMessage =
+            interaction.presentation.castingTimeOptionType?.let { castingTimeOptionType ->
+                val option =
+                    CastingTimeOptionReq
+                        .newBuilder()
+                        .setCtoId(REPLICATE_CTO_ID)
+                        .setCastingTimeOptionType(castingTimeOptionType)
+                        .setAffectedId(sourceId)
+                        .setAffectorId(sourceId)
+                        .setPlayerIdToPrompt(seatId)
+                        .setIsRequired(false)
+                        .setNumericInputReq(numericReq)
+                        .build()
+                makeGRE(GREMessageType.CastingTimeOptionsReq_695e, link.gsId, counter.nextMsgId()) {
+                    it.castingTimeOptionsReq =
+                        CastingTimeOptionsReq
+                            .newBuilder()
+                            .addCastingTimeOptionReq(option)
+                            .also { options ->
+                                if (castingTimeOptionType == CastingTimeOptionType.Replicate) {
+                                    options.addCastingTimeOptionReq(replicateDoneOption(seatId, sourceId))
+                                }
+                            }.build()
+                    it.prompt = Prompt.newBuilder().setPromptId(PromptIds.CASTING_TIME_OPTIONS).build()
+                    it.allowCancel = AllowCancel.No_a526
+                    it.allowUndo = false
+                }
+            } ?: makeGRE(GREMessageType.NumericInputReq_695e, link.gsId, counter.nextMsgId()) {
+                it.numericInputReq = numericReq
+                it.prompt = prompt
+                it.allowCancel = AllowCancel.No_a526
+            }
+        return Prepared(
+            BundleBuilder.BundleResult(
+                stateMessages +
+                    listOf(
+                        makeGRE(GREMessageType.GameStateMessage_695e, link.gsId, counter.nextMsgId()) {
+                            it.gameStateMessage = pendingMessage(link, presentationActions)
+                        },
+                        requestMessage,
+                    ),
+                actionGameStateId = link.gsId,
+            ),
+            transition,
+            closesPlaybackFrame = true,
+        )
+    }
+
+    private companion object {
+        const val REPLICATE_CTO_ID = 1
+
+        fun replicateDoneOption(
+            playerId: Int,
+            sourceId: Int,
+        ): CastingTimeOptionReq =
+            CastingTimeOptionReq
+                .newBuilder()
+                .setCtoId(0)
+                .setCastingTimeOptionType(CastingTimeOptionType.Done)
+                .setAffectedId(sourceId)
+                .setAffectorId(sourceId)
+                .setPlayerIdToPrompt(playerId)
+                .setIsRequired(true)
+                .build()
+    }
 
     fun damage(
         prior: ProjectionState,
@@ -444,7 +759,11 @@ internal class BlockingInteractionMaterializer(
                     DamageAssignment
                         .newBuilder()
                         .setInstanceId(editor.identities.getOrAlloc(blockerId).value)
-                        .setMinDamage(lethal)
+                        // Without trample, Foundations lets the attacker divide
+                        // damage among blockers without assigning lethal to any
+                        // particular one. Keep lethal minima only when excess
+                        // damage could be assigned to the defending player.
+                        .setMinDamage(if (interaction.hasTrample) lethal else 0)
                         .setAssignedDamage(assigned)
                         .build()
             }
@@ -463,7 +782,6 @@ internal class BlockingInteractionMaterializer(
                     .setInstanceId(attackerId)
                     .setTotalDamage(interaction.damageDealt)
                     .addAllAssignments(assignments)
-                    .setCanIgnoreBlockers(interaction.hasTrample)
                     .setDecisionPrompt(
                         Prompt.newBuilder().setPromptId(PromptIds.ASSIGN_DAMAGE).addParameters(cardIdPromptParameter(attackerId)),
                     ).build()
@@ -569,7 +887,23 @@ internal class BlockingInteractionMaterializer(
         return id
     }
 
-    private fun pendingMessage(link: LogicalSequencePlanner.GameStateLink): GameStateMessage =
+    private fun presentationActions(prior: ProjectionState): List<ActionInfo> =
+        prior.viewerCursors[SeatId(seatId)]
+            ?.fullState
+            ?.actionsList
+            .orEmpty()
+
+    private fun presentationActions(stateMessages: List<GREToClientMessage>): List<ActionInfo> =
+        stateMessages
+            .lastOrNull { it.hasGameStateMessage() }
+            ?.gameStateMessage
+            ?.actionsList
+            .orEmpty()
+
+    private fun pendingMessage(
+        link: LogicalSequencePlanner.GameStateLink,
+        presentationActions: List<ActionInfo>,
+    ): GameStateMessage =
         GameStateMessage
             .newBuilder()
             .setType(GameStateType.Diff)
@@ -577,6 +911,10 @@ internal class BlockingInteractionMaterializer(
             .setPrevGameStateId(link.prevGsId)
             .setPendingMessageCount(1)
             .setUpdate(GameStateUpdate.SendAndRecord)
+            // GRE treats even an empty repeated Actions field as a replacement.
+            // Keep the current hypothetical rail during a blocking prompt so
+            // temporarily playable exile/graveyard cards do not jump zones.
+            .addAllActions(presentationActions)
             .build()
 
     private fun costPromptParameter(costText: String): PromptParameter =

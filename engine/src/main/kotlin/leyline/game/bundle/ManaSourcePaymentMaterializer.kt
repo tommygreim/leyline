@@ -14,6 +14,7 @@ import wotc.mtgo.gre.external.messaging.Messages.GREMessageType
 import wotc.mtgo.gre.external.messaging.Messages.GREToClientMessage
 import wotc.mtgo.gre.external.messaging.Messages.GameStateMessage
 import wotc.mtgo.gre.external.messaging.Messages.IdType
+import wotc.mtgo.gre.external.messaging.Messages.ManaCostSpecType
 import wotc.mtgo.gre.external.messaging.Messages.ManaInfo
 import wotc.mtgo.gre.external.messaging.Messages.ManaPaymentOption
 import wotc.mtgo.gre.external.messaging.Messages.ManaRequirement
@@ -79,7 +80,11 @@ internal class ManaSourcePaymentMaterializer(
                         .newBuilder()
                         .addColor(color)
                         .setCount(count)
-                        .setObjectId(sourceInstanceId)
+                        .apply {
+                            if (window.kind == ManaSourcePaymentKind.Waterbend) {
+                                addSpecs(ManaCostSpecType.Waterbend)
+                            }
+                        }.setObjectId(sourceInstanceId)
                         .apply {
                             if (window.kind == ManaSourcePaymentKind.Waterbend && window.sourceAbilityGrpId != 0) {
                                 abilityGrpId = window.sourceAbilityGrpId

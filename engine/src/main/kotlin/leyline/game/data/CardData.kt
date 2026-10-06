@@ -39,6 +39,8 @@ data class CardData(
     val abilityKinds: List<SlotKind> = emptyList(),
     /** Raw client ability categories aligned with [abilityIds] (2=trigger, 3+=static/passive). */
     val abilityCategories: List<Int> = emptyList(),
+    /** Native keyword roots (Abilities.BaseId), aligned with [abilityIds]. Empty means unknown. */
+    val abilityBaseIds: List<Int> = emptyList(),
     val manaCost: List<Pair<ManaColor, Int>>, // (color, count) from OldSchoolManaText
     val tokenGrpIds: Map<Int, Int> = emptyMap(), // abilityGrpId → tokenGrpId
     /** Client card-DB relationship category for [linkedFaceGrpIds]. */

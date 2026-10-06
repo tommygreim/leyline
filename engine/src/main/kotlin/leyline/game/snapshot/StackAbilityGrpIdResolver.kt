@@ -2,7 +2,11 @@ package leyline.game.snapshot
 
 import forge.game.ability.ApiType
 import forge.game.card.Card
+import forge.game.spellability.SpellAbility
 import forge.game.spellability.SpellAbilityStackInstance
+import forge.game.trigger.WrappedAbility
+import leyline.bridge.types.AbilityDefinitionRef
+import leyline.bridge.types.ForgeCardId
 import leyline.game.data.KeywordAbilityIds
 import leyline.game.mapping.ZoneMapper
 import leyline.game.state.AbilityRegistry
@@ -19,11 +23,13 @@ internal object StackAbilityGrpIdResolver {
      *  2. Runtime-keyed identity recorded by the event lifecycle.
      *  3. Typed definition lookup for entries that bypassed that lifecycle.
      *  4. Explicit mechanic fallbacks for stack-only synthetic entries.
-     *  5. Default fallback → [sourceCardGrpId]. Preserves behavior for SAs
-     *     whose ability id we don't yet resolve.
+     *  5. Unresolved identity → 0.  A source-card fallback is never valid for
+     *     an Ability object: the client treats `grpId` as the Abilities-table
+     *     identity and may cache the source card's complete rules text.
      *
-     * Returns 0 only when [sourceCardGrpId] is itself 0 (no Arena printing for
-     * the source card); callers apply [GameBridge.FALLBACK_GRPID].
+     * Returns 0 when the identity is not resolved yet. The stack projection
+     * suppresses that transient object until a later capture has the real
+     * ability row instead of publishing a misleading card row.
      */
     @VisibleForTesting
     internal fun resolveEntryAbilityGrpId(
@@ -32,23 +38,38 @@ internal object StackAbilityGrpIdResolver {
         sourceCardGrpId: Int,
         bridge: GameBridge,
     ): Int =
-        resolveChapterGrpId(entry, sourceCardGrpId, bridge)
+        SpeedEffectIdentity.ABILITY_GRP_ID.takeIf {
+            entry.isTrigger && entry.spellAbility?.api == ApiType.ChangeSpeed && SpeedEffectIdentity.matches(sourceCard)
+        }
+            ?: resolveChapterGrpId(entry, sourceCardGrpId, bridge)
             ?: resolveParadigmDelayedGrpId(entry, sourceCard)
             ?: pendingIdentityGrpId(entry, bridge)
             ?: resolveStructuredIdentityGrpId(entry, sourceCard, bridge)
             ?: decayedTriggerGrpId(entry, sourceCard, sourceCardGrpId, bridge)
             ?: cascadeOrTrainingGrpId(entry, sourceCard)
             ?: resolveDiscoverGrpId(entry, sourceCardGrpId, bridge)
-            ?: sourceCardGrpId
+            ?: 0
 
     private fun pendingIdentityGrpId(
         entry: SpellAbilityStackInstance,
         bridge: GameBridge,
-    ): Int? =
-        entry.spellAbility
+    ): Int? {
+        val sourceCard = entry.sourceCard
+        // A modal trigger is selected after Forge creates the stack item.  The
+        // original stack identity therefore remains the parent trigger row;
+        // prefer the response keyed by this exact SA id so the public Ability
+        // object shows only the chosen child (e.g. Technopathy — Draw a card).
+        if (sourceCard != null) {
+            bridge
+                .selectedModalAbilityGrpId(ForgeCardId(sourceCard.id), entry.spellAbility?.id ?: 0)
+                ?.takeIf { it != 0 }
+                ?.let { return it }
+        }
+        return entry.spellAbility
             ?.id
             ?.let { bridge.stackAbilityIdentity(it)?.abilityGrpId }
             ?.takeIf { it != 0 }
+    }
 
     private fun resolveParadigmDelayedGrpId(
         entry: SpellAbilityStackInstance,
@@ -61,8 +82,58 @@ internal object StackAbilityGrpIdResolver {
         bridge: GameBridge,
     ): Int? {
         val ability = entry.spellAbility ?: return null
-        return bridge.resolveAbilityIdentity(sourceCard, ability)?.abilityGrpId?.takeIf { it != 0 }
+        // The stack can expose a trigger wrapper before the event collector has
+        // recorded its runtime identity.  Resolving only that wrapper as a
+        // SpellAbility is lossy: its definition id belongs to the wrapped
+        // effect, while the trigger row is identified by Trigger.definitionId.
+        // Try the wrapper, its wrapped/root/original abilities, and their
+        // explicit definitions before allowing the caller to treat the source
+        // card as the ability.  This keeps the first GSM from publishing an
+        // Ability object with the card grpId (which the client caches as the
+        // ability's text).
+        val candidates =
+            buildList {
+                var current: SpellAbility? = ability
+                repeat(8) {
+                    val candidate = current ?: return@repeat
+                    if (any { it === candidate }) {
+                        current = null
+                        return@repeat
+                    }
+                    add(candidate)
+                    current =
+                        when {
+                            candidate is WrappedAbility -> candidate.wrappedAbility
+                            candidate.rootAbility !== candidate -> candidate.rootAbility
+                            candidate.originalAbility != null -> candidate.originalAbility
+                            else -> null
+                        }
+                }
+            }
+
+        candidates.forEach { candidate ->
+            bridge
+                .resolveAbilityIdentity(sourceCard, candidate)
+                ?.abilityGrpId
+                ?.takeIf { it != 0 }
+                ?.let { return it }
+            candidateDefinitions(candidate).forEach { definition ->
+                bridge
+                    .resolveAbilityIdentity(sourceCard, definition)
+                    ?.abilityGrpId
+                    ?.takeIf { it != 0 }
+                    ?.let { return it }
+            }
+        }
+        return null
     }
+
+    private fun candidateDefinitions(ability: SpellAbility): List<AbilityDefinitionRef> =
+        buildList {
+            ability.trigger?.definitionId?.let { add(AbilityDefinitionRef.Trigger(it)) }
+            ability.sourceTriggerDefinitionId.takeIf { it > 0 }?.let { add(AbilityDefinitionRef.Trigger(it)) }
+            add(AbilityDefinitionRef.SpellAbility(ability.definitionId))
+        }.distinct()
 
     /** Discover (Forge `DB$ Discover | Num$ N`): per-card ability row. */
     private fun resolveDiscoverGrpId(

@@ -4,10 +4,17 @@ import io.kotest.assertions.assertSoftly
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import leyline.UnitTag
+import leyline.bridge.types.GrpId
 import leyline.game.iid
 import leyline.game.sid
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
+import wotc.mtgo.gre.external.messaging.Messages.GameObjectInfo
+import wotc.mtgo.gre.external.messaging.Messages.GameObjectType
+import wotc.mtgo.gre.external.messaging.Messages.GameStateMessage
+import wotc.mtgo.gre.external.messaging.Messages.GameStateType
+import wotc.mtgo.gre.external.messaging.Messages.ZoneInfo
+import wotc.mtgo.gre.external.messaging.Messages.ZoneType
 
 class AnnotationFrameFinalizerTest :
     FunSpec({
@@ -31,6 +38,58 @@ class AnnotationFrameFinalizerTest :
                 result.annotations
                     .first { AnnotationType.ObjectIdChanged in it.typeList }
                     .affectedIdsList shouldBe listOf(113)
+            }
+        }
+
+        test("stale target annotations and TargetSpecs are omitted from the new state") {
+            val staleSubmitted = AnnotationBuilder.playerSubmittedTargets(113.iid, 1.sid)
+            val validSubmitted = AnnotationBuilder.playerSubmittedTargets(411.iid, 1.sid)
+            val staleSpec =
+                AnnotationBuilder.targetSpec(
+                    instanceId = 113.iid,
+                    affectorId = 113.iid,
+                    abilityGrpId = GrpId(7),
+                    index = 1,
+                    promptId = 1,
+                    promptParameters = 113,
+                )
+            val validSpec =
+                AnnotationBuilder
+                    .targetSpec(
+                        instanceId = 411.iid,
+                        affectorId = 411.iid,
+                        abilityGrpId = GrpId(7),
+                        index = 1,
+                        promptId = 1,
+                        promptParameters = 411,
+                    ).toBuilder()
+                    .setId(2)
+                    .build()
+            val gsm =
+                GameStateMessage
+                    .newBuilder()
+                    .setType(GameStateType.Full)
+                    .addGameObjects(
+                        GameObjectInfo.newBuilder().setInstanceId(411).setType(GameObjectType.Card),
+                    ).addZones(
+                        ZoneInfo
+                            .newBuilder()
+                            .setZoneId(10)
+                            .setType(ZoneType.Battlefield)
+                            .addObjectInstanceIds(411),
+                    ).addAnnotations(staleSubmitted)
+                    .addAnnotations(validSubmitted)
+                    .addPersistentAnnotations(staleSpec.toBuilder().setId(1).build())
+                    .addPersistentAnnotations(validSpec)
+                    .build()
+
+            val result = AnnotationReferenceSanitizer.sanitize(gsm)
+
+            assertSoftly {
+                result.transient.map { it.typeList.single() } shouldBe listOf(AnnotationType.PlayerSubmittedTargets)
+                result.transient.single().affectedIdsList shouldBe listOf(411)
+                result.persistent.map { it.id } shouldBe listOf(2)
+                result.removedPersistentIds shouldBe listOf(1)
             }
         }
 
@@ -75,6 +134,24 @@ class AnnotationFrameFinalizerTest :
                     input.map { it.toBuilder().clearId().build() }
                 result.annotations.map { it.id } shouldBe listOf(50, 51)
                 input.map { it.id } shouldBe listOf(400, 401)
+            }
+        }
+
+        test("phase deduplication preserves the same phase for different active players") {
+            val playerOne = AnnotationBuilder.phaseOrStepModified(1.sid, phase = 1, step = 1)
+            val duplicatePlayerOne = AnnotationBuilder.phaseOrStepModified(1.sid, phase = 1, step = 1)
+            val playerTwo = AnnotationBuilder.phaseOrStepModified(2.sid, phase = 1, step = 1)
+
+            val result =
+                AnnotationFrameFinalizer.finalize(
+                    listOf(playerOne, duplicatePlayerOne, playerTwo),
+                    firstId = 20,
+                )
+
+            assertSoftly {
+                result.annotations.map { it.affectedIdsList.single() } shouldBe listOf(1, 2)
+                result.annotations.map { it.id } shouldBe listOf(20, 21)
+                result.nextId shouldBe 22
             }
         }
 

@@ -94,6 +94,7 @@ abstract class SessionTest(
         aiScript: List<ScriptedAction>? = null,
         responseMode: HeadlessResponseMode = HeadlessResponseMode.AutoForTests,
         fullControl: Boolean = false,
+        forgeCatalog: Boolean = false,
         timeout: Duration? = null,
         block: suspend MatchFlowHarness.() -> Unit,
     ) {
@@ -117,6 +118,13 @@ abstract class SessionTest(
                     validation = validation,
                     responseMode = responseMode,
                     fullControl = fullControl,
+                    cardRepositoryOverride =
+                        if (forgeCatalog) {
+                            leyline.game.data.ForgeCardRepository
+                                .open()
+                        } else {
+                            null
+                        },
                 )
             try {
                 harness.connect(puzzleText = puzzleText, puzzleResource = puzzleFile, aiScript = aiScript)

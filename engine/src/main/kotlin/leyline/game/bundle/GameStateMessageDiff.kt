@@ -39,6 +39,7 @@ internal fun GameStateMessage.applyDiff(diff: GameStateMessage): GameStateMessag
         .clearPrevGameStateId()
         .clearAnnotations()
         .clearActions()
+        .addAllActions(diff.actionsList)
         .clearDiffDeletedInstanceIds()
         .setPendingMessageCount(0)
         .setUpdate(GameStateUpdate.SendAndRecord)

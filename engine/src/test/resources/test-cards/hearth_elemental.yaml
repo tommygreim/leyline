@@ -1,0 +1,11 @@
+name: "Hearth Elemental"
+grpId: 86835
+titleId: 731610
+abilities:
+  - id: 168856
+    textId: 731611
+    category: 3
+expansionCode: "WOE"
+linkedFaceType: 8
+linkedFaces:
+  - 86836

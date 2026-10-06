@@ -1,5 +1,6 @@
 package leyline.behavior.actions.castadventure
 
+import forge.card.CardStateName
 import forge.game.zone.ZoneType
 import io.kotest.assertions.assertSoftly
 import io.kotest.matchers.booleans.shouldBeTrue
@@ -9,7 +10,11 @@ import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.ints.shouldBeLessThan
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import leyline.bridge.getAllCastableAbilities
+import leyline.bridge.types.ForgeCardId
+import leyline.game.mapping.ActionMapper
 import leyline.game.mapping.ZoneIds
+import leyline.game.snapshot.GsmSnapshot
 import leyline.testkit.MatchFlowHarness
 import leyline.testkit.SessionTest
 import leyline.testkit.performAction
@@ -210,5 +215,203 @@ class AdventurePuzzleTest :
                 .cards
                 .any { it.name == "Ratcatcher Trainee" }
                 .shouldBeTrue()
+        }
+
+        session(
+            "land-front Adventure can cast its instant face",
+            """
+            [metadata]
+            Name:Lindblum instant adventure
+            Goal:Win
+            Turns:3
+
+            [state]
+            ActivePlayer=Human
+            ActivePhase=Main1
+            HumanLife=20
+            AILife=20
+            humanhand=Lindblum, Industrial Regency
+            humanbattlefield=Mountain;Mountain;Mountain
+            humanlibrary=Mountain;Mountain;Mountain;Mountain
+            ailibrary=Forest;Forest;Forest;Forest
+            """.trimIndent(),
+        ) {
+            val adventure =
+                allMessages
+                    .last { it.hasActionsAvailableReq() }
+                    .actionsAvailableReq.actionsList
+                    .single { it.actionType == ActionType.CastAdventure }
+            send(
+                submitWithGsId(
+                    performAction {
+                        actionType = ActionType.CastAdventure
+                        instanceId = adventure.instanceId
+                        grpId = adventure.grpId
+                    },
+                ),
+            )
+            drainSink()
+            passUntil(maxPasses = 8) {
+                human.getZone(ZoneType.Battlefield).cards.any { it.isToken && it.type.hasCreatureType("Wizard") }
+            }.shouldBeTrue()
+        }
+
+        session(
+            "Flameshape resolves using Great Hall restricted mana and its life payment",
+            """
+            [metadata]
+            Name:Flameshape restricted mana
+            Goal:Win
+            Turns:3
+
+            [state]
+            ActivePlayer=Human
+            ActivePhase=Main1
+            HumanLife=20
+            AILife=20
+            humanhand=Gandalf, Goblins' Bane
+            humanbattlefield=Godless Shrine;Great Hall of the Biblioplex
+            humanlibrary=Mountain;Forest;Mountain
+            ailibrary=Forest;Forest;Forest
+            """.trimIndent(),
+        ) {
+            val adventure =
+                allMessages
+                    .last { it.hasActionsAvailableReq() }
+                    .actionsAvailableReq.actionsList
+                    .single { it.actionType == ActionType.CastAdventure }
+            send(
+                submitWithGsId(
+                    performAction {
+                        actionType = ActionType.CastAdventure
+                        instanceId = adventure.instanceId
+                        grpId = adventure.grpId
+                    },
+                ),
+            )
+            drainSink()
+            passUntil(maxPasses = 8) {
+                human.getZone(ZoneType.Exile).cards.any { it.name == "Gandalf, Goblins' Bane" }
+            }.shouldBeTrue()
+            assertSoftly {
+                human.life shouldBe 19
+                human.getZone(ZoneType.Exile).cards.size shouldBe 3
+            }
+        }
+
+        session(
+            "Flameshape exiles remain on the cast rail once a Wizard is controlled",
+            """
+            [metadata]
+            Name:Flameshape exile permission
+            Goal:Win
+            Turns:5
+
+            [state]
+            ActivePlayer=Human
+            ActivePhase=Main1
+            HumanLife=20
+            AILife=20
+            humanhand=Gandalf, Goblins' Bane
+            humanbattlefield=Mountain;Mountain;Mountain;Mountain;Mountain
+            humanlibrary=Burst Lightning;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+            ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest
+            """.trimIndent(),
+        ) {
+            val adventure =
+                allMessages
+                    .last { it.hasActionsAvailableReq() }
+                    .actionsAvailableReq.actionsList
+                    .single { it.actionType == ActionType.CastAdventure }
+            send(
+                submitWithGsId(
+                    performAction {
+                        actionType = ActionType.CastAdventure
+                        instanceId = adventure.instanceId
+                        grpId = adventure.grpId
+                    },
+                ),
+            )
+            drainSink()
+            passUntil(maxPasses = 8) {
+                human.getZone(ZoneType.Exile).cards.any { it.name == "Gandalf, Goblins' Bane" }
+            }.shouldBeTrue()
+            val faceDownBurst =
+                human.getZone(ZoneType.Exile).cards.first {
+                    it.getOriginalState(CardStateName.Original)?.name == "Burst Lightning"
+                }
+            faceDownBurst.mayPlay(human).isEmpty().shouldBeTrue()
+            castFromExile("Gandalf, Goblins' Bane").shouldBeTrue()
+            passUntil(maxPasses = 8) {
+                human.getZone(ZoneType.Battlefield).cards.any { it.name == "Gandalf, Goblins' Bane" }
+            }.shouldBeTrue()
+            check(!isGameOver()) { "Gandalf scenario ended before exile-cast affordances could be inspected" }
+
+            val exiledBurst =
+                human.getZone(ZoneType.Exile).cards.first {
+                    it.getOriginalState(CardStateName.Original)?.name == "Burst Lightning"
+                }
+            val exiledMountain =
+                human.getZone(ZoneType.Exile).cards.first {
+                    it.getOriginalState(CardStateName.Original)?.name == "Mountain"
+                }
+            exiledBurst.mayPlay(human).shouldNotBeEmpty()
+            exiledMountain.mayPlay(human).shouldNotBeEmpty()
+            check(getAllCastableAbilities(exiledBurst, human, checkTiming = false).isNotEmpty()) {
+                "Flameshape permission exists, but no printed cast ability was recovered from face-down exile"
+            }
+            val burstIid = bridge.instanceId(exiledBurst)
+            val mountainIid = bridge.instanceId(exiledMountain)
+            val snapshot = GsmSnapshot.capture(game(), bridge, "test", 0)
+            check(snapshot.zones[ZoneIds.EXILE]?.contents?.contains(ForgeCardId(exiledBurst.id)) == true)
+            val projected = ActionMapper.buildFromSnapshot(1, snapshot, bridge)
+            check((projected.actionsList + projected.inactiveActionsList).any { it.instanceId == burstIid }) {
+                "Current bridge projection has no cast rail for Flameshape-exiled card"
+            }
+            check(
+                (projected.actionsList + projected.inactiveActionsList).any {
+                    it.instanceId == mountainIid && it.actionType == ActionType.Play_add3
+                },
+            ) { "Current bridge projection has no land rail for Flameshape-exiled card" }
+            val landOffer =
+                allMessages
+                    .last { it.hasActionsAvailableReq() }
+                    .actionsAvailableReq.actionsList
+                    .single { it.instanceId == mountainIid && it.actionType == ActionType.Play_add3 }
+            send(
+                submitWithGsId(
+                    performAction {
+                        actionType = ActionType.Play_add3
+                        instanceId = landOffer.instanceId
+                        grpId = landOffer.grpId
+                    },
+                ),
+            )
+            drainSink()
+            human.getZone(ZoneType.Battlefield).cards.count { it.name == "Mountain" } shouldBe 6
+            passUntil(maxPasses = 15) {
+                allMessages.last { it.hasActionsAvailableReq() }.actionsAvailableReq.actionsList.any {
+                    it.instanceId == burstIid && it.actionType == ActionType.Cast
+                }
+            }.shouldBeTrue()
+            val latest = allMessages.last { it.hasActionsAvailableReq() }.actionsAvailableReq
+            val burstOffer = latest.actionsList.single { it.instanceId == burstIid && it.actionType == ActionType.Cast }
+            send(
+                submitWithGsId(
+                    performAction {
+                        actionType = ActionType.Cast
+                        instanceId = burstOffer.instanceId
+                        grpId = burstOffer.grpId
+                    },
+                ),
+            )
+            drainSink()
+            allMessages
+                .last { it.hasCastingTimeOptionsReq() }
+                .castingTimeOptionsReq.castingTimeOptionReqList
+                .any { it.castingTimeOptionType == wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType.Done }
+                .shouldBeTrue()
+            respondToOptionalCost(0)
+            allMessages.any { it.hasSelectTargetsReq() }.shouldBeTrue()
         }
     })

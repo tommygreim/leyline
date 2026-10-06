@@ -19,6 +19,32 @@ class ManaColorMappingTest :
             }
         }
 
+        test("preserves Phyrexian pip identity and payment alternatives") {
+            assertSoftly {
+                ManaColorMapping.phyrexianColors(ManaCostShard.BP) shouldBe
+                    listOf(ManaColor.Black_afc9, ManaColor.Phyrexian_afc9)
+                ManaColorMapping.phyrexianColors(ManaCostShard.BGP) shouldBe
+                    listOf(ManaColor.Black_afc9, ManaColor.Green_afc9, ManaColor.Phyrexian_afc9)
+                ManaColorMapping.requirementColors(ManaCostShard.BP) shouldBe
+                    listOf(ManaColor.Black_afc9, ManaColor.Phyrexian_afc9)
+                ManaColorMapping.manaTypeAlternative(ManaCostShard.BP) shouldBe ManaColor.Phyrexian_afc9
+                ManaColorMapping.colorCounts(ManaCost("B/P B/P")) shouldBe
+                    mapOf(ManaColor.Phyrexian_afc9 to 2)
+            }
+        }
+
+        test("preserves ordinary hybrid pip identity and payment alternatives") {
+            assertSoftly {
+                ManaColorMapping.standardHybridColors(ManaCostShard.UB) shouldBe
+                    listOf(ManaColor.Blue_afc9, ManaColor.Black_afc9)
+                ManaColorMapping.requirementColors(ManaCostShard.UB) shouldBe
+                    listOf(ManaColor.Blue_afc9, ManaColor.Black_afc9)
+                ManaColorMapping.paymentColors(ManaCostShard.UB) shouldBe
+                    listOf(ManaColor.Blue_afc9, ManaColor.Black_afc9)
+                ManaColorMapping.manaTypeAlternative(ManaCostShard.UB) shouldBe ManaColor.Black_afc9
+            }
+        }
+
         test("maps client payment colors to Forge payment shards") {
             assertSoftly {
                 ManaColorMapping.paymentShard(ManaColor.White_afc9) shouldBe ManaCostShard.WHITE

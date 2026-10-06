@@ -1,0 +1,13 @@
+name: "Goblin"
+grpId: 77378
+titleId: 361
+abilities: []
+isToken: true
+isPrimaryCard: false
+power: "1"
+toughness: "1"
+colors: []
+types: [2]
+subtypes: [34]
+supertypes: []
+manaCost: ""

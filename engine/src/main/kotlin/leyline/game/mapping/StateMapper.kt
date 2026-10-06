@@ -12,6 +12,7 @@ import leyline.game.annotations.TransferCategory
 import leyline.game.annotations.TransferResult
 import leyline.game.annotations.ZoneTransferAdapter
 import leyline.game.bundle.GsmFrame
+import leyline.game.codes.DetailKeys
 import leyline.game.data.KeywordAbilityIds
 import leyline.game.event.FrameEventLog
 import leyline.game.event.GameEvent
@@ -155,6 +156,7 @@ object StateMapper {
         mechanicSourceFacts: MechanicSourceFacts,
         abilityExhaustionFacts: AbilityExhaustionFacts,
         editor: ProjectionState.Editor,
+        replacementChoices: List<ProjectionSupplement.EnterAsCopyChoice> = emptyList(),
     ): Draft {
         val annotationJournal = editor.annotations
         val effectPlanner = editor.effects
@@ -191,6 +193,18 @@ object StateMapper {
         // ═══ GATHER: snapshot mutable state (events arrive from caller) ═══
         // applyRevealProxies may append RevealProxiesDeleted on reveal end; keep local mutable copy.
         val eventsMutable = events.events.toMutableList()
+        val priorLibraryKnowledge = editor.libraryKnowledge
+        editor.libraryKnowledge =
+            leyline.game.state.LibraryKnowledgeTracker.plan(
+                priorLibraryKnowledge,
+                snap,
+                prev,
+                eventsMutable,
+                editor.identities::getOrAlloc,
+            )
+        val libraryKnowledgeChanged =
+            (priorLibraryKnowledge.viewers.keys + editor.libraryKnowledge.viewers.keys)
+                .filter { priorLibraryKnowledge.viewers[it] != editor.libraryKnowledge.viewers[it] }
         val shuffleIdentityPlans = planShuffleIdentities(eventsMutable, snap, prev, editor)
         val initEffectDiff = effectPlanner.effects.emitInitEffectsOnce()
         val boostSnapshot = boostEntries(effectFacts, editor.identities)
@@ -229,7 +243,10 @@ object StateMapper {
         val zones = mutableListOf<ZoneInfo>()
         val gameObjects = mutableListOf<GameObjectInfo>()
 
-        // Standard zone layout (17 zones, IDs 18-38) — must send all for Full state
+        // Standard zone layout — send all wire-declared zones for Full state.
+        // Zone 12 (PhasedOut) is deliberately absent: MtgGameState constructs it
+        // internally before parsing the server's zone list, so transmitting it
+        // makes the client throw on a duplicate dictionary key.
         zones.add(ZoneMapper.makeZone(ZoneIds.REVEALED_P1, ZoneType.Revealed, 1, Visibility.Public))
         zones.add(ZoneMapper.makeZone(ZoneIds.REVEALED_P2, ZoneType.Revealed, 2, Visibility.Public))
         zones.add(ZoneMapper.makeZone(ZoneIds.SUPPRESSED, ZoneType.Suppressed, 0, Visibility.Public))
@@ -277,6 +294,8 @@ object StateMapper {
                 revealForSeat,
                 revealHand = revealedHandSeat == 1,
                 previousSnapshot = prev,
+                knownLibraryViewers = editor.libraryKnowledge.viewers,
+                previousLibraryViewers = priorLibraryKnowledge.viewers,
             )
         }
 
@@ -297,6 +316,8 @@ object StateMapper {
                 revealForSeat,
                 revealHand = revealedHandSeat == 2,
                 previousSnapshot = prev,
+                knownLibraryViewers = editor.libraryKnowledge.viewers,
+                previousLibraryViewers = priorLibraryKnowledge.viewers,
             )
         }
 
@@ -312,6 +333,20 @@ object StateMapper {
             earthbendProjection,
             activeGrantedAbilities,
         )
+        projectImplicitSharedZoneObjects(snap, ZoneIds.PHASED_OUT, environment, editor, gameObjects)
+        // Arena pre-creates zone 12 but only indexes IDs listed in wire zones.
+        // Keep phased permanents on the battlefield rail; their object zone and
+        // phase-state annotation select the phased presentation, not deletion.
+        val battlefieldIndex = zones.indexOfFirst { it.zoneId == ZoneIds.BATTLEFIELD }
+        zones[battlefieldIndex] =
+            zones[battlefieldIndex]
+                .toBuilder()
+                .addAllObjectInstanceIds(
+                    snap.zones[ZoneIds.PHASED_OUT]
+                        ?.contents
+                        .orEmpty()
+                        .map { editor.identities.getOrAlloc(it).value },
+                ).build()
         projectSharedZone(snap, ZoneIds.STACK, environment, editor, zones, gameObjects)
         projectSharedZone(snap, ZoneIds.SUPPRESSED, environment, editor, zones, gameObjects)
         projectSharedZone(snap, ZoneIds.EXILE, environment, editor, zones, gameObjects)
@@ -424,6 +459,7 @@ object StateMapper {
                 transferResult = transferResult,
                 actingSeat = actingSeat,
                 annotationJournal = annotationJournal,
+                previousSnapshot = prev,
             )
 
         val convokePaymentsBySource = annotationContext.activeConvokePaymentsBySource()
@@ -450,6 +486,7 @@ object StateMapper {
                 promptFacts = promptFacts,
                 persistentFeedFacts = persistentFeedFacts,
                 references = environment.cardReferences,
+                replacementChoices = replacementChoices,
             )
         val activeHolderRecords = editor.delayedTriggerHolders.toMap()
         val carriedHolders =
@@ -524,6 +561,7 @@ object StateMapper {
                 },
             )
             insertDayNightDesignationTransients(annotations, prev.dayTime, snap.dayTime)
+            insertCitysBlessingDesignationTransients(annotations, prev.seats, snap.seats)
         }
 
         // Stages 4-5 + persistent computation
@@ -576,7 +614,6 @@ object StateMapper {
                 transferResult = transferResult,
                 annotationJournal = annotationJournal,
             )
-
         transferResult = LinkedFaceCompanionProjector.append(transferResult, snap, editor, environment, frameIds)
 
         // ═══ ASSEMBLE: build the GSM proto ═══
@@ -653,7 +690,8 @@ object StateMapper {
                     keywordDiff.created.map { it.cardInstanceId } +
                         keywordDiff.destroyed.map { it.cardInstanceId } +
                         grantedAbilityDiff.created.map { it.cardInstanceId } +
-                        grantedAbilityDiff.destroyed.map { it.cardInstanceId }
+                        grantedAbilityDiff.destroyed.map { it.cardInstanceId } +
+                        libraryKnowledgeChanged.map { editor.identities.getOrAlloc(it).value }
                 ).toSet(),
         )
     }
@@ -706,6 +744,28 @@ object StateMapper {
         )
     }
 
+    /**
+     * Project objects whose client zone exists implicitly and must not appear in
+     * [GameStateMessage.zones]. Arena pre-seeds its phased-out zone (id 12); a
+     * wire [ZoneInfo] with that id crashes full-state parsing as a duplicate key.
+     */
+    private fun projectImplicitSharedZoneObjects(
+        snap: GsmSnapshot,
+        arenaZoneId: Int,
+        environment: StateProjectionEnvironment,
+        editor: ProjectionState.Editor,
+        gameObjects: MutableList<GameObjectInfo>,
+    ) {
+        val projected =
+            StateZoneProjection.projectSharedZone(
+                snap = snap,
+                arenaZoneId = arenaZoneId,
+                environment = environment,
+                instanceIdLookup = editor.identities::getOrAlloc,
+            ) ?: return
+        gameObjects += projected.gameObjects
+    }
+
     private fun addSpeedTriggerHolders(
         snap: GsmSnapshot,
         zones: MutableList<ZoneInfo>,
@@ -719,7 +779,14 @@ object StateMapper {
             val iid = FrameIdResolver.speedTriggerHolderIid(seat)
             limboIids.add(iid.value)
             if (gameObjects.none { it.instanceId == iid.value }) {
-                gameObjects += ObjectMapper.buildTriggerHolderObject(iid.value, seat.value)
+                gameObjects +=
+                    ObjectMapper.buildTriggerHolderObject(
+                        iid.value,
+                        seat.value,
+                        objectSourceGrpId = leyline.game.snapshot.SpeedEffectIdentity.CARD_GRP_ID,
+                        uniqueAbilityGrpId = leyline.game.snapshot.SpeedEffectIdentity.ABILITY_GRP_ID,
+                        uniqueAbilityId = 50,
+                    )
             }
         }
         zones.removeIf { it.zoneId == ZoneIds.LIMBO }
@@ -868,6 +935,7 @@ object StateMapper {
         input: StateFrameInput,
         environment: StateProjectionEnvironment,
         editor: ProjectionState.Editor,
+        replacementChoices: List<ProjectionSupplement.EnterAsCopyChoice> = emptyList(),
     ): Draft =
         buildFromSnapshotInternal(
             rawSnap = input.snapshot,
@@ -885,6 +953,7 @@ object StateMapper {
             mechanicSourceFacts = input.mechanicSourceFacts,
             abilityExhaustionFacts = input.abilityExhaustionFacts,
             editor = editor,
+            replacementChoices = replacementChoices,
         )
 
     /** Renders one viewer from an already planned shared lifecycle draft. */
@@ -1044,6 +1113,23 @@ object StateMapper {
                 .asSequence()
                 .filter { id -> prev.zones[id] != projectedCur.zones[id] }
                 .toSet()
+        // A same-frame leave/return (for example a saga transform) has no net
+        // Forge-card membership change: the card is on the Battlefield both
+        // before and after the frame.  The annotations still describe a real
+        // client-visible trip through the source and destination zones.  Emit
+        // those zones in the diff so the client can resolve each ZoneTransfer
+        // against the zone rails while applying the ObjectIdChanged chain.
+        val annotationTouchedZoneIds =
+            current.annotationsList
+                .asSequence()
+                .filter { AnnotationType.ZoneTransfer_af5a in it.typeList }
+                .flatMap { annotation ->
+                    annotation.detailsList
+                        .asSequence()
+                        .filter { it.key == DetailKeys.ZONE_SRC || it.key == DetailKeys.ZONE_DEST }
+                        .mapNotNull { it.valueInt32List.firstOrNull() }
+                }.toSet()
+        val zonesTouchedByTransfers = changedZoneIds + annotationTouchedZoneIds
         val opponentHandZoneId = ZoneMapper.opponentHandZone(viewingSeatId)
         val opponentSideboardZoneId = ZoneMapper.opponentSideboardZone(viewingSeatId)
         val activeReveal = promptFacts.activeReveal
@@ -1071,7 +1157,7 @@ object StateMapper {
         val changedZones =
             current.zonesList
                 .filter { zone ->
-                    zone.zoneId in changedZoneIds ||
+                    zone.zoneId in zonesTouchedByTransfers ||
                         (zone.zoneId == ZoneIds.STACK && (hasStackRetirement || stackAbilitiesChanged)) ||
                         (
                             zone.zoneId == ZoneIds.LIMBO &&
@@ -1201,7 +1287,13 @@ object StateMapper {
                         AnnotationType.ResolutionStart in ann.typeList ||
                         AnnotationType.ResolutionComplete in ann.typeList
                 }
-        val previousPlayers = listOf(PlayerMapper.buildFromSnapshot(prev, 1), PlayerMapper.buildFromSnapshot(prev, 2))
+        // Lifecycle frames add protocol state (notably MulliganResp) that is
+        // absent from Forge's snapshot. Compare against the published players,
+        // otherwise an unchanged life/mana total suppresses the update clearing
+        // that flag and Arena sends subsequent draws to its mulligan browser.
+        val previousPlayers =
+            editor.viewerCursors[SeatId(viewingSeatId)]?.fullState?.playersList
+                ?: listOf(PlayerMapper.buildFromSnapshot(prev, 1), PlayerMapper.buildFromSnapshot(prev, 2))
         val playerPayloadNeeded =
             events.events.any { it is GameEvent.ManaAbilityActivated } ||
                 current.annotationsList.any { ann ->
@@ -1253,12 +1345,16 @@ object StateMapper {
         // Embed stripped actions + set pendingMessageCount when AAR follows
         if (actions != null) {
             builder.setPendingMessageCount(1)
-            val activeSeat = current.turnInfo.priorityPlayer
-            for (action in actions.actionsList) {
+            // ActionMapper's request is scoped to the recipient, even when the
+            // opponent currently holds priority.  Labelling those actions with
+            // priorityPlayer makes the client repeatedly move alternate-zone
+            // cards between the two players' rails as priority changes.
+            val actionSeat = viewingSeatId.takeIf { it != 0 } ?: current.turnInfo.priorityPlayer
+            for (action in ActionMapper.actionsForGsm(actions)) {
                 builder.addActions(
                     ActionInfo
                         .newBuilder()
-                        .setSeatId(activeSeat)
+                        .setSeatId(actionSeat)
                         .setAction(ActionMapper.stripActionForGsm(action)),
                 )
             }
@@ -1317,7 +1413,7 @@ object StateMapper {
             }
         if (actions != null) {
             val actionSeat = viewingSeatId.takeIf { it != 0 } ?: gsm.turnInfo.priorityPlayer
-            actions.actionsList.forEach { action ->
+            ActionMapper.actionsForGsm(actions).forEach { action ->
                 projectedBuilder.addActions(
                     ActionInfo
                         .newBuilder()
@@ -1421,7 +1517,7 @@ object StateMapper {
         }
 
         if (actions != null) {
-            for (action in actions.actionsList) {
+            for (action in ActionMapper.actionsForGsm(actions)) {
                 builder.addActions(
                     ActionInfo
                         .newBuilder()

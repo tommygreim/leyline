@@ -1,0 +1,17 @@
+[metadata]
+Name:Chosen cost paid with life-cost mana
+Goal:Survive
+Turns:3
+Difficulty:Easy
+Description:Four generic mana is floating. Choose kicked Burst Lightning. Producing red with Great Hall costs one life; Pay must wait before taking that life or tapping the land.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanmanapool=4
+humanbattlefield=Great Hall of the Biblioplex
+humanhand=Burst Lightning;Burst Lightning
+humanlibrary=Mountain;Mountain;Mountain;Mountain
+ailibrary=Forest;Forest;Forest;Forest

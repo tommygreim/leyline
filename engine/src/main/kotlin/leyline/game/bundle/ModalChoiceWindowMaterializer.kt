@@ -11,7 +11,9 @@ import wotc.mtgo.gre.external.messaging.Messages.GameObjectInfo
 import wotc.mtgo.gre.external.messaging.Messages.GameObjectType
 import wotc.mtgo.gre.external.messaging.Messages.GameStateMessage
 import wotc.mtgo.gre.external.messaging.Messages.GameStateUpdate
+import wotc.mtgo.gre.external.messaging.Messages.ParameterType
 import wotc.mtgo.gre.external.messaging.Messages.Prompt
+import wotc.mtgo.gre.external.messaging.Messages.PromptParameter
 import wotc.mtgo.gre.external.messaging.Messages.Visibility
 import wotc.mtgo.gre.external.messaging.Messages.ZoneInfo
 import wotc.mtgo.gre.external.messaging.Messages.ZoneType
@@ -46,6 +48,7 @@ internal class ModalChoiceWindowMaterializer(
                 excludedOptions = window.excluded.map { option -> CastingTimeOptionsBuilder.ModalOptionSpec(option.grpId, option.cost) },
                 minSel = window.min,
                 maxSel = window.max,
+                allowRepeat = window.allowRepeat,
                 sourceInstanceId = sourceInstanceId,
                 grpId = window.ctoGrpId,
                 ctoId = window.ctoId,
@@ -81,9 +84,23 @@ internal class ModalChoiceWindowMaterializer(
                 context.message(GREMessageType.GameStateMessage_695e) { it.gameStateMessage = state },
                 context.message(GREMessageType.CastingTimeOptionsReq_695e) {
                     it.castingTimeOptionsReq = req
-                    it.prompt = Prompt.newBuilder().setPromptId(PromptIds.CASTING_TIME_OPTIONS).build()
-                    it.allowCancel = AllowCancel.Abort
-                    it.allowUndo = true
+                    it.prompt =
+                        Prompt
+                            .newBuilder()
+                            .setPromptId(PromptIds.CASTING_TIME_OPTIONS)
+                            .apply {
+                                if (window.isVote) {
+                                    addParameters(
+                                        PromptParameter
+                                            .newBuilder()
+                                            .setParameterName("choiceKind")
+                                            .setType(ParameterType.NonLocalizedString)
+                                            .setStringValue("vote"),
+                                    )
+                                }
+                            }.build()
+                    it.allowCancel = if (window.allowCancel) AllowCancel.Abort else AllowCancel.No_a526
+                    it.allowUndo = window.allowCancel
                 },
             )
         return Prepared(context.prepared(messages, awaitedRequest = messages.last()), sourceInstanceId)

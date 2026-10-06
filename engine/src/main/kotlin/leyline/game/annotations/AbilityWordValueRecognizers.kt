@@ -40,7 +40,7 @@ object AbilityWordValueRecognizers {
             ValueFamily("Devotion") { kind, trait, expression, comparator ->
                 kind == TraitKind.STATIC &&
                     trait.getParam("Mode") == "Continuous" &&
-                    trait.getParam("Affected") == "Card.Self" &&
+                    (trait.getParam("Affected") == "Card.Self" || trait.getParam("AffectedDefined") == "Self") &&
                     expression.startsWith("Count\$Devotion.") &&
                     comparator == "LT5"
             },

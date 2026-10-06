@@ -31,6 +31,8 @@ class GsmSnapshot internal constructor(
     val combat: CombatSnapshot?,
     val abilityWordEntries: List<AbilityWordScanner.AbilityWordEntry>,
     val pendingTriggers: List<PendingTriggerSnapshot>,
+    /** Per-seat Venture/dungeon state projected into DungeonStatus annotations. */
+    val dungeonStates: Map<SeatId, DungeonStateSnapshot> = emptyMap(),
     val capturedAt: CaptureMarker,
     /** Game-scope Day/Night state, mirroring `forge.game.Game.getDayTime()`.
      *  `null` = neither (pre-first-transition), `false` = Day, `true` = Night.
@@ -70,6 +72,7 @@ class GsmSnapshot internal constructor(
                 combat = combat,
                 abilityWordEntries = abilityWordEntries,
                 pendingTriggers = pendingTriggers,
+                dungeonStates = dungeonStates,
                 capturedAt = capturedAt,
                 dayTime = dayTime,
                 activePlayerSpellsCastThisTurn = activePlayerSpellsCastThisTurn,
@@ -90,6 +93,7 @@ class GsmSnapshot internal constructor(
             combat == other.combat &&
             abilityWordEntries == other.abilityWordEntries &&
             pendingTriggers == other.pendingTriggers &&
+            dungeonStates == other.dungeonStates &&
             dayTime == other.dayTime &&
             activePlayerSpellsCastThisTurn == other.activePlayerSpellsCastThisTurn
     }
@@ -105,6 +109,7 @@ class GsmSnapshot internal constructor(
         h = 31 * h + (combat?.hashCode() ?: 0)
         h = 31 * h + abilityWordEntries.hashCode()
         h = 31 * h + pendingTriggers.hashCode()
+        h = 31 * h + dungeonStates.hashCode()
         h = 31 * h + (dayTime?.hashCode() ?: 0)
         h = 31 * h + activePlayerSpellsCastThisTurn
         return h
@@ -140,6 +145,7 @@ class GsmSnapshot internal constructor(
             combat: CombatSnapshot? = null,
             abilityWordEntries: List<AbilityWordScanner.AbilityWordEntry> = emptyList(),
             pendingTriggers: List<PendingTriggerSnapshot> = emptyList(),
+            dungeonStates: Map<SeatId, DungeonStateSnapshot> = emptyMap(),
             capturedAt: CaptureMarker = CaptureMarker.unknown(),
             dayTime: Boolean? = null,
             activePlayerSpellsCastThisTurn: Int = 0,
@@ -158,6 +164,7 @@ class GsmSnapshot internal constructor(
                 combat,
                 abilityWordEntries,
                 pendingTriggers,
+                dungeonStates,
                 capturedAt,
                 dayTime,
                 activePlayerSpellsCastThisTurn,

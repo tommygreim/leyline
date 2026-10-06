@@ -43,7 +43,7 @@
 # priority before giving up and suppressing action prompts (ms).
 # ai_turn_wait_ms = 30000
 
-# Mulligan wait — how long the engine waits for a keep/mulligan response (ms).
+# Initial mulligan publication deadline (ms); player decisions wait indefinitely.
 # mulligan_wait_ms = 45000
 
 # RNG seed for deterministic shuffles. Unset = random each game.

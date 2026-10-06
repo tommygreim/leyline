@@ -1,0 +1,27 @@
+name: energy-upkeep
+description: A single energy payment decision controls drawing and life loss.
+scenarios:
+  - id: accept
+    puzzle: energy-upkeep
+    run: accept the energy payment at the next upkeep
+    expect: the player draws a card and loses exactly one life
+    steps:
+      - pass_until:
+          prompt: OptionalActionMessage
+          max_passes: 60
+      - optional_action: { accept: true }
+      - expect:
+          all:
+            - our_life: 2
+            - zone_contains: { side: ours, zone: hand, card: Island }
+  - id: decline
+    puzzle: energy-upkeep
+    run: decline the energy payment at the next upkeep
+    expect: the player preserves their life and energy
+    steps:
+      - pass_until:
+          prompt: OptionalActionMessage
+          max_passes: 60
+      - optional_action: { accept: false }
+      - expect:
+          our_life: 3

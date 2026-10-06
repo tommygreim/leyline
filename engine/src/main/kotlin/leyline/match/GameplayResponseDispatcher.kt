@@ -31,6 +31,7 @@ private fun gameplayResponseHandler(type: ClientMessageType): GameplayResponseHa
         ClientMessageType.SelectTargetsResp_097b -> ActionReceiver::onSelectTargets
         ClientMessageType.SubmitTargetsReq -> ActionReceiver::onSubmitTargets
         ClientMessageType.EffectCostResp_097b -> ActionReceiver::onEffectCost
+        ClientMessageType.PerformAutoTapActionsResp_097b -> ActionReceiver::onPerformAutoTap
         ClientMessageType.CancelActionReq_097b -> ActionReceiver::onCancelAction
         ClientMessageType.UndoReq -> ActionReceiver::onUndo
         ClientMessageType.CastingTimeOptionsResp_097b -> ActionReceiver::onCastingTimeOptions

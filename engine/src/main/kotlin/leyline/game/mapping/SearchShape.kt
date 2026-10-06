@@ -4,8 +4,8 @@ import forge.game.spellability.SpellAbility
 
 /**
  * Discriminator for library-to-hand searches that benefit from the
- * typecycling picker layout. The prompt text remains generic until the bridge
- * can translate the exact Forge `ChangeType` into an Arena localization.
+ * typecycling picker layout. SearchPromptResolver independently chooses native
+ * wording from the exact Forge filter, with generic text for unmapped filters.
  */
 object SearchShape {
     /**
@@ -14,11 +14,8 @@ object SearchShape {
      * Hand | ChangeType$ <type>` with the type narrower than `Card`.
      *
      * Picker layout: highlight every valid candidate face-up and click to pick.
-     * [PromptIds.SEARCH_TYPECYCLING] deliberately carries generic search text;
-     * Arena's Island-specific localization is not valid for every such shape.
-     *
-     * Generic library tutors (Diabolic Tutor, Sylvan Ranger) — wider
-     * `ChangeType` or no type filter — fall through to `PromptIds.SEARCH`.
+     * Layout classification is not a text decision: an Island-specific
+     * localization must never be reused for a different type filter.
      */
     fun isTypeCycling(sa: SpellAbility?): Boolean {
         if (sa == null) return false

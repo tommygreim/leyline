@@ -3,7 +3,7 @@ Name:Emerge - Wretched Gryff
 Goal:Cast Wretched Gryff for emerge by sacrificing Walking Corpse.
 Turns:4
 Difficulty:Easy
-Description:Wretched Gryff exposes an emerge cast action, prompts for a sacrifice-as-cost payment, and resolves.
+Description:Choose Walking Corpse rather than Grizzly Bears for the Emerge sacrifice, or cancel the cost choice. The unchosen creature must remain.
 
 [state]
 ActivePlayer=Human
@@ -12,6 +12,6 @@ HumanLife=20
 AILife=20
 
 humanhand=Wretched Gryff
-humanbattlefield=Island;Island;Island;Island;Walking Corpse
+humanbattlefield=Island;Island;Island;Island;Walking Corpse;Grizzly Bears
 humanlibrary=Island;Island;Island;Island;Island;Island
 ailibrary=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain

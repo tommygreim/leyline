@@ -9,6 +9,7 @@ import leyline.bridge.coord.MatchActionWindowRuntime
 import leyline.game.bundle.CastingTimeOptionsBuilder
 import leyline.game.mapping.PromptIds
 import org.slf4j.LoggerFactory
+import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
 import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionsReq
 import wotc.mtgo.gre.external.messaging.Messages.ClientToGREMessage
 import wotc.mtgo.gre.external.messaging.Messages.FailureReason
@@ -29,7 +30,7 @@ internal class DeferredCastCostInteractionHandler(
 
     fun onCastingTimeOptions(greMsg: ClientToGREMessage): HandlerResult {
         val deferredCast = ctx.bridge.cutCoordinator.deferredCast
-        if (!deferredCast.hasPrompt()) return HandlerResult.NotHandled
+        if (!deferredCast.hasPrompt()) return admitTypedCastingTimeResponse(greMsg)
         val resp = greMsg.castingTimeOptionsResp
         val optionResponses =
             if (resp.castingTimeOptionRespsCount > 0) {
@@ -93,6 +94,29 @@ internal class DeferredCastCostInteractionHandler(
         }
     }
 
+    private fun admitTypedCastingTimeResponse(greMsg: ClientToGREMessage): HandlerResult {
+        val response = greMsg.castingTimeOptionsResp.castingTimeOptionResp
+        if (response.castingTimeOptionType == CastingTimeOptionType.Done) {
+            val accepted =
+                ctx.bridge.cutCoordinator.promptRuntimes(counters.seatId).blocking.submitReplicateDone(
+                    gameStateId = greMsg.gameStateId,
+                    ctoId = response.ctoId,
+                )
+            return if (accepted) HandlerResult.Resume else HandlerResult.NotHandled
+        }
+        if (!response.hasNumericInputResp()) return HandlerResult.NotHandled
+        val value = response.numericInputResp.numericInputValue
+        val accepted =
+            response.castingTimeOptionType != CastingTimeOptionType.None_a7b4 &&
+                ctx.bridge.cutCoordinator.promptRuntimes(counters.seatId).blocking.submitCastingTimeOption(
+                    gameStateId = greMsg.gameStateId,
+                    ctoId = response.ctoId,
+                    type = response.castingTimeOptionType,
+                    value = value,
+                )
+        return if (accepted) HandlerResult.Resume else HandlerResult.NotHandled
+    }
+
     private fun bridgeAfterDeferredResponse() = Unit
 
     fun checkHybridManaTypeOptions(actionClaim: MatchActionWindowRuntime.ActionClaim): Boolean {
@@ -105,6 +129,8 @@ internal class DeferredCastCostInteractionHandler(
                 playerIdToPrompt = counters.seatId.value,
                 hybridColors = hybrid.promptColors,
                 manaCost = hybrid.manaCost,
+                manaTypes = hybrid.promptManaTypes,
+                colorOptions = hybrid.promptColorOptions,
             )
         ctx.bridge.cutCoordinator.deferredCast.publishHybrid(
             claim = actionClaim,
@@ -112,6 +138,10 @@ internal class DeferredCastCostInteractionHandler(
             ctoIds = ctoIds,
             promptColors = hybrid.promptColors,
             paymentColors = hybrid.paymentColors,
+            promptManaTypes = hybrid.promptManaTypes,
+            paymentManaTypes = hybrid.paymentManaTypes,
+            promptColorOptions = hybrid.promptColorOptions,
+            paymentColorOptions = hybrid.paymentColorOptions,
         )
 
         sink.sendPriorityState(ctx.bridge)
@@ -161,6 +191,9 @@ internal class DeferredCastCostInteractionHandler(
                 optionalCosts = optional.entries.map { it.type to it.abilityGrpId },
                 playerIdToPrompt = counters.seatId.value,
                 baseManaCost = optional.baseManaCost,
+                optionManaCosts = optional.entries.map { it.manaCost },
+                baseAutoTapSolution = optional.baseAutoTapSolution,
+                optionAutoTapSolutions = optional.entries.map { it.autoTapSolution },
             )
         return OptionalCostPrompt(ctoReq, costCtoIds)
     }

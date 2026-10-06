@@ -223,6 +223,7 @@ class AnnotationShapeConformanceTest :
                 detailKeys(AnnotationBuilder.abilityInstanceDeleted(1.iid)) shouldBe emptySet()
                 detailKeys(AnnotationBuilder.tokenCreated(1.iid)) shouldBe emptySet()
                 detailKeys(AnnotationBuilder.tokenDeleted(1.iid)) shouldBe emptySet()
+                detailKeys(AnnotationBuilder.permanentRegenerated(1.iid)) shouldBe emptySet()
                 detailKeys(AnnotationBuilder.attachmentCreated(1.iid, 2.iid)) shouldBe emptySet()
                 detailKeys(AnnotationBuilder.attachment(1.iid, 2.iid)) shouldBe emptySet()
                 detailKeys(AnnotationBuilder.removeAttachment(1.iid)) shouldBe emptySet()
@@ -279,6 +280,7 @@ class AnnotationShapeConformanceTest :
                 "Attachment" to emptySet(),
                 "CounterAdded" to setOf("counter_type", "transaction_amount"),
                 "TokenDeleted" to emptySet(),
+                "PermanentRegenerated" to emptySet(),
                 "Counter" to setOf("count", "counter_type"),
                 "AddAbility" to setOf("grpid", "effect_id", "UniqueAbilityId", "originalAbilityObjectZcid"),
                 "RemoveAbility" to setOf("effect_id"),
@@ -332,6 +334,7 @@ class AnnotationShapeConformanceTest :
                 "Attachment" to detailKeys(AnnotationBuilder.attachment(1.iid, 2.iid)),
                 "CounterAdded" to detailKeys(AnnotationBuilder.counterAdded(1.iid, "P1P1", 2)),
                 "TokenDeleted" to detailKeys(AnnotationBuilder.tokenDeleted(1.iid)),
+                "PermanentRegenerated" to detailKeys(AnnotationBuilder.permanentRegenerated(1.iid)),
                 "Counter" to detailKeys(AnnotationBuilder.counter(1.iid, 1, 1)),
                 "AddAbility" to detailKeys(AnnotationBuilder.addAbility(1.iid, 1.grp, 1.eid, 1, 1)),
                 "RemoveAbility" to detailKeys(AnnotationBuilder.removeAbility(1.iid, 1.eid)),

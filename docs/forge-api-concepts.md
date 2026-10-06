@@ -22,6 +22,10 @@ There are three main integration surfaces:
 
 Do not duplicate game rules in Kotlin. Ask Forge what is legal or what happened, then translate that result.
 
+Construct transient annotations in `AnnotationPipeline` and persistent feeds in
+`PersistentFeedBuilder`, not in `StateMapper`. The mapper composes their outputs;
+phasing and pending copy-choice markers follow the same ownership boundaries.
+
 ## 2. PlayerController Callbacks
 
 Forge dispatches interactive work through virtual methods on the player controller. There is no registration table or composition hook that replaces this surface, so overrides live on `bridge/forge/PlayerController`.
@@ -35,6 +39,53 @@ Use this decision rule:
 - Numeric prompts use `NumericInputGate`.
 
 The engine thread blocks in these calls. Never block on session-owned state from an override; post a pending request and let the session complete the future.
+
+Card-backed choices remain explicit even when only one legal card exists. The
+sole mandatory candidate matching an already chosen target is not a new choice
+(for example, AttachEffect during Equip resolution). Do not prompt a second
+time or suppress unrelated singleton card choices. For
+an optional enter-as-copy replacement, the donor picker itself offers Decline;
+there is no separate yes/no preflight. Select using Forge's CloneEffect zone,
+last-state and validity filters during confirmation, then consume that exact
+choice at resolution. Decline must preserve Forge's NotReplaced result.
+The native `ReplacementEffectController` suppresses Static ability rows,
+including printed enter-as-copy replacements. Use the native
+`PendingEffectController` path instead: a player-scoped MiscContinuousEffect
+annotation naming the resolving source and printed ability. It accepts Static
+rows while the source is off the battlefield/command zone and draws the side
+rectangle without a fabricated stack ability. Remove that marker after either
+decision without disturbing ETB life-payment replacement markers.
+That replacement does not use the stack; copied ETB and reflexive
+"when you do" triggers can then require simultaneous ordering. The ordering
+projection must retain the same ability identity and original-definition card
+context as the admitted stack entry. For enter-as-copy, the actual post-entry
+donor-exile reflexive uses the parent printed copy paragraph, matching native
+Arena; unrelated reflexive triggers retain their separately mapped child rows.
+
+Library-search callbacks carry a `DelayedReveal` with the actual library owner
+and permitted card view. Capture that scope separately from eligible choices:
+an empty eligible list still needs the same owner's search and fail-to-find
+decision. Do not infer the owner from the chooser or expose a whole library
+when Forge supplies only a restricted view. An unrelated hand reveal must not
+replace this explicit library-search route.
+
+Search wording is selected from exact Forge `ChangeType` filters and selection
+count, not from which cards happen to be eligible. Verified common filters use
+their native prompts; unsupported qualifiers/counts keep generic search text.
+An instant-or-flash union uses disjoint groups only when both partitions exist
+and no candidate overlaps them; otherwise the same eligible set uses a flat
+search, including a fail-to-find window when it is empty.
+
+The temporary remembered-card list is not durable clone provenance: subability
+cleanup clears it. Read the active `CardCloneStates.origin` to project donor
+artwork/frame, with live title exceptions kept separately. Native
+`CopiedObjectAnnotationParser` distinguishes the permanent copy layer
+(`LayeredEffectType=CopyObject`) from copied tokens and spells. Rebuild that
+marker while the layer exists and remove it when the layer ends.
+
+Native AI card-name proposals must satisfy Forge's supplied card-face predicate.
+Keep legal strategic proposals; use the full legal catalog for a fallback rather
+than restricting name choices to cards already in play.
 
 ## 3. SpellAbility Is A Chain
 
@@ -94,6 +145,12 @@ Shared priority visibility and player controls are described in
 they do not require a visible priority decision.
 
 ## 6. Mana And Costs
+
+Mana-plan previews must preserve the live cast's selected Offering/Emerge
+sacrifice and `usedToPay` flag. Forge's dry-run Offering handler clears them;
+`ComputerUtilMana.getManaPaymentPlan` restores them after the query so real
+payment still uses the player's exact choice. Cover both sacrifice candidates
+and the untouched donor in Emerge regression fixtures.
 
 For cast actions, use the effective Forge cost, not printed card data, whenever a live `SpellAbility` exists. Effective cost applies raises and reductions through Forge's `CostAdjustment` pipeline.
 

@@ -1,0 +1,19 @@
+# Create Treasure through normal casting so creation and destruction are observable.
+# Reset for the separate payment, Replicate, and Siphoner routes in PLAYTEST_QUEUE.txt.
+[metadata]
+Name:Block 1 energy, Treasure, and Replicate controls
+Goal:Survive
+Turns:8
+Difficulty:Easy
+Description:Create Treasure, compare token and ordinary artifact destruction with Replicate, and inspect Siphoner attack and upkeep triggers.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=3
+AILife=30
+humancounters=ENERGY=2
+humanhand=Strike It Rich;Strike It Rich;Shattering Spree;Shattering Spree;Lightning Bolt;Glint-Sleeve Siphoner
+humanbattlefield=Glint-Sleeve Siphoner;Mind Stone;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Swamp;Swamp
+humanlibrary=Forest;Island;Plains;Mountain;Swamp;Forest;Island;Plains;Mountain;Swamp;Forest;Island;Plains;Mountain;Swamp
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

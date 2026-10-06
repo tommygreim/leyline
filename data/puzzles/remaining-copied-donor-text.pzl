@@ -1,0 +1,17 @@
+[metadata]
+Name:Remaining copied donor ability localization
+Goal:Survive
+Turns:5
+Difficulty:Easy
+Description:Cast Spider-Man. The replacement appears as a side rectangle, not a stack ability. Decline in the donor picker and leave Excruciator in the graveyard. Reset and select the sole donor explicitly. After entry the creature uses the donor art and frame, its own name, and 4/4 stats. Inspect the copied ETB without CARDNAME and the real donor-exile reflexive trigger using the printed Mind Swap paragraph. The side rectangle must disappear after either choice.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanbattlefield=Island;Island;Swamp;Swamp
+humanhand=Superior Spider-Man
+humangraveyard=Doomsday Excruciator
+humanlibrary=Island;Island;Island;Island;Island;Island;Island;Island;Island;Island
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

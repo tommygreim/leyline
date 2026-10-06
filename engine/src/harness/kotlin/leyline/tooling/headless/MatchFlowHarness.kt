@@ -702,7 +702,9 @@ class MatchFlowHarness(
                     .getPending()
                     ?.state
                     ?.kind == PendingActionKind.SYNC_ONLY
-            if (game().stackZone.size() == 0 && !retainedSynchronization) return
+            // Ability entries live on Forge's stack without putting their host
+            // cards in the Stack zone. The zone alone is not the rules stack.
+            if (game().stack.isEmpty && !retainedSynchronization) return
             passPriority()
         }
     }
@@ -1608,6 +1610,22 @@ class MatchFlowHarness(
         value: Int,
     ) {
         submitAndAwaitClientResult(submitWithGsId(castingTimeXResp(ctoId, value)), "X cost response")
+    }
+
+    /** Respond to Arena's dedicated Replicate casting-time option. */
+    fun respondToReplicate(
+        ctoId: Int,
+        value: Int,
+    ) {
+        submitAndAwaitClientResult(
+            submitWithGsId(castingTimeXResp(ctoId, value, CastingTimeOptionType.Replicate)),
+            "replicate response",
+        )
+    }
+
+    /** Submit the Done child selected by Arena's Replicate button at zero. */
+    fun respondToReplicateDone(ctoId: Int = 0) {
+        submitAndAwaitClientResult(submitWithGsId(castingTimeDoneResp(ctoId)), "replicate zero response")
     }
 
     /** Respond to a required alternate-additional-cost CastingTimeOptionsReq. */

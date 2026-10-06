@@ -1,0 +1,16 @@
+[metadata]
+Name:Double mana activation
+Goal:Survive
+Turns:2
+Difficulty:Tutorial
+Description:Return Cryptic Coat to hand using Sol Ring and an Island.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanbattlefield=Sol Ring;Island;Cryptic Coat
+humanhand=Forest;Shock
+humanlibrary=Plains;Mountain;Mountain;Mountain
+ailibrary=Mountain;Mountain;Mountain;Mountain

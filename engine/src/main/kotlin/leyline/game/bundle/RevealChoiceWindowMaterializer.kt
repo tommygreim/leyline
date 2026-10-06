@@ -31,7 +31,7 @@ internal class RevealChoiceWindowMaterializer {
                 },
                 context.message(GREMessageType.SelectNreq) {
                     it.selectNReq = request
-                    it.prompt = Prompt.newBuilder().setPromptId(PromptIds.SELECT_N).build()
+                    it.prompt = Prompt.newBuilder().setPromptId(window.promptId ?: PromptIds.SELECT_N).build()
                     it.allowCancel = AllowCancel.No_a526
                 },
             )
@@ -53,7 +53,7 @@ internal class RevealChoiceWindowMaterializer {
             .setIdType(IdType.InstanceId_ab2c)
             .addAllIds(window.candidates.map { context.requiredInstanceId(it.forgeCardId, "RevealChoice card") })
             .addAllUnfilteredIds(window.fullRevealCardIds.map { context.requiredInstanceId(it, "RevealChoice card") })
-            .setPrompt(Prompt.newBuilder().setPromptId(PromptIds.SELECT_N))
+            .setPrompt(Prompt.newBuilder().setPromptId(window.promptId ?: PromptIds.SELECT_N))
             .apply {
                 if (window.candidates.isNotEmpty()) {
                     minSel = window.min

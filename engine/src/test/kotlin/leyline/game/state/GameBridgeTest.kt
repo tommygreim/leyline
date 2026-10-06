@@ -655,4 +655,25 @@ class GameBridgeTest :
             b.recordSelectedModalAbilityGrpId(source, 1002)
             b.resolvePendingTriggerAbilityIdentity(52, source) { 2002 } shouldBe 1002
         }
+
+        test("modal selection retains all selected mode identities") {
+            val b = GameBridge(cardRepository = InMemoryCardRepository())
+            val source = ForgeCardId(42)
+
+            b.recordSelectedModalAbilityGrpIds(source, listOf(1001, 1002))
+
+            b.selectedModalAbilityGrpIds(source) shouldBe listOf(1001, 1002)
+            b.selectedModalAbilityGrpId(source) shouldBe 1001
+        }
+
+        test("modal trigger selection is addressable by its Forge stack ability") {
+            val b = GameBridge(cardRepository = InMemoryCardRepository())
+            val source = ForgeCardId(42)
+
+            b.recordSelectedModalAbilityGrpIds(source, forgeAbilityId = 7001, abilityGrpIds = listOf(3003))
+            b.selectedModalAbilityGrpId(source, forgeAbilityId = 7001) shouldBe 3003
+            // A different stack ability from the same source must not inherit
+            // the selected child row.
+            b.selectedModalAbilityGrpId(source, forgeAbilityId = 7002) shouldBe null
+        }
     })

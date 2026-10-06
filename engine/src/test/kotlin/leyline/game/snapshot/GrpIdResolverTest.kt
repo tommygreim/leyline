@@ -1,12 +1,16 @@
 package leyline.game.snapshot
 
 import forge.card.CardStateName
+import forge.card.CardType
 import forge.card.GamePieceType
 import forge.game.card.Card
 import forge.game.card.CardCloneStates
+import forge.game.zone.Zone
+import forge.game.zone.ZoneType
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import leyline.UnitTag
+import leyline.bridge.bootstrap.GameBootstrap
 import leyline.game.InMemoryCardRepository
 import leyline.game.data.CardData
 import leyline.game.data.CardRepository
@@ -16,6 +20,7 @@ import leyline.game.state.TokenIdentityRegistry
 class GrpIdResolverTest :
     FunSpec({
         tags(UnitTag)
+        beforeSpec { GameBootstrap.initializeCardDatabase(quiet = true) }
 
         test("resolves Forge flavor-name variants by display name") {
             val repo = InMemoryCardRepository()
@@ -74,6 +79,29 @@ class GrpIdResolverTest :
             GrpIdResolver.resolve(clone, repo) shouldBe GameBridge.FALLBACK_GRPID
         }
 
+        test("active clone layer retains donor artwork after remembered cleanup and a name exception") {
+            val repo = InMemoryCardRepository()
+            repo.register(12001, "Copy Source")
+            repo.register(12002, "Retained Name")
+            val donor = Card(11, null, null).also { it.name = "Copy Source" }
+            val clone = Card(12, null, null).also { it.name = "Retained Name" }
+            clone.cloneStates[1L] = CardCloneStates(donor, null)
+            clone.clearRemembered()
+            GrpIdResolver.resolve(clone, repo) shouldBe 12001
+        }
+
+        test("latest clone layer supplies the artwork rather than an older donor") {
+            val repo = InMemoryCardRepository()
+            repo.register(12011, "Earlier Donor")
+            repo.register(12012, "Later Donor")
+            val first = Card(21, null, null).also { it.name = "Earlier Donor" }
+            val last = Card(22, null, null).also { it.name = "Later Donor" }
+            val clone = Card(23, null, null).also { it.name = "Retained Name" }
+            clone.cloneStates[1L] = CardCloneStates(first, null)
+            clone.cloneStates[2L] = CardCloneStates(last, null)
+            GrpIdResolver.resolve(clone, repo) shouldBe 12012
+        }
+
         test("falls back for unmapped face-down original names") {
             val repo = InMemoryCardRepository()
             val card = Card(1, null, null)
@@ -110,6 +138,42 @@ class GrpIdResolverTest :
             card.getOriginalState(CardStateName.Original)?.setName("The Terminus of Return")
 
             GrpIdResolver.resolve(card, repo) shouldBe 12345
+        }
+
+        test("transformed face follows its original printing's linked-face family") {
+            val repo = InMemoryCardRepository()
+            // Both back faces have the same localized name. The normal front
+            // belongs to 95998; a direct any-face lookup could otherwise pick
+            // the alternate-style 96946 row instead.
+            repo.registerData(faceData(95997, 928151, listOf(95998)), "Clive, Ifrit's Dominant")
+            repo.registerData(faceData(95998, 928154, listOf(95997)), "Ifrit, Warden of Inferno")
+            repo.registerData(faceData(96945, 928151, listOf(96946)), "Clive, Ifrit's Dominant (alternate)")
+            repo.registerData(faceData(96946, 928154, listOf(96945)), "Ifrit, Warden of Inferno (alternate)")
+
+            val card = Card(1, null, null)
+            card.name = "Clive, Ifrit's Dominant"
+            card.addAlternateState(CardStateName.Backside, false)
+            card.getState(CardStateName.Backside)?.name = "Ifrit, Warden of Inferno"
+            card.setState(CardStateName.Backside, false)
+
+            GrpIdResolver.resolve(card, repo) shouldBe 95998
+        }
+
+        test("secondary stack face follows its original printing's linked-face family") {
+            val repo = InMemoryCardRepository()
+            repo.registerData(faceData(100, 10, listOf(101)), "Linked Hero")
+            repo.registerData(faceData(101, 11, listOf(100)), "Linked Spell")
+            repo.registerData(faceData(201, 11, listOf(200)), "Linked Spell")
+
+            val card = Card(1, null, null)
+            card.name = "Linked Hero"
+            card.addAlternateState(CardStateName.Secondary, false)
+            card.getState(CardStateName.Secondary)?.name = "Linked Spell"
+            card.getState(CardStateName.Secondary)?.setType(CardType.parse("Sorcery Adventure", false))
+            card.setState(CardStateName.Secondary, false)
+            card.setZone(Zone(ZoneType.Stack, null))
+
+            GrpIdResolver.resolve(card, repo) shouldBe 101
         }
 
         test("caches token grpIds per instanceId and reuses them without re-resolution") {
@@ -160,3 +224,22 @@ private class NameOnlyRepository : CardRepository {
 
     override fun findAllGrpIds(): List<Int> = grpIdToName.keys.toList()
 }
+
+private fun faceData(
+    grpId: Int,
+    titleId: Int,
+    linkedFaceGrpIds: List<Int>,
+): CardData =
+    CardData(
+        grpId = grpId,
+        titleId = titleId,
+        power = "",
+        toughness = "",
+        colors = emptyList(),
+        types = emptyList(),
+        subtypes = emptyList(),
+        supertypes = emptyList(),
+        abilityIds = emptyList(),
+        manaCost = emptyList(),
+        linkedFaceGrpIds = linkedFaceGrpIds,
+    )

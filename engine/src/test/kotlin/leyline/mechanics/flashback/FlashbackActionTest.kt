@@ -1,5 +1,6 @@
 package leyline.mechanics.flashback
 
+import forge.game.phase.PhaseType
 import forge.game.spellability.AlternativeCost
 import forge.game.zone.ZoneType
 import io.kotest.matchers.collections.shouldBeEmpty
@@ -74,5 +75,37 @@ class FlashbackActionTest :
                     bridge = b,
                 )
             actions shouldNot offerAltCost(flashbackAbilityGrpId)
+        }
+
+        test("sorcery flashback remains visible as an inactive graveyard offer outside its timing window") {
+            val (b, game, _) =
+                startWithBoard { _, human, _ ->
+                    addCard("Faithless Looting", human, ZoneType.Graveyard)
+                }
+            val human = game.humanPlayer
+            // Main1 is the default board phase.  Move to combat so the
+            // Flashback SA is filtered from the timed candidate set while it
+            // remains a valid card-rail affordance.
+            game.phaseHandler.devModeSet(PhaseType.COMBAT_BEGIN, human)
+
+            val card = human.getZone(ZoneType.Graveyard).cards.single { it.name == "Faithless Looting" }
+            val iid = b.instanceId(card.id)
+            val grpId = b.cardRepository.findGrpIdByName("Faithless Looting")!!
+            val flashbackAbilityGrpId =
+                b.cardRepository.findKeywordAbilityGrpId(grpId, KeywordAbilityIds.FLASHBACK)!!
+
+            val actions =
+                ActionMapper.buildFromSnapshot(
+                    seatId = 1,
+                    snap = SnapshotCapture.run(game, b, "test", 0),
+                    bridge = b,
+                )
+
+            actions.actionsList.none { it.actionType == ActionType.Cast && it.instanceId == iid } shouldBe true
+            actions.inactiveActionsList.any {
+                it.actionType == ActionType.Cast &&
+                    it.instanceId == iid &&
+                    it.alternativeGrpId == flashbackAbilityGrpId
+            } shouldBe true
         }
     })

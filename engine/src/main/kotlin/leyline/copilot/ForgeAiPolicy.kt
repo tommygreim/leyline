@@ -16,6 +16,7 @@ import forge.game.card.Card
 import forge.game.card.CardCollection
 import forge.game.combat.Combat
 import forge.game.cost.CostPart
+import forge.game.cost.CostReturn
 import forge.game.cost.CostSacrifice
 import forge.game.cost.CostTapType
 import forge.game.phase.PhaseType
@@ -84,7 +85,26 @@ private fun effectCostContexts(
                 .orEmpty()
                 .filter { type.isInstance(it) }
                 .map { Triple(sa, it, kind) }
-        }
+        } +
+            sa.payCosts
+                ?.costParts
+                .orEmpty()
+                .filterIsInstance<CostReturn>()
+                .filter { part ->
+                    sa.alternativeCost == forge.game.spellability.AlternativeCost.WebSlinging ||
+                        part.type.contains("attacking+unblocked") ||
+                        part.descriptiveType.contains("unblocked attacker", ignoreCase = true)
+                }.map { part ->
+                    Triple(
+                        sa,
+                        part,
+                        if (sa.alternativeCost == forge.game.spellability.AlternativeCost.WebSlinging) {
+                            PayCostsRouteKind.SelectCostReturnTappedCreature
+                        } else {
+                            PayCostsRouteKind.SelectCostReturnAttacker
+                        },
+                    )
+                }
     }
 }
 
@@ -96,8 +116,10 @@ private fun costPartsForRoute(
         when (kind) {
             PayCostsRouteKind.Sacrifice -> CostSacrifice::class.java
             PayCostsRouteKind.StationTapCost -> CostTapType::class.java
-            PayCostsRouteKind.SelectCostExileFromGrave,
             PayCostsRouteKind.SelectCostReturnAttacker,
+            PayCostsRouteKind.SelectCostReturnTappedCreature,
+            -> CostReturn::class.java
+            PayCostsRouteKind.SelectCostExileFromGrave,
             PayCostsRouteKind.CollectEvidence,
             PayCostsRouteKind.EnlistCost,
             PayCostsRouteKind.TapPayment,

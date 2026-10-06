@@ -1,0 +1,17 @@
+[metadata]
+Name:Block 2 Paradigm copy and Ugin stack text
+Goal:Survive
+Turns:5
+Difficulty:Easy
+Description:Cast Improvisation Capstone normally to establish Paradigm, then cast its copy next turn beneath Death's trigger. Reset to inspect Ugin's cast trigger and +2 ability.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanhand=Improvisation Capstone;Ugin, Eye of the Storms;Counterspell
+humanbattlefield=Death to Our Enemies;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Island;Island
+humanlibrary=Colossal Dreadmaw;Colossal Dreadmaw;Colossal Dreadmaw;Colossal Dreadmaw;Colossal Dreadmaw;Colossal Dreadmaw;Colossal Dreadmaw;Colossal Dreadmaw;Mountain;Mountain;Mountain;Mountain
+aibattlefield=Grizzly Bears
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

@@ -11,6 +11,7 @@ import leyline.bridge.types.ForgeCardId
 import leyline.game.codes.QualificationType
 import leyline.game.data.CardData
 import leyline.game.mapping.ProjectionCardReferences
+import leyline.game.mapping.ZoneIds
 import leyline.game.snapshot.GsmSnapshot
 import leyline.game.state.GameBridge
 import leyline.game.state.PersistentFeedFacts
@@ -198,7 +199,7 @@ internal object CombatQualificationFactsCapture {
     private fun battlefieldCreatures(game: Game): List<Card> = battlefieldCards(game).filter { it.isCreature }.sortedBy { it.id }
 
     private fun battlefieldCards(game: Game): List<Card> =
-        game.players.flatMap { player -> player.getZone(ZoneType.Battlefield).cards }.sortedBy { it.id }
+        game.players.flatMap { player -> player.getCardsIn(ZoneType.Battlefield) }.sortedBy { it.id }
 
     private fun liveBattlefieldMatchesSnapshot(
         game: Game,
@@ -206,9 +207,10 @@ internal object CombatQualificationFactsCapture {
     ): Boolean {
         val liveIds = battlefieldCards(game).map { it.id }.toSet()
         val snapIds =
-            snap.objects.values
-                .filter { it.isOnBattlefield }
-                .map { it.forgeCardId.value }
+            snap.zones[ZoneIds.BATTLEFIELD]
+                ?.contents
+                .orEmpty()
+                .map { it.value }
                 .toSet()
         return liveIds == snapIds
     }

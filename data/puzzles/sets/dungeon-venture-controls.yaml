@@ -1,0 +1,29 @@
+name: dungeon-venture-controls
+description: Enter and branch through a dungeon using normal targeted Venture spells.
+scenarios:
+  - id: tomb-entry-and-branch
+    puzzle: dungeon-venture-controls
+    headless: { full_control: true }
+    run: Choose Tomb of Annihilation, enter Veils of Fear, and discard a spare Kick in the Door.
+    expect: The chosen dungeon enters, branching remains interactive, and discarding avoids the second life loss.
+    steps:
+      - cast: Kick in the Door
+      - target: { side: ours, zone: battlefield, card: Grizzly Bears }
+      - pass_until: { prompt: SelectNReq, max_passes: 8 }
+      - static_choice: { id: 78770, label: Tomb of Annihilation }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - our_life: 19
+            - opponent_life: 19
+      - cast: Kick in the Door
+      - target: { side: ours, zone: battlefield, card: Grizzly Bears }
+      - pass_until: { prompt: SelectNReq, max_passes: 8 }
+      - static_choice: { id: 146090, label: Veils of Fear }
+      - pass_until: { prompt: SelectNReq, max_passes: 8 }
+      - select_cards: { side: ours, zone: hand, cards: [Kick in the Door] }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - our_life: 19
+            - opponent_life: 17

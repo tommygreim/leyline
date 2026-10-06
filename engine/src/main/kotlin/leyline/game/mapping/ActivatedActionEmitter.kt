@@ -10,6 +10,7 @@ import leyline.bridge.ActionCostParts
 import leyline.bridge.ActionManaCosts
 import leyline.bridge.getNonManaActivatedAbilities
 import leyline.bridge.getPlayableManaAbilities
+import leyline.bridge.manaProductionTokens
 import leyline.game.data.BasicLandAbilities
 import leyline.game.data.CardData
 import leyline.game.state.AbilityRegistry
@@ -63,7 +64,7 @@ internal object ActivatedActionEmitter {
         cardData: (Int) -> CardData?,
         envelope: Envelope,
         abilityRegistryLookup: (Card, CardData?) -> AbilityRegistry?,
-        autoTapSolution: (ManaCost) -> AutoTapSolution? = { null },
+        autoTapSolution: (ManaCost, SpellAbility) -> AutoTapSolution? = { _, _ -> null },
         skipSpecialTurnFaceUp: Boolean = false,
         onActive: (Action, Int, SpellAbility, Int) -> Unit = { _, _, _, _ -> },
         abilities: List<SpellAbility> = getNonManaActivatedAbilities(card, player),
@@ -75,7 +76,7 @@ internal object ActivatedActionEmitter {
             val abilityCost = CastDisplayCost.of(ability, player) ?: ability.payCosts?.totalMana
             val autoTap =
                 if (canPay && abilityCost != null && !abilityCost.isNoCost) {
-                    autoTapSolution(abilityCost)
+                    autoTapSolution(abilityCost, ability)
                 } else {
                     null
                 }
@@ -86,16 +87,14 @@ internal object ActivatedActionEmitter {
             val identityCardData = cardData(grpId(identityCard))
             val registry = abilityRegistryLookup(identityCard, identityCardData)
             val abilityGrpId = registry?.forSpellAbility(ability) ?: 0
-            val grantedIndex =
-                ability
-                    .takeIf { it.grantorStatic != null }
-                    ?.let { abilities.take(abilityIndex).count { prior -> prior.grantorStatic != null } }
             emitActivatedAbilityAction(
                 builder = builder,
                 instanceId = actionInstanceId,
                 grpId = actionGrpId,
                 abilityGrpId = abilityGrpId,
-                uniqueAbilityId = uniqueAbilityIdFor(actionCardData, abilityGrpId, grantedIndex = grantedIndex),
+                uniqueAbilityId =
+                    registry?.generatedUniqueAbilityId(ability)
+                        ?: uniqueAbilityIdFor(actionCardData, abilityGrpId),
                 abilityCost = abilityCost,
                 autoTapSolution = autoTap,
                 canPay = canPay,
@@ -136,7 +135,12 @@ internal object ActivatedActionEmitter {
             actionBuilder.setShouldStop(ShouldStopEvaluator.shouldStop(ActionType.Activate_add3))
         }
         if ((!canPay || envelope.activeManaCost) && abilityCost != null && !abilityCost.isNoCost) {
-            ActionManaCosts.addManaCostFromForge(abilityCost, actionBuilder, abilityGrpId)
+            ActionManaCosts.addManaCostFromForge(
+                abilityCost,
+                actionBuilder,
+                abilityGrpId,
+                ActionManaCosts.manaCostSpecs(nonManaCosts),
+            )
         }
         actionBuilder.addAllCosts(ActionCostParts.of(nonManaCosts))
         autoTapSolution?.let(actionBuilder::setAutoTapSolution)
@@ -153,7 +157,7 @@ internal object ActivatedActionEmitter {
         card: Card,
         instanceId: Int,
         grpId: Int,
-        cardDataLookup: (leyline.bridge.types.GrpId) -> CardData?,
+        cardDataLookup: (Card) -> CardData?,
         abilityRegistryLookup: (Card, CardData?) -> AbilityRegistry?,
     ): List<Action> = buildActivateManaActions(card, instanceId, grpId, cardDataLookup, abilityRegistryLookup).map { it.action }
 
@@ -161,17 +165,24 @@ internal object ActivatedActionEmitter {
         card: Card,
         instanceId: Int,
         grpId: Int,
-        cardDataLookup: (leyline.bridge.types.GrpId) -> CardData?,
+        cardDataLookup: (Card) -> CardData?,
         abilityRegistryLookup: (Card, CardData?) -> AbilityRegistry?,
         abilities: List<SpellAbility> = getPlayableManaAbilities(card, card.controller),
     ): List<ManaAction> {
-        val cardData = cardDataLookup(leyline.bridge.types.GrpId(grpId))
-        val registry = abilityRegistryLookup(card, cardData)
+        val cardData = cardDataLookup(card)
         return distinctManaAbilities(card, abilities).mapNotNull { (abilityIndex, sa) ->
             val basicLandAbilityGrpId = basicLandAbilityGrpId(card, sa)
-            val abilityGrpId = registry?.forSpellAbility(sa.definitionId) ?: basicLandAbilityGrpId
+            val source = sa.grantorStatic?.hostCard ?: card
+            val registry = abilityRegistryLookup(source, cardDataLookup(source))
+            val abilityGrpId = registry?.forSpellAbility(sa) ?: basicLandAbilityGrpId
             val colors = producedManaColors(sa)
             if (colors.isEmpty()) return@mapNotNull null
+            // `Produced$ R | Amount$ 2` is one choice that creates two red
+            // mana, not two independently selectable single-mana choices.
+            // Keeping the amount on both the payment option and selection is
+            // what distinguishes it from another `{T}: Add {R}` ability on
+            // the same source (Tablet of Discovery is the canonical example).
+            val producedCount = sa.amountOfManaGenerated(false).coerceAtLeast(1)
 
             val actionBuilder =
                 Action
@@ -182,8 +193,10 @@ internal object ActivatedActionEmitter {
                     .setFacetId(instanceId)
                     .setIsBatchable(true)
             if (abilityGrpId != 0) actionBuilder.setAbilityGrpId(abilityGrpId)
-            uniqueAbilityIdFor(cardData, abilityGrpId, fallbackWhenUnmapped = abilityGrpId == basicLandAbilityGrpId)
-                ?.let(actionBuilder::setUniqueAbilityId)
+            (
+                registry?.generatedUniqueAbilityId(sa)
+                    ?: uniqueAbilityIdFor(cardData, abilityGrpId, fallbackWhenUnmapped = abilityGrpId == basicLandAbilityGrpId)
+            )?.let(actionBuilder::setUniqueAbilityId)
 
             for ((idx, manaColor) in colors.withIndex()) {
                 val manaInfo =
@@ -194,7 +207,17 @@ internal object ActivatedActionEmitter {
                         .setSrcInstanceId(instanceId)
                         .addSpecs(ManaInfo.Spec.newBuilder().setType(ManaSpecType.Predictive))
                         .setAbilityGrpId(abilityGrpId)
-                        .setCount(1)
+                        .setCount(producedCount)
+                // The client groups same-colour manual mana sources into one
+                // picker.  An unrestricted `{T}: Add {R}` beside a restricted
+                // `{T}: Add {R}{R}` must carry this distinction or that picker
+                // silently selects the larger output (Tablet of Discovery).
+                // The card DB supplies the restriction's actual text/meaning
+                // through abilityGrpId; this flag tells the client not to merge
+                // it with ordinary red mana.
+                manaSourceSpecs(sa).forEach { spec ->
+                    manaInfo.addSpecs(ManaInfo.Spec.newBuilder().setType(spec))
+                }
                 if (card.type.isSnow) {
                     manaInfo.addSpecs(ManaInfo.Spec.newBuilder().setType(ManaSpecType.FromSnow))
                 }
@@ -209,7 +232,7 @@ internal object ActivatedActionEmitter {
                     .newBuilder()
                     .setInstanceId(instanceId)
                     .setAbilityGrpId(abilityGrpId)
-                    .setSelectionCount(1)
+                    .setSelectionCount(producedCount)
                     .setValidationType(SelectionValidationType.NonRepeatable)
             for (manaColor in colors) {
                 selection.addOptions(
@@ -217,7 +240,7 @@ internal object ActivatedActionEmitter {
                         .newBuilder()
                         .setSelectedColor(manaColor)
                         .addMana(
-                            ManaColorCount.newBuilder().setColor(manaColor).setCount(1),
+                            ManaColorCount.newBuilder().setColor(manaColor).setCount(producedCount),
                         ),
                 )
             }
@@ -238,16 +261,17 @@ internal object ActivatedActionEmitter {
         card: Card,
         instanceId: Int,
         grpId: Int,
-        cardDataLookup: (leyline.bridge.types.GrpId) -> CardData?,
+        cardDataLookup: (Card) -> CardData?,
         abilityRegistryLookup: (Card, CardData?) -> AbilityRegistry?,
     ): List<Action> {
-        val cardData = cardDataLookup(leyline.bridge.types.GrpId(grpId))
-        val registry = abilityRegistryLookup(card, cardData)
+        val cardData = cardDataLookup(card)
         return distinctManaAbilities(card, card.manaAbilities).mapNotNull { (_, sa) ->
             sa.setActivatingPlayer(card.controller)
             if (sa.canPlay()) return@mapNotNull null
             val basicLandAbilityGrpId = basicLandAbilityGrpId(card, sa)
-            val abilityGrpId = registry?.forSpellAbility(sa.definitionId) ?: basicLandAbilityGrpId
+            val source = sa.grantorStatic?.hostCard ?: card
+            val registry = abilityRegistryLookup(source, cardDataLookup(source))
+            val abilityGrpId = registry?.forSpellAbility(sa) ?: basicLandAbilityGrpId
             val actionBuilder =
                 Action
                     .newBuilder()
@@ -258,13 +282,22 @@ internal object ActivatedActionEmitter {
             actionBuilder
                 .apply {
                     if (abilityGrpId != 0) setAbilityGrpId(abilityGrpId)
-                    uniqueAbilityIdFor(cardData, abilityGrpId, fallbackWhenUnmapped = abilityGrpId == basicLandAbilityGrpId)
-                        ?.let(::setUniqueAbilityId)
+                    (
+                        registry?.generatedUniqueAbilityId(sa)
+                            ?: uniqueAbilityIdFor(cardData, abilityGrpId, fallbackWhenUnmapped = abilityGrpId == basicLandAbilityGrpId)
+                    )?.let(::setUniqueAbilityId)
                 }
             sa.payCosts
                 ?.totalMana
                 ?.takeIf { !it.isNoCost }
-                ?.let { ActionManaCosts.addManaCostFromForge(it, actionBuilder, abilityGrpId) }
+                ?.let {
+                    ActionManaCosts.addManaCostFromForge(
+                        it,
+                        actionBuilder,
+                        abilityGrpId,
+                        ActionManaCosts.manaCostSpecs(sa.payCosts),
+                    )
+                }
             actionBuilder.build()
         }
     }
@@ -326,11 +359,9 @@ internal object ActivatedActionEmitter {
         cardData: CardData?,
         abilityGrpId: Int,
         fallbackWhenUnmapped: Boolean = false,
-        grantedIndex: Int? = null,
     ): Int? {
         if (abilityGrpId == 0) return null
         if (cardData == null) return INITIAL_UNIQUE_ABILITY_ID
-        grantedIndex?.let { return INITIAL_UNIQUE_ABILITY_ID + cardData.abilityIds.size + it }
         val index = cardData.abilityIds.indexOfFirst { (grpId, _) -> grpId == abilityGrpId }
         return when {
             index >= 0 -> INITIAL_UNIQUE_ABILITY_ID + index
@@ -354,9 +385,23 @@ internal object ActivatedActionEmitter {
             else -> null
         }
 
-    fun producedManaColors(sa: forge.game.spellability.SpellAbility): List<ManaColor> {
-        val mana = sa.manaPart ?: return emptyList()
-        val produced = if (mana.isComboMana) mana.getComboColors(sa) else mana.origProduced
-        return produced.split(" ").mapNotNull { ActionManaCosts.producedToManaColor(it) }.distinct()
-    }
+    /**
+     * ManaInfo source annotations backed by Forge's AbilityManaPart.
+     * RestrictValid/extra restrictions make the source restricted; the
+     * AddsNoCounter parameter is retained by Forge as a first-class boolean
+     * and therefore maps directly to CantBeCountered.
+     */
+    fun manaSourceSpecs(ability: SpellAbility): List<ManaSpecType> =
+        buildList {
+            val mana = ability.manaPart
+            if (!mana.manaRestrictions.isNullOrBlank() || !mana.extraManaRestriction.isNullOrBlank()) {
+                add(ManaSpecType.Restricted)
+            }
+            if (mana.isCannotCounterPaidWith) {
+                add(ManaSpecType.CantBeCountered)
+            }
+        }
+
+    fun producedManaColors(sa: forge.game.spellability.SpellAbility): List<ManaColor> =
+        manaProductionTokens(sa).mapNotNull(ActionManaCosts::producedToManaColor).distinct()
 }

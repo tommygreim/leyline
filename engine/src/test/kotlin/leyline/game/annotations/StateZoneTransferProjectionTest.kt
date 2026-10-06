@@ -13,6 +13,9 @@ import leyline.bridge.types.SeatId
 import leyline.game.InMemoryCardRepository
 import leyline.game.data.KeywordAbilityIds
 import leyline.game.event.GameEvent
+import leyline.game.event.Zone
+import leyline.game.event.ZoneMove
+import leyline.game.event.ZoneMoveCause
 import leyline.game.mapping.FrameIdResolver
 import leyline.game.mapping.ZoneIds
 import leyline.game.snapshot.CardSnapshot
@@ -31,6 +34,112 @@ import wotc.mtgo.gre.external.messaging.Messages.ZoneType
 class StateZoneTransferProjectionTest :
     FunSpec({
         tags(UnitTag)
+
+        listOf(false, true).forEach { copiedTarget ->
+            test("countered ${if (copiedTarget) "copied" else "ordinary"} spell leaves before its resolving counterspell") {
+                val target = ForgeCardId(42)
+                val counterspell = ForgeCardId(43)
+                val cause = ZoneMoveCause(counterspell, 17, 17, "Counter", false)
+                val events =
+                    listOf(
+                        GameEvent.ZoneChanged(target, Zone.Stack, Zone.Graveyard),
+                        GameEvent.SpellResolved(counterspell, hasFizzled = false),
+                        GameEvent.ZoneChanged(counterspell, Zone.Stack, Zone.Graveyard),
+                    )
+                val result =
+                    ZoneTransferDetector.detectZoneTransfers(
+                        gameObjects =
+                            listOf(stateZoneGameObject(200, 222, ZoneIds.P1_GRAVEYARD, 1)) +
+                                if (copiedTarget) emptyList() else listOf(stateZoneGameObject(100, 111, ZoneIds.P1_GRAVEYARD, 1)),
+                        zones =
+                            listOf(
+                                stateZone(
+                                    ZoneIds.P1_GRAVEYARD,
+                                    ZoneType.Graveyard,
+                                    *(if (copiedTarget) intArrayOf(200) else intArrayOf(200, 100)),
+                                ),
+                                stateZone(ZoneIds.STACK, ZoneType.Stack),
+                                stateZone(ZoneIds.LIMBO, ZoneType.Limbo),
+                            ),
+                        events = events,
+                        context =
+                            stateZoneTransferContext(
+                                previousZones = mapOf(100 to ZoneIds.STACK, 200 to ZoneIds.STACK),
+                                forgeIdLookup = { iid ->
+                                    when (iid.value) {
+                                        100 -> target
+                                        200 -> counterspell
+                                        else -> null
+                                    }
+                                },
+                                idAllocator = { fid ->
+                                    when (fid) {
+                                        target -> InstanceIdRegistry.IdReallocation(InstanceId(100), InstanceId(300))
+                                        else -> InstanceIdRegistry.IdReallocation(InstanceId(200), InstanceId(400))
+                                    }
+                                },
+                                idLookup = { fid -> InstanceId(if (fid == target) 100 else 200) },
+                            ).copy(
+                                zoneMoves =
+                                    listOf(
+                                        ZoneMove(0, target, Zone.Stack, Zone.Graveyard, cause),
+                                        ZoneMove(1, counterspell, Zone.Stack, Zone.Graveyard, cause),
+                                    ),
+                                pendingSpellResolutionLookup = { fid ->
+                                    if (fid == counterspell) GameEvent.SpellResolved(counterspell, hasFizzled = false) else null
+                                },
+                                previousStackCardLookup = { fid -> if (fid == target) 1 to 111 else null },
+                            ),
+                    )
+
+                result.transfers.map { it.forgeCardId to it.category } shouldBe
+                    listOf(target to TransferCategory.Countered, counterspell to TransferCategory.Resolve)
+                val (annotations, persistent) =
+                    AnnotationPipeline.assembleTransferAndCombatAnnotations(
+                        events = events,
+                        transferResult = result,
+                        actingSeat = 1,
+                        combatResult = CombatAnnotationResult(emptyList()),
+                    )
+                val emitted = AnnotationFrameFinalizer.finalize(annotations, firstId = 1).annotations
+                val transfers = emitted.filter { AnnotationType.ZoneTransfer_af5a in it.typeList }
+                transfers.map { it.affectedIdsList.single() } shouldBe listOf(300, 400)
+                transfers.map { it.detailString("category") } shouldBe listOf("Countered", "Resolve")
+                if (copiedTarget) {
+                    result.patchedZones.single { it.zoneId == ZoneIds.P1_GRAVEYARD }.objectInstanceIdsList shouldBe listOf(400)
+                    persistent.flatMap { it.affectedIdsList } shouldBe listOf(400)
+                }
+            }
+        }
+
+        test("destroyed token missing from snapshot still gets a Destroy transfer") {
+            val tokenId = ForgeCardId(42)
+            val result =
+                ZoneTransferDetector.detectZoneTransfers(
+                    gameObjects = emptyList(),
+                    zones = listOf(stateZone(ZoneIds.LIMBO, ZoneType.Limbo)),
+                    events =
+                        listOf(
+                            GameEvent.CardDestroyed(tokenId, SeatId(1)),
+                            GameEvent.TokenDestroyed(tokenId, SeatId(1)),
+                        ),
+                    context =
+                        stateZoneTransferContext(
+                            previousZones = mapOf(100 to ZoneIds.BATTLEFIELD),
+                            forgeIdLookup = { if (it.value == 100) tokenId else null },
+                            idAllocator = { InstanceIdRegistry.IdReallocation(InstanceId(100), InstanceId(200)) },
+                            idLookup = { InstanceId(100) },
+                        ),
+                )
+
+            assertSoftly {
+                result.transfers.single().category shouldBe TransferCategory.Destroy
+                result.transfers.single().origId shouldBe 100
+                result.transfers.single().newId shouldBe 200
+                result.retiredIds shouldContain 100
+                result.zoneRecordings shouldContain (200 to ZoneIds.P1_GRAVEYARD)
+            }
+        }
 
         test("cast mana payment uses materialized basic-land ability grpId") {
             val spellId = ForgeCardId(42)

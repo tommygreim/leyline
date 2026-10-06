@@ -11,6 +11,7 @@ import forge.game.card.CardTraitChanges
 import forge.game.player.Player
 import forge.game.player.PlayerView
 import forge.game.spellability.SpellAbility
+import forge.game.trigger.WrappedAbility
 import forge.game.zone.ZoneType
 import forge.gamemodes.puzzle.Puzzle
 import forge.player.PlayerControllerHuman
@@ -21,6 +22,7 @@ import leyline.bridge.bootstrap.GameBootstrap
 import leyline.bridge.coord.GameLoopController
 import leyline.bridge.coord.MatchCutCoordinator
 import leyline.bridge.coord.PriorityPolicyRuntime
+import leyline.bridge.coord.TargetPromptIdResolver
 import leyline.bridge.forge.RevealTrackingAiController
 import leyline.bridge.handoff.BlockingInteraction
 import leyline.bridge.handoff.BlockingInteractionRuntime
@@ -50,6 +52,7 @@ import leyline.game.data.CardData
 import leyline.game.data.CardProtoBuilder
 import leyline.game.data.CardRepository
 import leyline.game.data.KeywordAbilityIds
+import leyline.game.data.grantedKeywordAbilityGrpId
 import leyline.game.event.FrameEventLog
 import leyline.game.event.GameEvent
 import leyline.game.event.GameEventCollector
@@ -64,6 +67,9 @@ import org.slf4j.LoggerFactory
 import wotc.mtgo.gre.external.messaging.Messages.ActionsAvailableReq
 import wotc.mtgo.gre.external.messaging.Messages.GameStateMessage
 import java.lang.reflect.InvocationTargetException
+import java.util.ArrayDeque
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.Random
 import java.util.concurrent.ConcurrentHashMap
 import forge.game.player.PlayerController as ForgePlayerController
@@ -148,6 +154,12 @@ class GameBridge(
         object : BlockingInteractionRuntime {
             override fun awaitOptional(
                 interaction: BlockingInteraction.Optional,
+                timeoutMs: Long?,
+                defaultOnTimeout: Boolean,
+            ): Boolean = defaultOnTimeout
+
+            override fun awaitTopOrBottom(
+                interaction: BlockingInteraction.TopOrBottom,
                 timeoutMs: Long?,
                 defaultOnTimeout: Boolean,
             ): Boolean = defaultOnTimeout
@@ -341,7 +353,17 @@ class GameBridge(
 
     internal fun cardGrpId(cardId: ForgeCardId): Int? = findCard(cardId)?.name?.let { cardRepository.findGrpIdByName(it) }
 
-    private val selectedModalAbilityGrpIds = ConcurrentHashMap<ForgeCardId, Int>()
+    /**
+     * Modal responses carry a repeated grp-id field.  Keep the complete
+     * selection here: cards such as Three Steps Ahead can select two modes,
+     * and Arena projects both selected mode abilities on the public stack
+     * object.  The first id remains available to the scalar event-identity
+     * paths below, which predate multi-mode projection.
+     */
+    private val selectedModalAbilityGrpIdsByCard = ConcurrentHashMap<ForgeCardId, List<Int>>()
+
+    /** Modal selections for a triggered/activated stack item, keyed by its Forge SA id. */
+    private val selectedModalAbilityGrpIdsByAbility = ConcurrentHashMap<Int, List<Int>>()
     private val pendingTriggerAbilityGrpIds = ConcurrentHashMap<Int, Int>()
     private val pendingTriggerCleanupGrpIds = ConcurrentHashMap<Int, Int>()
 
@@ -349,8 +371,67 @@ class GameBridge(
         source: ForgeCardId,
         abilityGrpId: Int,
     ) {
-        selectedModalAbilityGrpIds[source] = abilityGrpId
+        recordSelectedModalAbilityGrpIds(source, listOf(abilityGrpId))
     }
+
+    fun recordSelectedModalAbilityGrpIds(
+        source: ForgeCardId,
+        abilityGrpIds: List<Int>,
+    ) {
+        // Preserve protocol order (and repeated ids when a prompt explicitly
+        // permits repeats); the stack projection mirrors the response list.
+        val normalized = abilityGrpIds.toList()
+        if (normalized.isEmpty()) {
+            selectedModalAbilityGrpIdsByCard.remove(source)
+        } else {
+            selectedModalAbilityGrpIdsByCard[source] = normalized
+        }
+    }
+
+    /**
+     * Record a modal response against the exact Forge stack ability when one
+     * exists.  Source-card correlation remains as a compatibility fallback for
+     * spell prompts and older callers; stack abilities need the SA key because
+     * one permanent can put more than one modal trigger on the stack.
+     */
+    fun recordSelectedModalAbilityGrpIds(
+        source: ForgeCardId,
+        forgeAbilityId: Int,
+        abilityGrpIds: List<Int>,
+    ) {
+        recordSelectedModalAbilityGrpIds(source, abilityGrpIds)
+        if (forgeAbilityId != 0) {
+            if (abilityGrpIds.isEmpty()) {
+                selectedModalAbilityGrpIdsByAbility.remove(forgeAbilityId)
+            } else {
+                selectedModalAbilityGrpIdsByAbility[forgeAbilityId] = abilityGrpIds.toList()
+            }
+        }
+    }
+
+    /**
+     * Read the mode selected for a spell that is currently being cast.
+     *
+     * The modal-choice bridge records this before Forge puts the spell on the
+     * stack.  Snapshot projection uses the value to replace the parent modal
+     * ability on the public stack card with the selected mode's ability.  Keep
+     * this read-only: the identity is also consumed later when resolving the
+     * spell/trigger event.
+     */
+    fun selectedModalAbilityGrpIds(source: ForgeCardId): List<Int> = selectedModalAbilityGrpIdsByCard[source].orEmpty()
+
+    fun selectedModalAbilityGrpId(source: ForgeCardId): Int? = selectedModalAbilityGrpIds(source).firstOrNull()
+
+    fun selectedModalAbilityGrpIds(
+        source: ForgeCardId,
+        forgeAbilityId: Int,
+    ): List<Int> =
+        if (forgeAbilityId != 0) selectedModalAbilityGrpIdsByAbility[forgeAbilityId].orEmpty() else selectedModalAbilityGrpIds(source)
+
+    fun selectedModalAbilityGrpId(
+        source: ForgeCardId,
+        forgeAbilityId: Int,
+    ): Int? = selectedModalAbilityGrpIds(source, forgeAbilityId).firstOrNull()
 
     fun resolvePendingTriggerAbilityIdentity(
         triggerId: Int,
@@ -358,7 +439,7 @@ class GameBridge(
         fallback: () -> Int?,
     ): Int? =
         pendingTriggerAbilityGrpIds[triggerId]
-            ?: (selectedModalAbilityGrpIds.remove(source) ?: fallback())?.also { resolved ->
+            ?: (selectedModalAbilityGrpIdsByCard.remove(source)?.firstOrNull() ?: fallback())?.also { resolved ->
                 pendingTriggerAbilityGrpIds[triggerId] = resolved
             }
 
@@ -421,6 +502,11 @@ class GameBridge(
                 it.instanceIdReservoir = ::reserveInstanceId
                 it.abilityIdentityResolver = { sa -> sa.hostCard?.let { card -> resolvePromptAbilityIdentity(card, sa) } }
                 it.cardGrpIdResolver = ::resolveGrpId
+                it.cardTitleIdResolver = cardRepository::findTitleIdByName
+                it.cardTitleIdsResolver = cardRepository::findTitleIdsByName
+                it.cardGrpIdByNameResolver = { name ->
+                    cardRepository.findPresentationGrpIdByName(name)
+                }
                 it.triggerStackAbilityInstanceIdResolver = { abilityId ->
                     peekInstanceId(FrameIdResolver.triggerStackAbilityForgeId(abilityId))?.value
                 }
@@ -432,7 +518,6 @@ class GameBridge(
         mulliganBridges[seatId.value] =
             MulliganBridge(
                 autoKeep = engineSettings.skipMulligan && !humanVsHuman,
-                timeoutMs = engineSettings.mulliganWaitMs,
             )
     }
 
@@ -497,6 +582,11 @@ class GameBridge(
                 it.trackedZoneResolver = ::trackedZoneFor
                 it.instanceIdReservoir = ::reserveInstanceId
                 it.abilityIdentityResolver = { sa -> sa.hostCard?.let { card -> resolvePromptAbilityIdentity(card, sa) } }
+                it.cardTitleIdResolver = cardRepository::findTitleIdByName
+                it.cardTitleIdsResolver = cardRepository::findTitleIdsByName
+                it.cardGrpIdByNameResolver = { name ->
+                    cardRepository.findPresentationGrpIdByName(name)
+                }
             }
         mulliganBridges[seatId.value] = MulliganBridge(autoKeep = true, timeoutMs = 0)
         log.info("GameBridge: seat {} configured as synthetic (auto-pass)", seatId.value)
@@ -580,6 +670,7 @@ class GameBridge(
         val playback = registerPlayback(game, seatId, captureLocalActions)
         game.phaseHandler.setMainGameLoopStartedHook(playback::onMainGameLoopStarted)
         game.phaseHandler.setMainLoopStepCompletionHook(playback::onMainLoopStepCompleted)
+        game.phaseHandler.setDrawStepCompletionHook(playback::onDrawStepCompleted)
         game.phaseHandler.setAttackersDeclaredCompletionHook(playback::onAttackersDeclaredCompleted)
         game.phaseHandler.setBlockersDeclaredCompletionHook(playback::onBlockersDeclaredCompleted)
         game.phaseHandler.setCombatEndedCompletionHook(playback::onCombatEndedCompleted)
@@ -712,6 +803,73 @@ class GameBridge(
                 )
             }
         }
+
+    /**
+     * Backfill TargetSpec facts from Forge's finalized live stack ability.
+     * Interactive target selection records the same groups earlier; origin-key
+     * suppression keeps this event-boundary path from emitting them twice.
+     */
+    fun recordStackTargetSpecs(
+        rootAbility: SpellAbility,
+        isSpell: Boolean,
+    ) {
+        val host = rootAbility.hostCard ?: return
+        var index = 0
+        var current: SpellAbility? = rootAbility.rootAbility
+        while (current != null) {
+            if (current.targetRestrictions != null) index++
+            val groupIndex = index.coerceAtLeast(1)
+            val targets = current.targets.targetEntities.toList()
+            if (targets.isNotEmpty()) {
+                val abilityIdentity = resolvePromptAbilityIdentity(host, current)
+                val affectees =
+                    targets.mapNotNull { target ->
+                        when (target) {
+                            is Card ->
+                                InteractivePromptBridge.PendingTarget.TargetAffectee(
+                                    targetForgeCardId = target.id,
+                                    distribution = current.getDividedValue(target),
+                                )
+                            is Player ->
+                                seatOf(target)?.let { seat ->
+                                    InteractivePromptBridge.PendingTarget.TargetAffectee(
+                                        targetSeatId = seat.value,
+                                        distribution = current.getDividedValue(target),
+                                    )
+                                }
+                            else -> null
+                        }
+                    }
+                if (affectees.isNotEmpty()) {
+                    val spec =
+                        InteractivePromptBridge.PendingTarget(
+                            spellForgeCardId = host.id,
+                            spellName = host.name,
+                            index = groupIndex,
+                            affectorInstanceIdAtRecord = if (isSpell) getOrAllocInstanceId(ForgeCardId(host.id)).value else 0,
+                            affectees = affectees,
+                            isStackAbility = !isSpell,
+                            promptId = TargetPromptIdResolver.resolve(current, abilityIdentity),
+                            abilityIdentity = abilityIdentity,
+                            forgeAbilityId = current.id,
+                        )
+                    val alreadyRecorded =
+                        promptBridges.values.any { prompt ->
+                            prompt.snapshotPendingTargetSpecs().any { pending ->
+                                pending.spellForgeCardId == spec.spellForgeCardId &&
+                                    pending.index == spec.index &&
+                                    pending.forgeAbilityId == spec.forgeAbilityId
+                            }
+                        }
+                    if (!alreadyRecorded) {
+                        val journalSeat = if (::seating.isInitialized) seating.humanSeat else SeatId(1)
+                        promptBridge(journalSeat).addPendingTargetSpec(spec)
+                    }
+                }
+            }
+            current = current.subAbility
+        }
+    }
 
     /** Materialize the prompt data projection needs for one immutable frame input. */
     fun materializePromptProjectionFacts(): PromptProjectionFacts {
@@ -1358,7 +1516,8 @@ class GameBridge(
     ): AbilityRegistry? {
         if (cardData == null) return null
         return abilityRegistries.compute(card.id) { _, cached ->
-            cached?.takeIf { it.sourceCardGrpId == cardData.grpId } ?: AbilityRegistry.build(card, cardData)
+            cached?.takeIf { it.sourceCardGrpId == cardData.grpId }
+                ?: AbilityRegistry.build(card, cardData, cardRepository::grantedKeywordAbilityGrpId)
         }
     }
 
@@ -1374,13 +1533,96 @@ class GameBridge(
         card: Card,
         ability: SpellAbility,
     ): ResolvedAbilityIdentity? {
+        val identity =
+            abilityIdentityCandidates(ability).firstNotNullOfOrNull { candidate ->
+                resolveDirectAbilityIdentity(card, candidate)
+            } ?: return null
+        return reflexiveChildIdentity(ability, identity)
+    }
+
+    private fun reflexiveChildIdentity(
+        ability: SpellAbility,
+        parentIdentity: ResolvedAbilityIdentity,
+    ): ResolvedAbilityIdentity {
+        val spawning = ability.trigger?.spawningAbility ?: return parentIdentity
+        if (spawning.api != ApiType.ImmediateTrigger) return parentIdentity
+        // Native enter-as-copy reflexive exile displays the printed replacement
+        // paragraph after entry (the replacement itself was never on the stack).
+        if (spawning.rootAbility.let { it.api == ApiType.Clone && it.isReplacementAbility }) return parentIdentity
+        val execute = spawning.getAdditionalAbility("Execute") ?: return parentIdentity
+        val effect = (ability as? WrappedAbility)?.wrappedAbility ?: ability
+        if (execute.definitionId != effect.definitionId) return parentIdentity
+        val child =
+            cardRepository
+                .findAbilityInfo(parentIdentity.abilityGrpId)
+                ?.hiddenAbilityIds
+                ?.singleOrNull()
+                ?: return parentIdentity
+        return parentIdentity.copy(abilityGrpId = child)
+    }
+
+    /**
+     * A reflexive trigger is a fresh Forge trigger whose immediate-trigger
+     * wrapper has no matching Arena row of its own. Its spawning ability still
+     * belongs to the source trigger, though. Walk that provenance as a fallback
+     * so the protocol describes the original card ability rather than either an
+     * unrelated first ability row or the source card itself.
+     */
+    private fun abilityIdentityCandidates(ability: SpellAbility): List<SpellAbility> {
+        val pending = ArrayDeque<SpellAbility>()
+        val seen = Collections.newSetFromMap(IdentityHashMap<SpellAbility, Boolean>())
+        val candidates = mutableListOf<SpellAbility>()
+        pending.add(ability)
+        while (pending.isNotEmpty()) {
+            val current = pending.removeFirst()
+            if (!seen.add(current)) continue
+            candidates += current
+            if (current is WrappedAbility) pending.addLast(current.wrappedAbility)
+            current.parent?.let(pending::addLast)
+            current.rootAbility.takeIf { it !== current }?.let(pending::addLast)
+            current.originalAbility?.let(pending::addLast)
+            current.trigger?.spawningAbility?.let(pending::addLast)
+        }
+        return candidates
+    }
+
+    private fun resolveDirectAbilityIdentity(
+        card: Card,
+        ability: SpellAbility,
+    ): ResolvedAbilityIdentity? {
         val definition =
             ability.trigger?.let { AbilityDefinitionRef.Trigger(it.definitionId) }
                 ?: AbilityDefinitionRef.SpellAbility(ability.definitionId)
-        val grpId = cardRepository.findGrpIdByName(card.name) ?: return null
+        cardRepository.grantedKeywordAbilityGrpId(ability)?.let { return ResolvedAbilityIdentity(definition, it) }
+        // Copy effects can keep the recipient's name (and artwork). The trait's
+        // original host still identifies the rules definition being executed.
+        val definitionHost = ability.trigger?.originalHost ?: ability.originalHost ?: card
+        val definitionName = ability.trigger?.cardState?.name ?: ability.cardState?.name ?: definitionHost.name
+        val grpId =
+            cardRepository.findPresentationGrpIdByName(definitionName)
+                ?: return null
         val cardData = cardRepository.findByGrpId(grpId) ?: return null
-        val registry = abilityRegistryFor(card, cardData) ?: return null
-        if (ability.trigger != null) return registry.resolve(definition)
+        // Replacement effects are not activated/triggered slots. Their Execute
+        // chain can spawn a reflexive trigger, whose parent is the replacement
+        // row rather than a trigger on the now-copied permanent.
+        if (ability.isReplacementAbility) {
+            val replacementRow =
+                cardData.abilityIds
+                    .map { it.first }
+                    .filter { cardRepository.findAbilityInfo(it)?.category == 3 }
+                    .singleOrNull()
+            if (replacementRow != null) return ResolvedAbilityIdentity(definition, replacementRow)
+        }
+        val registry = abilityRegistryFor(definitionHost, cardData) ?: return null
+        if (ability.trigger != null) {
+            registry.resolve(definition)?.let { return it }
+            val refreshed = AbilityRegistry.build(definitionHost, cardData, cardRepository::grantedKeywordAbilityGrpId)
+            abilityRegistries[definitionHost.id] = refreshed
+            return refreshed.resolve(definition)
+                ?: ability.trigger
+                    ?.takeIf { it.isIntrinsic && it.spawningAbility == null }
+                    ?.let { refreshed.resolveSoleIntrinsicTrigger(definition as AbilityDefinitionRef.Trigger) }
+        }
         val abilityGrpId = registry.forSpellAbility(ability) ?: return null
         return registry.resolve(definition)?.takeIf { it.abilityGrpId == abilityGrpId }
             ?: ResolvedAbilityIdentity(definition, abilityGrpId)
@@ -1402,7 +1644,7 @@ class GameBridge(
         ability: SpellAbility,
     ): ResolvedAbilityIdentity? {
         val identity = resolveAbilityIdentity(card, ability)
-        val modalGrpId = selectedModalAbilityGrpIds[ForgeCardId(card.id)] ?: return identity
+        val modalGrpId = selectedModalAbilityGrpIds(ForgeCardId(card.id)).firstOrNull() ?: return identity
         val definition =
             ability.trigger?.let { AbilityDefinitionRef.Trigger(it.definitionId) }
                 ?: AbilityDefinitionRef.SpellAbility(ability.definitionId)
@@ -1413,9 +1655,16 @@ class GameBridge(
         card: Card,
         definition: AbilityDefinitionRef,
     ): ResolvedAbilityIdentity? {
-        val grpId = cardRepository.findGrpIdByName(card.name) ?: return null
+        val grpId =
+            cardRepository.findPresentationGrpIdByName(card.name)
+                ?: return null
         val cardData = cardRepository.findByGrpId(grpId) ?: return null
-        return abilityRegistryFor(card, cardData)?.resolve(definition)
+        val registry = abilityRegistryFor(card, cardData) ?: return null
+        return registry.resolve(definition)
+            ?: AbilityRegistry.build(card, cardData, cardRepository::grantedKeywordAbilityGrpId).let { refreshed ->
+                abilityRegistries[card.id] = refreshed
+                refreshed.resolve(definition)
+            }
     }
 
     /** Evict cached AbilityRegistry for a card (e.g. after DFC transform). */
@@ -1427,6 +1676,19 @@ class GameBridge(
     fun invalidateAbilityRegistries(events: List<GameEvent>) {
         events.filterIsInstance<GameEvent.CardTransformed>().forEach { evictAbilityRegistry(it.cardId.value) }
         events.filterIsInstance<GameEvent.ZoneChanged>().forEach { evictAbilityRegistry(it.cardId.value) }
+    }
+
+    /** Build identities that can execute before the next client action projection. */
+    internal fun prewarmAbilityRegistries(snapshot: GsmSnapshot) {
+        val sources =
+            listOf(ZoneIds.BATTLEFIELD, ZoneIds.P1_HAND, ZoneIds.P2_HAND)
+                .flatMap { snapshot.zones[it]?.contents.orEmpty() }
+                .toSet()
+        for (forgeCardId in sources) {
+            val bound = snapshot.boundCards[forgeCardId] ?: continue
+            val card = findCard(forgeCardId) ?: continue
+            abilityRegistryFor(card, bound.data)
+        }
     }
 
     /**
@@ -1777,6 +2039,16 @@ class GameBridge(
             human.addController(Long.MAX_VALUE - 1, human, aiControllerFactory(g, human), false)
         }
 
+        // Public reveals are delivered to the opponent's controller. Puzzles
+        // need the same audience tracking as constructed games, including when
+        // the human reveals a selected library card before moving it to hand.
+        aiPlayer.addController(
+            Long.MAX_VALUE - 1,
+            aiPlayer,
+            RevealTrackingAiController(g, aiPlayer, promptBridge(controlledSeat), seating.familiarSeat),
+            false,
+        )
+
         cutCoordinator.registerViewers(listOf(ProjectionViewer(controlledSeat, ProjectionViewerRole.Player)))
         registerPlaybackPipeline(g, controlledSeat, captureLocalActions = false)
 
@@ -1821,7 +2093,8 @@ class GameBridge(
         pendingEarthbendResolutions.clear()
         nextEarthbendResolutionVersion = 1L
         abilityRegistries.clear()
-        selectedModalAbilityGrpIds.clear()
+        selectedModalAbilityGrpIdsByCard.clear()
+        selectedModalAbilityGrpIdsByAbility.clear()
         pendingTriggerAbilityGrpIds.clear()
         pendingTriggerCleanupGrpIds.clear()
         stackAbilityIdentitiesByRuntimeId.clear()
@@ -1864,6 +2137,7 @@ class GameBridge(
         if (g != null) {
             g.phaseHandler.setMainGameLoopStartedHook(null)
             g.phaseHandler.setMainLoopStepCompletionHook(null)
+            g.phaseHandler.setDrawStepCompletionHook(null)
             g.phaseHandler.setAttackersDeclaredCompletionHook(null)
             g.phaseHandler.setBlockersDeclaredCompletionHook(null)
             g.phaseHandler.setCombatEndedCompletionHook(null)
@@ -2059,23 +2333,25 @@ class GameBridge(
     }
 
     /**
-     * Seed persistent [AnnotationType.Counter_803b] annotations for player poison
+     * Seed persistent [AnnotationType.Counter_803b] annotations for player
      * counters and permanents that start with counters (loyalty on planeswalkers,
      * +1/+1 on creatures, etc.). Forge's puzzle loader bypasses the event chain
      * when applying counters, so no counter-change event fires.
      */
     private fun seedCounterAnnotations(game: Game) {
         for ((seatNum, player) in players) {
-            val poisonCount = player.poisonCounters
-            if (poisonCount <= 0) continue
-            val ann =
-                AnnotationBuilder
-                    .playerCounter(SeatId(seatNum), CounterTypes.counterTypeId("POISON"), poisonCount)
-                    .toBuilder()
-                    .setId(nextPersistentAnnotationId())
-                    .build()
-            addPersistentAnnotation(ann)
-            log.debug("seedCounter: seat={} POISON = {}", seatNum, poisonCount)
+            for (entry in player.counters.entrySet()) {
+                val type = CounterTypes.counterTypeId(entry.element.name)
+                if (entry.count <= 0 || type == 0) continue
+                val ann =
+                    AnnotationBuilder
+                        .playerCounter(SeatId(seatNum), type, entry.count)
+                        .toBuilder()
+                        .setId(nextPersistentAnnotationId())
+                        .build()
+                addPersistentAnnotation(ann)
+                log.debug("seedCounter: seat={} {} = {}", seatNum, entry.element.name, entry.count)
+            }
         }
         for (player in game.players) {
             for (card in player.getZone(ZoneType.Battlefield).cards) {
@@ -2122,13 +2398,13 @@ class GameBridge(
         val earthbendSignatures = mutableListOf<EffectProjectionFacts.BattlefieldEarthbendSignature>()
         val battlefieldCards =
             currentGame.players.flatMap { player ->
-                player.getZone(ZoneType.Battlefield).cards
+                player.getCardsIn(ZoneType.Battlefield)
             }
         val keywordAffectorByStaticId = keywordAffectorByStaticId(battlefieldCards)
         val boostSourceByStaticId = boostSourceByStaticId(battlefieldCards)
 
         for (player in currentGame.players) {
-            for (card in player.getZone(ZoneType.Battlefield).cards) {
+            for (card in player.getCardsIn(ZoneType.Battlefield)) {
                 val forgeCardId = ForgeCardId(card.id)
                 val boostTable = card.ptBoostTable
                 if (!boostTable.isEmpty) {
@@ -2150,6 +2426,20 @@ class GameBridge(
                 if (!keywordTable.isEmpty) {
                     for (cell in keywordTable.cellSet()) {
                         for (keyword in cell.value.keywords) {
+                            val exactRow = cardRepository.grantedKeywordAbilityGrpId(keyword)
+                            val uniqueId = AbilityRegistry.grantedKeywordUniqueAbilityId(keyword)
+                            if (exactRow != null && uniqueId != null) {
+                                grantedAbilities +=
+                                    EffectProjectionFacts.GrantedAbilityEntry(
+                                        forgeCardId = forgeCardId,
+                                        timestamp = cell.rowKey,
+                                        staticId = cell.columnKey,
+                                        abilityGrpId = exactRow,
+                                        uniqueAbilityId = uniqueId,
+                                        sourceForgeCardId = ForgeCardId((keyword.static?.hostCard ?: card).id),
+                                    )
+                                continue
+                            }
                             keywords +=
                                 EffectProjectionFacts.KeywordEntry(
                                     forgeCardId = forgeCardId,
@@ -2234,33 +2524,30 @@ class GameBridge(
     private fun grantedAbilityEntries(
         card: Card,
         forgeCardId: ForgeCardId,
-    ): List<EffectProjectionFacts.GrantedAbilityEntry> {
-        val cardGrpId = cardRepository.findGrpIdByName(card.name)
-        val cardData = cardGrpId?.let(cardRepository::findByGrpId) ?: return emptyList()
-        var grantedIndex = 0
-        return buildList {
+    ): List<EffectProjectionFacts.GrantedAbilityEntry> =
+        buildList {
             for (cell in card.changedCardTraits.cellSet()) {
                 for (ability in (cell.value as? CardTraitChanges)?.getAbilities().orEmpty()) {
-                    if (!ability.isActivatedAbility || ability.isManaAbility()) continue
+                    if (!ability.isActivatedAbility) continue
                     val source = ability.grantorStatic?.hostCard ?: continue
                     val sourceGrpId = cardRepository.findGrpIdByName(source.name) ?: continue
                     val sourceData = cardRepository.findByGrpId(sourceGrpId) ?: continue
                     val registry = abilityRegistryFor(source, sourceData) ?: continue
                     val abilityGrpId = registry.forSpellAbility(ability) ?: continue
+                    val uniqueAbilityId = AbilityRegistry.grantedUniqueAbilityId(ability) ?: continue
                     add(
                         EffectProjectionFacts.GrantedAbilityEntry(
                             forgeCardId = forgeCardId,
                             timestamp = cell.rowKey,
                             staticId = cell.columnKey,
                             abilityGrpId = abilityGrpId,
-                            uniqueAbilityId = 50 + cardData.abilityIds.size + grantedIndex++,
+                            uniqueAbilityId = uniqueAbilityId,
                             sourceForgeCardId = ForgeCardId(source.id),
                         ),
                     )
                 }
             }
         }
-    }
 
     /** Resolve boost source ability metadata while the shell owns the live Forge cut. */
     private fun resolveBoostSourceAbilityGrpId(

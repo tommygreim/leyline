@@ -48,6 +48,11 @@ internal class MatchCompatibilityCostSelectionRuntime(
         gameStateId: Int,
     ): TargetingCommandReceipt? = targeting.cancel(interactionId, gameStateId)
 
+    fun undo(
+        interactionId: String,
+        gameStateId: Int,
+    ): TargetingCommandReceipt? = targeting.undo(interactionId, gameStateId)
+
     fun acknowledgeDelivery(
         interactionId: String,
         token: Long,

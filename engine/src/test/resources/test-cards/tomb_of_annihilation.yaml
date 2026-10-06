@@ -1,0 +1,28 @@
+name: "Tomb of Annihilation"
+grpId: 78770
+titleId: 543159
+abilities:
+  - id: 146089
+    textId: 543160
+    category: 2
+  - id: 146090
+    textId: 543161
+    category: 2
+  - id: 146091
+    textId: 909403
+    category: 2
+  - id: 146092
+    textId: 543163
+    category: 2
+  - id: 146093
+    textId: 543164
+    category: 2
+isToken: false
+isPrimaryCard: false
+power: ""
+toughness: ""
+colors: []
+types: [13]
+subtypes: []
+supertypes: []
+manaCost: ""

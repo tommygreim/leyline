@@ -34,6 +34,26 @@ import java.util.concurrent.atomic.AtomicReference
 
 class MatchModalChoiceRuntimeTest :
     BoardTest({
+        beforeSpec { leyline.testkit.registerUpstreamCatalogCards("Selvala's Stampede") }
+
+        val votePuzzle =
+            """
+            [metadata]
+            Name:Vote
+            Goal:Survive
+            Turns:3
+            Difficulty:Easy
+            Description:Vote
+            [state]
+            ActivePlayer=Human
+            ActivePhase=Main1
+            HumanLife=20
+            AILife=20
+            humanhand=Selvala's Stampede
+            humanlibrary=Forest;Forest;Forest
+            ailibrary=Mountain;Mountain;Mountain
+            """.trimIndent()
+
         fun source(board: Board): Card =
             board.human
                 .getZone(ZoneType.Hand)
@@ -66,6 +86,159 @@ class MatchModalChoiceRuntimeTest :
                 published = coordinator.modalChoices.current()
             }
             return checkNotNull(published)
+        }
+
+        for (selectedIndex in listOf(0, 1)) {
+            test("human vote publishes named options and returns option $selectedIndex without a cast marker") {
+                val board =
+                    startPuzzleAtMain1(
+                        votePuzzle,
+                    )
+                val coordinator = board.bridge.cutCoordinator
+                coordinator.drain(SeatId(1))
+                val card =
+                    board.human
+                        .getZone(ZoneType.Hand)
+                        .cards
+                        .single { it.name == "Selvala's Stampede" }
+                val sa = card.firstSpellAbility.also { it.activatingPlayer = board.human }
+                val choices = sa.getAdditionalAbilityList("Choices")
+                val selected = AtomicReference<Any>()
+                val finished = CountDownLatch(1)
+                Thread {
+                    try {
+                        board.bridge.promptBridge(SeatId(1)).setDiagnosticContext(board.game, Thread.currentThread())
+                        selected.set(
+                            board.bridge.humanController!!.vote(
+                                sa,
+                                "Cast your vote",
+                                choices,
+                                com.google.common.collect.ArrayListMultimap
+                                    .create(),
+                                board.human,
+                                false,
+                            ),
+                        )
+                    } finally {
+                        finished.countDown()
+                    }
+                }.start()
+                val published = awaitPublished(coordinator)
+                val batch = coordinator.drain(SeatId(1)).single()
+                val message = batch.last()
+                val modal = message.castingTimeOptionsReq.getCastingTimeOptionReq(0).modalReq
+                assertSoftly {
+                    modal.modalOptionsCount shouldBe 2
+                    modal.minSel shouldBe 1
+                    modal.maxSel shouldBe 1
+                    message.allowCancel shouldBe wotc.mtgo.gre.external.messaging.Messages.AllowCancel.No_a526
+                    message.allowUndo shouldBe false
+                    message.prompt.parametersList
+                        .single()
+                        .parameterName shouldBe "choiceKind"
+                    message.prompt.parametersList
+                        .single()
+                        .stringValue shouldBe "vote"
+                    coordinator.acceptSettled(leyline.testkit.cancelActionReq(), published.gameStateId) shouldBe false
+                    coordinator.acceptSettled(leyline.testkit.castingTimeOptionsResp(emptyList()), published.gameStateId) shouldBe false
+                    coordinator.acceptSettled(leyline.testkit.castingTimeOptionsResp(listOf(Int.MAX_VALUE)), published.gameStateId) shouldBe
+                        false
+                }
+                val accepted =
+                    coordinator
+                        .admitSettled(
+                            leyline.testkit.castingTimeOptionsResp(listOf(modal.getModalOptions(selectedIndex).grpId)),
+                            published.gameStateId,
+                        ).shouldBeInstanceOf<SettledPromptAdmission.Accepted>()
+                finished.await(3, TimeUnit.SECONDS) shouldBe true
+                (selected.get() === choices[selectedIndex]) shouldBe true
+                accepted.afterEngineResume?.invoke()
+                board.bridge.resolvePendingTriggerAbilityIdentity(1, ForgeCardId(card.id)) { 123 } shouldBe 123
+            }
+        }
+
+        test("optional human vote can abstain without selecting a mode") {
+            val board =
+                startPuzzleAtMain1(
+                    votePuzzle,
+                )
+            val coordinator = board.bridge.cutCoordinator
+            coordinator.drain(SeatId(1))
+            val card =
+                board.human
+                    .getZone(ZoneType.Hand)
+                    .cards
+                    .single { it.name == "Selvala's Stampede" }
+            val sa = card.firstSpellAbility.also { it.activatingPlayer = board.human }
+            val finished = CountDownLatch(1)
+            val selected = AtomicReference<Any>()
+            Thread {
+                try {
+                    board.bridge.promptBridge(SeatId(1)).setDiagnosticContext(board.game, Thread.currentThread())
+                    selected.set(
+                        board.bridge.humanController!!.vote(
+                            sa,
+                            "Cast your vote",
+                            sa.getAdditionalAbilityList("Choices"),
+                            com.google.common.collect.ArrayListMultimap
+                                .create(),
+                            board.human,
+                            true,
+                        ),
+                    )
+                } finally {
+                    finished.countDown()
+                }
+            }.start()
+            val published = awaitPublished(coordinator)
+            assertSoftly {
+                coordinator
+                    .drain(SeatId(1))
+                    .single()
+                    .last()
+                    .castingTimeOptionsReq
+                    .getCastingTimeOptionReq(0)
+                    .modalReq.minSel shouldBe 0
+                coordinator.acceptSettled(leyline.testkit.cancelActionReq(), published.gameStateId) shouldBe false
+                coordinator.acceptSettled(leyline.testkit.castingTimeOptionsResp(emptyList()), published.gameStateId) shouldBe true
+                finished.await(3, TimeUnit.SECONDS) shouldBe true
+                selected.get().shouldBeNull()
+            }
+        }
+
+        test("optional vote timeout abstains and retires the vote window") {
+            val board =
+                startPuzzleAtMain1(
+                    votePuzzle,
+                )
+            val coordinator = board.bridge.cutCoordinator
+            coordinator.drain(SeatId(1))
+            val card =
+                board.human
+                    .getZone(ZoneType.Hand)
+                    .cards
+                    .single { it.name == "Selvala's Stampede" }
+            val sa = card.firstSpellAbility.also { it.activatingPlayer = board.human }
+            val options = sa.getAdditionalAbilityList("Choices")
+            val vote = request(options, min = 0).copy(route = PromptRouteResolver.resolve(PromptSemantic.VoteChoice))
+            val result = AtomicReference<ModalChoiceInteractionResult>()
+            val finished = CountDownLatch(1)
+            Thread {
+                try {
+                    result.set(coordinator.modalChoices.awaitSelection(vote, options, card, sa, 25))
+                } finally {
+                    finished.countDown()
+                }
+            }.start()
+            awaitPublished(coordinator)
+            finished.await(3, TimeUnit.SECONDS) shouldBe true
+            assertSoftly {
+                result.get().timedOut shouldBe true
+                result.get().handles shouldBe emptyList()
+                result.get().optionIndices shouldBe emptyList()
+                coordinator.modalChoices.current().shouldBeNull()
+                board.bridge.resolvePendingTriggerAbilityIdentity(1, ForgeCardId(card.id)) { 123 } shouldBe 123
+            }
         }
 
         test("publishes one atomic CTO cut and retains exact Forge handle identity") {

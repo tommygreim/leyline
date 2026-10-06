@@ -379,6 +379,12 @@ sealed interface GameEvent {
         val seatId: SeatId,
     ) : GameEvent
 
+    /** A permanent's regeneration shield prevented its destruction.
+     * Wired from Forge's GameEventCardRegenerated. */
+    data class PermanentRegenerated(
+        val cardId: ForgeCardId,
+    ) : GameEvent
+
     // -- Group A+: attachment events --
 
     /** A card was attached to another permanent (aura enchanting, equipment equipping). */
@@ -417,12 +423,14 @@ sealed interface GameEvent {
         val affectorCardId: ForgeCardId? = null,
     ) : GameEvent
 
-    /** Counters added or removed on a player. Currently emitted for poison counters. */
+    /** Counters added or removed on a player, with the resolving stack source when available. */
     data class PlayerCountersChanged(
         val seatId: SeatId,
         val counterType: String,
         val oldCount: Int,
         val newCount: Int,
+        val sourceCardId: ForgeCardId? = null,
+        val sourceAbilityForgeId: Int = 0,
     ) : GameEvent
 
     /** A card's power or toughness changed (pump, anthem, equipment, SBA). */

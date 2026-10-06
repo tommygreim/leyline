@@ -127,6 +127,53 @@ class DeferredCastCostPlanMaterializerTest :
             }
         }
 
+        test("ordinary hybrid pips become explicit mana-type choices") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Deceit", human, ZoneType.Hand)
+                    repeat(4) { addCard("Island", human) }
+                    repeat(2) { addCard("Swamp", human) }
+                }
+            val candidates = PriorityActionCandidates.query(board.game, board.human)
+            val card =
+                board.human
+                    .getZone(ZoneType.Hand)
+                    .cards
+                    .single { it.name == "Deceit" }
+            val castCandidates = candidates.forCard(card).casts
+            val cardId = ForgeCardId(card.id)
+            val iid = board.bridge.getOrAllocInstanceId(cardId).value
+            val grpId = board.bridge.resolveGrpId(card, iid)
+            val offer =
+                GameActionBridge.ActionOffer(
+                    Action
+                        .newBuilder()
+                        .setActionType(ActionType.Cast)
+                        .setInstanceId(iid)
+                        .setGrpId(grpId)
+                        .build(),
+                    PlayerAction.CastSpell(cardId, 0, ability = castCandidates.first()),
+                    castCandidates = castCandidates,
+                )
+
+            val plan =
+                DeferredCastCostPlanMaterializer
+                    .materialize(offer, board.bridge.cardRepository.findByGrpId(grpId), 0) { error("no child token") }
+                    .shouldNotBeNull()
+                    .plan.hybrid
+                    .shouldNotBeNull()
+
+            assertSoftly {
+                plan.promptColors shouldBe listOf(ManaColor.Blue_afc9, ManaColor.Blue_afc9)
+                plan.promptManaTypes shouldBe listOf(ManaColor.Black_afc9, ManaColor.Black_afc9)
+                plan.promptColorOptions shouldBe
+                    listOf(
+                        listOf(ManaColor.Blue_afc9, ManaColor.Black_afc9),
+                        listOf(ManaColor.Blue_afc9, ManaColor.Black_afc9),
+                    )
+            }
+        }
+
         test("optional plan preserves the exact offered ability") {
             val board =
                 startWithBoard { _, human, _ ->

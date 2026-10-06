@@ -448,13 +448,12 @@ class MatchCutCoordinatorBlockingTest :
 
             val invalidRows =
                 listOf(
-                    listOf(DamageAssignmentRow(slots[0].instanceId, 1), DamageAssignmentRow(slots[1].instanceId, 2)),
-                    listOf(DamageAssignmentRow(slots[1].instanceId, 1), DamageAssignmentRow(slots[0].instanceId, 2)),
+                    listOf(DamageAssignmentRow(Int.MAX_VALUE, 1), DamageAssignmentRow(slots[0].instanceId, 2)),
                     listOf(DamageAssignmentRow(slots[0].instanceId, 4), DamageAssignmentRow(slots[1].instanceId, -1)),
                     listOf(DamageAssignmentRow(slots[0].instanceId, 2), DamageAssignmentRow(slots[1].instanceId, 2)),
                 )
             assertSoftly {
-                slots.map { it.minDamage } shouldBe listOf(2, 2)
+                slots.map { it.minDamage } shouldBe listOf(0, 0)
                 invalidRows.forEach { submit(it) shouldBe false }
                 board.bridge.cutCoordinator.currentBlockingInteraction() shouldBe published
                 board.bridge.cutCoordinator.submitDamageCommand(
@@ -480,15 +479,16 @@ class MatchCutCoordinatorBlockingTest :
                 listOf(
                     DamageAssignmentCommand(
                         assigner.instanceId,
-                        listOf(DamageAssignmentRow(slots[0].instanceId, 2), DamageAssignmentRow(slots[1].instanceId, 1)),
+                        // Arena can return rows in the reverse of request order.
+                        listOf(DamageAssignmentRow(slots[1].instanceId, 2), DamageAssignmentRow(slots[0].instanceId, 1)),
                         0,
                     ),
                 ),
             ) shouldBe true
             engine.join(3_000)
 
-            result.get()?.get(blockers[0]) shouldBe 2
-            result.get()?.get(blockers[1]) shouldBe 1
+            result.get()?.get(blockers[0]) shouldBe 1
+            result.get()?.get(blockers[1]) shouldBe 2
         }
 
         test("damage response must respect a published positive maximum") {

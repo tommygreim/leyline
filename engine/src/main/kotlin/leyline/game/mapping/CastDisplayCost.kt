@@ -48,13 +48,33 @@ internal object CastDisplayCost {
         abilityGrpId: Int? = null,
     ): List<ManaRequirement> {
         if (sa != null) {
-            of(sa, player)?.let { return ActionManaCosts.forgeManaCostToRequirements(it, abilityGrpId) }
+            val specs = ActionManaCosts.manaCostSpecs(sa.payCosts)
+            of(sa, player)?.let {
+                return inPrintedColorOrder(ActionManaCosts.forgeManaCostToRequirements(it, abilityGrpId, specs), printed)
+            }
             val saCost = sa.payCosts?.totalMana
             if (saCost != null && !saCost.isNoCost) {
-                return ActionManaCosts.forgeManaCostToRequirements(saCost, abilityGrpId)
+                return inPrintedColorOrder(ActionManaCosts.forgeManaCostToRequirements(saCost, abilityGrpId, specs), printed)
             }
         }
         return printedRequirements(printed, abilityGrpId)
+    }
+
+    private fun inPrintedColorOrder(
+        requirements: List<ManaRequirement>,
+        printed: CardData?,
+    ): List<ManaRequirement> {
+        val colors = printed?.manaCost?.map { it.first } ?: return requirements
+        if (requirements.any { it.colorCount != 1 }) return requirements
+        return requirements.sortedWith(
+            compareBy<ManaRequirement> {
+                if (it.colorList.single() == ManaColor.Generic) {
+                    -1
+                } else {
+                    colors.indexOf(it.colorList.single()).takeIf { index -> index >= 0 } ?: Int.MAX_VALUE
+                }
+            }.thenBy { it.colorList.single().number },
+        )
     }
 
     private fun printedRequirements(

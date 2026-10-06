@@ -1,0 +1,16 @@
+name: "Deceit"
+grpId: 98534
+titleId: 1079223
+abilities:
+  - id: 194049
+    textId: 1079224
+    category: 2
+  - id: 194050
+    textId: 1079226
+    category: 2
+  - id: 194051
+    baseId: 75
+    mana: "o(u/b)o(u/b)"
+    textId: 1079228
+    category: 8
+expansionCode: "ECL"

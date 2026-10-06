@@ -20,6 +20,7 @@ import leyline.testkit.MatchFlowHarness
 import leyline.testkit.ScriptedAction
 import leyline.testkit.SessionTest
 import leyline.testkit.beInGraveyardOf
+import wotc.mtgo.gre.external.messaging.Messages.BlockState
 import wotc.mtgo.gre.external.messaging.Messages.GREMessageType
 import wotc.mtgo.gre.external.messaging.Messages.GREToClientMessage
 
@@ -181,6 +182,19 @@ class BlockerDeclarationInteractionTest :
                 "Raging Goblin" should beInGraveyardOf(human, count = 1)
                 "Raging Goblin" should beInGraveyardOf(ai, count = 1)
 
+                val objects = allMessages.filter { it.hasGameStateMessage() }.flatMap { it.gameStateMessage.gameObjectsList }
+                objects
+                    .any {
+                        it.instanceId == blockerIid &&
+                            it.blockState == BlockState.Blocking &&
+                            it.blockInfo.attackerIdsList == listOf(attackerIid)
+                    }.shouldBeTrue()
+                objects
+                    .any {
+                        it.instanceId == attackerIid &&
+                            it.attackInfo.orderedBlockersList.map { blocker -> blocker.instanceId } == listOf(blockerIid)
+                    }.shouldBeTrue()
+
                 isGameOver().shouldBeFalse()
             }
         }
@@ -252,7 +266,18 @@ class BlockerDeclarationInteractionTest :
 
             val echo1 = toggleBlockers(mapOf(b1 to attackerIid))
             val req1 = echo1.last { it.hasDeclareBlockersReq() }.declareBlockersReq
+            val objects1 =
+                echo1
+                    .first { it.hasGameStateMessage() }
+                    .gameStateMessage.gameObjectsList
+                    .associateBy { it.instanceId }
             assertSoftly {
+                objects1.getValue(b1).blockState shouldBe BlockState.Declared_aa2d
+                objects1.getValue(b1).blockInfo.attackerIdsList shouldBe listOf(attackerIid)
+                objects1
+                    .getValue(attackerIid)
+                    .attackInfo.orderedBlockersList
+                    .map { it.instanceId } shouldBe listOf(b1)
                 req1.blockersList
                     .first { it.blockerInstanceId == b1 }
                     .selectedAttackerInstanceIdsCount shouldBe 1
@@ -263,7 +288,19 @@ class BlockerDeclarationInteractionTest :
 
             val echo2 = toggleBlockers(mapOf(b2 to attackerIid))
             val req2 = echo2.last { it.hasDeclareBlockersReq() }.declareBlockersReq
+            val objects2 =
+                echo2
+                    .first { it.hasGameStateMessage() }
+                    .gameStateMessage.gameObjectsList
+                    .associateBy { it.instanceId }
             assertSoftly {
+                objects2.getValue(b1).blockInfo.attackerIdsList shouldBe listOf(attackerIid)
+                objects2.getValue(b2).blockInfo.attackerIdsList shouldBe listOf(attackerIid)
+                objects2
+                    .getValue(attackerIid)
+                    .attackInfo.orderedBlockersList
+                    .map { it.instanceId }
+                    .toSet() shouldBe setOf(b1, b2)
                 req2.blockersList
                     .first { it.blockerInstanceId == b1 }
                     .selectedAttackerInstanceIdsCount shouldBe 1
@@ -285,8 +322,20 @@ class BlockerDeclarationInteractionTest :
 
             val echo = deselectBlocker(b1)
             val req = echo.last { it.hasDeclareBlockersReq() }.declareBlockersReq
+            val objects =
+                echo
+                    .first { it.hasGameStateMessage() }
+                    .gameStateMessage.gameObjectsList
+                    .associateBy { it.instanceId }
 
             assertSoftly {
+                objects.getValue(b1).blockState shouldBe BlockState.None_aa2d
+                objects.getValue(b1).hasBlockInfo().shouldBeFalse()
+                objects.getValue(b2).blockInfo.attackerIdsList shouldBe listOf(attackerIid)
+                objects
+                    .getValue(attackerIid)
+                    .attackInfo.orderedBlockersList
+                    .map { it.instanceId } shouldBe listOf(b2)
                 req.blockersList
                     .first { it.blockerInstanceId == b1 }
                     .selectedAttackerInstanceIdsCount shouldBe 0

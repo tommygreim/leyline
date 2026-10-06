@@ -68,6 +68,7 @@ class CardProtoBuilder(
     fun buildObjectInfo(
         grpId: Int,
         extrinsicKeywordGrpIds: List<Int> = emptyList(),
+        abilityGrpIdsOverride: List<Int>? = null,
     ): GameObjectInfo.Builder {
         val builder =
             GameObjectInfo
@@ -83,7 +84,7 @@ class CardProtoBuilder(
         if (card.power.isNotEmpty()) builder.setPower(Int32Value.newBuilder().setValue(card.power.toIntOrNull() ?: 0))
         if (card.toughness.isNotEmpty()) builder.setToughness(Int32Value.newBuilder().setValue(card.toughness.toIntOrNull() ?: 0))
         var abilitySeqId = 50
-        staticAbilityGrpIds(grpId).forEach { abilityGrpId ->
+        (abilityGrpIdsOverride ?: staticAbilityGrpIds(grpId)).forEach { abilityGrpId ->
             builder.addUniqueAbilities(UniqueAbilityInfo.newBuilder().setId(abilitySeqId++).setGrpId(abilityGrpId))
         }
         for (kwGrpId in extrinsicKeywordGrpIds) {

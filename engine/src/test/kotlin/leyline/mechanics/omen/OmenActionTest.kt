@@ -1,5 +1,8 @@
 package leyline.mechanics.omen
 
+import forge.game.ability.AbilityFactory
+import forge.game.ability.effects.EffectEffect
+import forge.game.phase.PhaseType
 import forge.game.zone.ZoneType
 import io.kotest.assertions.assertSoftly
 import io.kotest.matchers.collections.shouldBeEmpty
@@ -12,6 +15,7 @@ import leyline.testkit.BoardTest
 import leyline.testkit.humanPlayer
 import wotc.mtgo.gre.external.messaging.Messages.Action
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
+import wotc.mtgo.gre.external.messaging.Messages.ManaColor
 
 /**
  * Omen face-cast action — `CastOmen` (action type 24).
@@ -62,6 +66,9 @@ class OmenActionTest :
                 omen.alternativeGrpId shouldBe 0
                 omen.manaCostCount shouldNotBe 0
                 projection.offers.single { it.action == omen }.spellGrpId shouldBe 95537
+                val transition = omenOffers(ActionMapper.buildNaiveActionsFromSnapshot(1, snap, b).actionsList, iid).single()
+                transition.manaCostList.map { it.colorList to it.count } shouldBe
+                    listOf(listOf(ManaColor.Generic) to 1, listOf(ManaColor.White_afc9) to 1)
             }
         }
 
@@ -90,6 +97,50 @@ class OmenActionTest :
                 activeMain shouldBe null
                 inactiveMain shouldNotBe null
             }
+        }
+
+        test("MayPlay-granted face-down exiled Omen retains both spell faces") {
+            val (bridge, game, _) =
+                startWithBoard { game, human, _ ->
+                    val source = addCard("Tablet of Discovery", human, ZoneType.Battlefield)
+                    val exiled = addCard("Riling Dawnbreaker", human, ZoneType.Exile)
+                    repeat(2) { addCard("Plains", human, ZoneType.Battlefield) }
+                    source.addRemembered(exiled)
+                    source.setSVar(
+                        "TemporaryMayPlay",
+                        "Mode\$ Continuous | MayPlay\$ True | EffectZone\$ Command | " +
+                            "Affected\$ Card.IsRemembered | AffectedZone\$ Exile",
+                    )
+                    AbilityFactory
+                        .getAbility(
+                            "DB\$ Effect | RememberObjects\$ RememberedCard | " +
+                                "StaticAbilities\$ TemporaryMayPlay | Duration\$ UntilTheEndOfYourNextTurn",
+                            source,
+                        ).also { it.activatingPlayer = human }
+                        .let { EffectEffect().resolve(it) }
+                    source.clearRemembered()
+                    game.phaseHandler.devModeSet(PhaseType.MAIN1, human)
+                    game.action.checkStaticAbilities(false)
+                }
+            val exiled = game.humanPlayer.exile.card("Riling Dawnbreaker")
+            exiled.turnFaceDown(true)
+            game.action.checkStaticAbilities(false)
+            val iid = bridge.instanceId(exiled)
+            val projection = ActionMapper.buildProjectionFromSnapshot(1, SnapshotCapture.run(game, bridge, "exiled-omen", 0), bridge)
+
+            projection.actions.actionsList.any { it.instanceId == iid && it.actionType == ActionType.CastOmen } shouldBe true
+            projection.actions.inactiveActionsList.any { it.instanceId == iid && it.actionType == ActionType.Cast } shouldBe true
+            val omen = projection.actions.actionsList.single { it.instanceId == iid && it.actionType == ActionType.CastOmen }
+            projection.offers.single { it.action == omen }.spellGrpId shouldBe 95537
+            omen.manaCostList.map { it.colorList.single() to it.count } shouldBe
+                listOf(ManaColor.Generic to 1, ManaColor.White_afc9 to 1)
+            omen.autoTapSolution.autoTapActionsCount shouldBe 2
+            val presentation = ActionMapper.buildNaiveActionsFromSnapshot(1, SnapshotCapture.run(game, bridge, "exiled-omen", 1), bridge)
+            presentation.actionsList
+                .single { it.instanceId == iid && it.actionType == ActionType.CastOmen }
+                .manaCostList
+                .map { it.colorList.single() to it.count } shouldBe
+                listOf(ManaColor.Generic to 1, ManaColor.White_afc9 to 1)
         }
 
         test("Omen card in graveyard → no CastOmen offer") {

@@ -3,6 +3,7 @@ package leyline.game.bundle
 import leyline.bridge.types.SeatId
 import leyline.game.annotations.AnnotationBuilder
 import leyline.game.mapping.ActionMapper
+import leyline.game.mapping.LinkedFaceCompanionProjector
 import leyline.game.mapping.PlayerMapper
 import leyline.game.mapping.PromptIds
 import leyline.game.mapping.ZoneIds
@@ -151,6 +152,14 @@ object GsmBuilder {
                 viewingSeatId = seatId,
             )
         }
+        gameObjects.addAll(
+            LinkedFaceCompanionProjector.visibleCompanions(
+                snap,
+                gameObjects,
+                bridge::getOrAllocInstanceId,
+                bridge.stateProjectionEnvironment.cardProto,
+            ),
+        )
 
         // Players — both have pendingMessageType: MulliganResp during mulligan
         val player1 =
@@ -363,7 +372,8 @@ object GsmBuilder {
             }
 
         val zones = mutableListOf<ZoneInfo>()
-        // Shared zones (9)
+        // Wire-declared shared zones. The client pre-creates PhasedOut zone 12;
+        // sending it here makes ParseFullGameStateMessage add the same key twice.
         zones.add(ZoneMapper.makeZone(ZoneIds.REVEALED_P1, ZoneType.Revealed, 1, Visibility.Public))
         zones.add(ZoneMapper.makeZone(ZoneIds.REVEALED_P2, ZoneType.Revealed, 2, Visibility.Public))
         zones.add(ZoneMapper.makeZone(ZoneIds.SUPPRESSED, ZoneType.Suppressed, 0, Visibility.Public))
@@ -496,7 +506,7 @@ object GsmBuilder {
         // actionSeatId = recipient seat (human), not necessarily the active player.
         if (actions != null) {
             val embedSeat = if (actionSeatId != 0) actionSeatId else frame.activeSeat
-            for (action in actions.actionsList) {
+            for (action in ActionMapper.actionsForGsm(actions)) {
                 builder.addActions(
                     ActionInfo
                         .newBuilder()
@@ -536,7 +546,14 @@ object GsmBuilder {
                 .toBuilder()
                 .setPendingMessageCount(1)
         val seatForActions = if (recipientSeatId != 0) recipientSeatId else frame.prioritySeat
-        for (action in actions.actionsList) {
+        val displayActions = ActionMapper.actionsForGsm(actions)
+        val replacementKeys = displayActions.map { it.instanceId to it.actionType }.toSet()
+        builder.clearActions().addAllActions(
+            gsm.actionsList.filterNot {
+                it.seatId == seatForActions && (it.action.instanceId to it.action.actionType) in replacementKeys
+            },
+        )
+        for (action in displayActions) {
             builder.addActions(
                 ActionInfo
                     .newBuilder()

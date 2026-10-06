@@ -34,6 +34,20 @@ class PrioritySynchronizationFlowTest :
             ailibrary=Mountain;Mountain;Mountain
             """.trimIndent()
 
+        val ownStackResponsePuzzle =
+            """
+            ActivePlayer=Human
+            ActivePhase=Main1
+            HumanLife=20
+            AILife=20
+
+            humanbattlefield=Forest;Forest;Mountain
+            humanhand=Runeclaw Bear;Shock
+            humanlibrary=Forest;Forest;Forest
+            aibattlefield=Mountain
+            ailibrary=Mountain;Mountain;Mountain
+            """.trimIndent()
+
         session("normal casting advances to the next executable decision without a pass", puzzle = puzzle, turns = 3) {
             assertSoftly {
                 val before = messageSnapshot()
@@ -91,6 +105,25 @@ class PrioritySynchronizationFlowTest :
                 bridge.throwIfGameLoopFailed()
             }
         }
+
+        session(
+            "normal priority resolves an own spell despite another legal response",
+            puzzle = ownStackResponsePuzzle,
+            turns = 3,
+        ) {
+            assertSoftly {
+                castSpellByName("Runeclaw Bear").shouldBeTrue()
+
+                // Shock is still castable, but Arena's normal ResolveMyStackEffects
+                // mode must not make the player manually pass their own Bear.
+                game().stack.isEmpty.shouldBeTrue()
+                human.getZone(ZoneType.Battlefield).cards.map { it.name } shouldContain "Runeclaw Bear"
+                human.getZone(ZoneType.Hand).cards.map { it.name } shouldContain "Shock"
+                bridge.priorityPolicy.isFullControl().shouldBeFalse()
+                bridge.throwIfGameLoopFailed()
+            }
+        }
+
         session("settings full control holds own spell and clearing resumes automatic resolution", puzzle = puzzle, turns = 3) {
             assertSoftly {
                 updateSettings(settingsMessage { autoPassOption = AutoPassOption.FullControl })

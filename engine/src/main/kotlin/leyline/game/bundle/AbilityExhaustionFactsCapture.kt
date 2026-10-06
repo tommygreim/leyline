@@ -21,7 +21,12 @@ object AbilityExhaustionFactsCapture {
             val card = bridge.findCard(bound.forgeCardId) ?: continue
             val player = card.controller ?: continue
             val exhausted = exhaustedAbilities(card, player)
-            if (exhausted.isEmpty()) continue
+            val restrictedModals =
+                card.triggers.orEmpty().mapNotNull { trigger ->
+                    val modal = trigger.overridingAbility?.takeIf { it.getParam("ChoiceRestriction") == "ThisTurn" }
+                    if (modal == null) null else trigger to modal
+                }
+            if (exhausted.isEmpty() && restrictedModals.isEmpty()) continue
             val registry = bridge.abilityRegistryFor(card, bound.data) ?: continue
             for (ability in exhausted) {
                 val abilityGrpId = registry.forSpellAbility(ability.definitionId)?.takeIf { it != 0 } ?: continue
@@ -31,6 +36,29 @@ object AbilityExhaustionFactsCapture {
                         abilityGrpId = abilityGrpId,
                         usesRemaining = remainingUses(card, ability, player),
                         uniqueAbilityId = uniqueAbilityIdFor(bound.data, abilityGrpId, ability),
+                    )
+            }
+            if (restrictedModals.isEmpty()) continue
+            val modalInfo = bound.data?.let { bridge.cardRepository.lookupModalOptions(it.grpId) } ?: continue
+            for ((trigger, modal) in restrictedModals) {
+                val chosen = card.getChosenModes(modal, "ThisTurn").orEmpty()
+                if (chosen.isEmpty()) continue
+                val choices = modal.getAdditionalAbilityList("Choices").orEmpty()
+                val exhaustedChildren =
+                    choices
+                        .mapIndexedNotNull { index, mode ->
+                            if (mode.description in chosen) modalInfo.childGrpIds.getOrNull(index) else null
+                        }.distinct()
+                if (exhaustedChildren.isEmpty()) continue
+                val parentGrpId = registry.forTrigger(trigger.definitionId)?.takeIf { it != 0 } ?: modalInfo.parentGrpId
+                if (parentGrpId != modalInfo.parentGrpId) continue
+                rows +=
+                    AbilityExhaustionFacts.Row(
+                        sourceForgeCardId = bound.forgeCardId,
+                        abilityGrpId = parentGrpId,
+                        usesRemaining = 0,
+                        uniqueAbilityId = uniqueAbilityIdFor(bound.data, parentGrpId, modal),
+                        exhaustedGrpIds = listOf(parentGrpId) + exhaustedChildren,
                     )
             }
         }

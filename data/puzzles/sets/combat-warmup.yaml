@@ -1,6 +1,27 @@
 name: combat-warmup
 description: Small arena-driven combat smoke suite focused on blocking and combat cleanup.
 scenarios:
+  - id: forced-attack-single-required-block
+    puzzle: block1-block-warnings
+    run: cast Kardur and block only the attacker that must be blocked
+    expect: other eligible creatures need not block; normal combat resolves
+    steps:
+      - cast: "Kardur, Doomscourge"
+      - resolve_stack: {}
+      - pass_until:
+          prompt: DeclareBlockersReq
+          max_passes: 30
+      - block: { blocker: "Kardur, Doomscourge", attacker: "Gaea's Protector" }
+      - pass_until:
+          zone_not_contains: { side: ours, zone: battlefield, card: "Kardur, Doomscourge" }
+          max_passes: 12
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: graveyard, card: "Kardur, Doomscourge" }
+            - zone_contains: { side: opponent, zone: graveyard, card: "Gaea's Protector" }
+            - zone_contains: { side: ours, zone: battlefield, card: Mogg Flunkies }
+            - stack_empty: true
   - id: block-trade
     puzzle: mechanic-block-trade
     run: block Juggernaut with Centaur Courser

@@ -1,5 +1,6 @@
 package leyline.game.mapping
 
+import forge.game.phase.PhaseType
 import io.kotest.assertions.assertSoftly
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
@@ -8,15 +9,26 @@ import io.kotest.matchers.maps.shouldContainKey
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import leyline.UnitTag
+import leyline.bridge.bootstrap.GameBootstrap
 import leyline.bridge.types.ForgeCardId
+import leyline.bridge.types.GrpId
 import leyline.bridge.types.InstanceId
 import leyline.bridge.types.SeatId
 import leyline.game.InMemoryCardRepository
+import leyline.game.annotations.AnnotationBuilder
+import leyline.game.annotations.AnnotationFrameFinalizer
+import leyline.game.annotations.TransferCategory
+import leyline.game.bundle.GsmFrame
+import leyline.game.codes.DetailKeys
 import leyline.game.data.CardProtoBuilder
 import leyline.game.event.FrameEventLog
 import leyline.game.event.GameEvent
+import leyline.game.event.Zone
+import leyline.game.event.ZoneMove
 import leyline.game.snapshot.CardSnapshot
+import leyline.game.snapshot.DungeonStateSnapshot
 import leyline.game.snapshot.GsmSnapshot
+import leyline.game.snapshot.PhaseSnapshot
 import leyline.game.snapshot.SeatSnapshot
 import leyline.game.snapshot.StackEntry
 import leyline.game.snapshot.StackSnapshot
@@ -30,6 +42,8 @@ import leyline.game.state.ProjectionState
 import leyline.game.state.ProjectionViewerRole
 import leyline.game.state.PromptProjectionFacts
 import leyline.game.state.ViewerProjectionCursor
+import leyline.testkit.ClientAccumulator
+import leyline.testkit.greMessage
 import wotc.mtgo.gre.external.messaging.Messages.Action
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.ActionsAvailableReq
@@ -41,7 +55,360 @@ import wotc.mtgo.gre.external.messaging.Messages.ZoneType
 
 class StateProjectionCompilerTest :
     FunSpec({
+        test("a resolving spell choice keeps one start and completes only on its resolution event after self exile") {
+            val source = ForgeCardId(10)
+            val priorEditor = ProjectionState.initial().editor()
+            val iid = priorEditor.identities.getOrAlloc(source)
+            priorEditor.viewerCursors[SeatId(1)] = ViewerProjectionCursor(resolvingInstanceId = iid.value)
+            val prior = priorEditor.freeze()
+            val previous =
+                GsmSnapshot.forTest(
+                    objects = mapOf(source to CardSnapshot(source, "Source", 771, SeatId(1), SeatId(1))),
+                    zones = mapOf(ZoneIds.STACK to ZoneSnapshot(ZoneIds.STACK, ZoneType.Stack, null, Visibility.Public, listOf(source))),
+                )
+            val current =
+                GsmSnapshot.forTest(
+                    objects = mapOf(source to CardSnapshot(source, "Source", 771, SeatId(1), SeatId(1))),
+                    zones = mapOf(ZoneIds.EXILE to ZoneSnapshot(ZoneIds.EXILE, ZoneType.Exile, null, Visibility.Public, listOf(source))),
+                )
+            val repeatedStart = AnnotationBuilder.resolutionStart(iid, GrpId(771))
+            val prematureComplete = AnnotationBuilder.resolutionComplete(iid, GrpId(771))
+            val exileTransfer =
+                AnnotationBuilder.zoneTransfer(iid, ZoneIds.STACK, ZoneIds.EXILE, TransferCategory.Exile.label)
+            val choice =
+                StateProjectionCompiler.reconcileResolutionLifecycle(
+                    compilerInput(current, previous),
+                    prior,
+                    1,
+                    listOf(repeatedStart, prematureComplete),
+                )
+            val unrelated =
+                StateProjectionCompiler.reconcileResolutionLifecycle(
+                    compilerInput(current, previous, FrameEventLog(listOf(GameEvent.SpellResolved(ForgeCardId(11), false)))),
+                    prior,
+                    1,
+                    listOf(repeatedStart, prematureComplete),
+                )
+            val completed =
+                StateProjectionCompiler.reconcileResolutionLifecycle(
+                    compilerInput(current, previous, FrameEventLog(listOf(GameEvent.SpellResolved(source, hasFizzled = false)))),
+                    prior,
+                    1,
+                    listOf(repeatedStart, exileTransfer),
+                )
+
+            choice shouldBe emptyList()
+            unrelated shouldBe emptyList()
+            completed.map { it.typeList.single() } shouldBe
+                listOf(AnnotationType.ZoneTransfer_af5a, AnnotationType.ResolutionComplete)
+            AnnotationFrameFinalizer.finalize(completed, 1).annotations.map { it.typeList.single() } shouldBe
+                listOf(AnnotationType.ZoneTransfer_af5a, AnnotationType.ResolutionComplete)
+            completed.last().affectorId shouldBe iid.value
+            completed
+                .last()
+                .detailsList
+                .single { it.key == DetailKeys.GRPID }
+                .valueInt32List shouldBe listOf(771)
+        }
+
+        test("a resolving stack ability closes only for its own Forge ability id") {
+            val source = ForgeCardId(10)
+            val activeAbilityId = 77
+            val priorEditor = ProjectionState.initial().editor()
+            val iid = priorEditor.identities.getOrAlloc(FrameIdResolver.triggerStackAbilityForgeId(activeAbilityId))
+            priorEditor.viewerCursors[SeatId(1)] = ViewerProjectionCursor(resolvingInstanceId = iid.value)
+            val prior = priorEditor.freeze()
+            val active = stackAbility(source, activeAbilityId)
+            val previous = stackAbilitySnapshot(1, source, listOf(active))
+            val current = stackAbilitySnapshot(2, source, emptyList())
+            val sibling = GameEvent.SpellResolved(source, false, isAbility = true, abilityForgeId = 78, abilityGrpId = 9002)
+            val own = GameEvent.SpellResolved(source, false, isAbility = true, abilityForgeId = activeAbilityId, abilityGrpId = 9002)
+
+            StateProjectionCompiler.reconcileResolutionLifecycle(
+                compilerInput(current, previous, FrameEventLog(listOf(sibling))),
+                prior,
+                1,
+                emptyList(),
+            ) shouldBe emptyList()
+            val completed =
+                StateProjectionCompiler.reconcileResolutionLifecycle(
+                    compilerInput(current, previous, FrameEventLog(listOf(sibling, own))),
+                    prior,
+                    1,
+                    emptyList(),
+                )
+            completed.map { it.typeList.single() } shouldBe listOf(AnnotationType.ResolutionComplete)
+            completed.single().affectorId shouldBe iid.value
+        }
+
+        test("a publicly chosen card name produces one portrait event, not repeated refresh events") {
+            val fid = ForgeCardId(501)
+            val card =
+                CardSnapshot(
+                    fid,
+                    "Naming permanent",
+                    901,
+                    SeatId(2),
+                    SeatId(2),
+                    isOnBattlefield = true,
+                    chosenCardNameTitleIds = listOf(1234),
+                )
+            val before = GsmSnapshot.forTest(matchId = "compiler", gameStateId = 1)
+            val after =
+                GsmSnapshot.forTest(
+                    matchId = "compiler",
+                    gameStateId = 2,
+                    objects = mapOf(fid to card),
+                    zones =
+                        mapOf(
+                            ZoneIds.BATTLEFIELD to
+                                ZoneSnapshot(ZoneIds.BATTLEFIELD, ZoneType.Battlefield, null, Visibility.Public, listOf(fid)),
+                        ),
+                )
+            val emitted =
+                StateProjectionCompiler.compileOneViewer(
+                    compilerEnvironment(),
+                    compilerInput(after, before),
+                    ProjectionState.initial(),
+                )
+            val names = emitted.gsm.annotationsList.filter { ann -> ann.detailsList.any { it.key == "Choice_Value" } }
+            names.size shouldBe 1
+            names.single().affectedIdsList shouldBe listOf(2)
+            names
+                .single()
+                .detailsList
+                .single { it.key == "Choice_Value" }
+                .valueInt32List shouldBe listOf(1234)
+            val refreshed =
+                StateProjectionCompiler.compileOneViewer(
+                    compilerEnvironment(),
+                    compilerInput(after, after),
+                    emitted.transition.nextState,
+                )
+            refreshed.gsm.annotationsList.any { ann -> ann.detailsList.any { it.key == "Choice_Value" } } shouldBe false
+        }
         tags(UnitTag)
+        beforeSpec { GameBootstrap.initializeCardDatabase(quiet = true) }
+
+        test("both players retain dungeon state through updates without another venture") {
+            val dungeons =
+                mapOf(
+                    SeatId(1) to DungeonStateSnapshot(78768, 420, 146074),
+                    SeatId(2) to DungeonStateSnapshot(78770, 421, 146089),
+                )
+            val environment = compilerEnvironment()
+            val client = ClientAccumulator()
+            var projection = ProjectionState.initial()
+            var previous: GsmSnapshot? = null
+            var initialIds = emptyList<Int>()
+            listOf(PhaseType.MAIN1, PhaseType.COMBAT_BEGIN, PhaseType.MAIN2, PhaseType.END_OF_TURN).forEachIndexed { index, phase ->
+                val snapshot =
+                    GsmSnapshot.forTest(
+                        gameStateId = index + 1,
+                        phase = phaseSnapshot(phase),
+                        dungeonStates = dungeons,
+                    )
+                val result = StateProjectionCompiler.compileOneViewer(environment, compilerInput(snapshot, previous), projection)
+                client.process(greMessage(msgId = index + 1, gsm = result.gsm))
+                val status = client.persistentAnnotations.values.filter { AnnotationType.DungeonStatus in it.typeList }
+                assertSoftly {
+                    status.map { it.affectorId } shouldBe listOf(1, 2)
+                    status.map {
+                        it.detailsList
+                            .single { it.key == DetailKeys.CURRENT_DUNGEON }
+                            .valueInt32List
+                            .single()
+                    } shouldBe
+                        listOf(78768, 78770)
+                    status.map {
+                        it.detailsList
+                            .single { it.key == DetailKeys.CURRENT_ROOM }
+                            .valueInt32List
+                            .single()
+                    } shouldBe
+                        listOf(146074, 146089)
+                    result.gsm.annotationsList.any { AnnotationType.DungeonStatus in it.typeList } shouldBe false
+                }
+                if (index == 0) initialIds = status.map { it.id } else status.map { it.id } shouldBe initialIds
+                previous = snapshot
+                projection = result.transition.nextState
+            }
+        }
+
+        test("persistent dungeon state records completion and a fresh entry without stale rooms") {
+            val environment = compilerEnvironment()
+            val client = ClientAccumulator()
+            var projection = ProjectionState.initial()
+            var previous: GsmSnapshot? = null
+            val states =
+                listOf(
+                    DungeonStateSnapshot(78769, 420, 146086),
+                    DungeonStateSnapshot(completedDungeonGrpIds = listOf(78769)),
+                    DungeonStateSnapshot(completedDungeonGrpIds = listOf(78769)),
+                    DungeonStateSnapshot(78768, 422, 146073, listOf(78769)),
+                )
+            states.forEachIndexed { index, state ->
+                val snapshot = GsmSnapshot.forTest(gameStateId = index + 1, dungeonStates = mapOf(SeatId(1) to state))
+                val result = StateProjectionCompiler.compileOneViewer(environment, compilerInput(snapshot, previous), projection)
+                client.process(greMessage(msgId = index + 1, gsm = result.gsm))
+                val status = client.persistentAnnotations.values.single { AnnotationType.DungeonStatus in it.typeList }
+                assertSoftly {
+                    status.affectorId shouldBe 1
+                    status.detailsList.single { it.key == DetailKeys.CURRENT_DUNGEON }.valueInt32List shouldBe
+                        listOf(state.currentDungeonGrpId)
+                    status.detailsList.single { it.key == DetailKeys.CURRENT_DUNGEON_ZCID }.valueInt32List shouldBe
+                        listOf(state.currentDungeonInstanceId)
+                    status.detailsList.single { it.key == DetailKeys.CURRENT_ROOM }.valueInt32List shouldBe
+                        listOf(state.currentRoomGrpId)
+                    status.detailsList
+                        .firstOrNull { it.key == DetailKeys.ALL_DUNGEONS_COMPLETED }
+                        ?.valueInt32List
+                        .orEmpty() shouldBe
+                        state.completedDungeonGrpIds
+                    result.transition.nextState.persistentAnnotations.activeAnnotations.values
+                        .count { AnnotationType.DungeonStatus in it.typeList } shouldBe 1
+                }
+                previous = snapshot
+                projection = result.transition.nextState
+            }
+        }
+
+        test("unchanged player totals still clear published mulligan state before draws") {
+            val previous = drawSnapshot(1, ForgeCardId(10), inLibrary = true)
+            val current = drawSnapshot(2, ForgeCardId(10), inLibrary = false)
+            val published =
+                wotc.mtgo.gre.external.messaging.Messages.GameStateMessage
+                    .newBuilder()
+                    .addPlayers(
+                        PlayerMapper
+                            .buildFromSnapshot(previous, 1)
+                            .toBuilder()
+                            .setPendingMessageType(wotc.mtgo.gre.external.messaging.Messages.ClientMessageType.MulliganResp_097b),
+                    ).addPlayers(PlayerMapper.buildFromSnapshot(previous, 2))
+                    .build()
+            val baseline =
+                StateProjectionCompiler
+                    .compileOneViewer(
+                        compilerEnvironment(),
+                        compilerInput(previous),
+                        ProjectionState.initial(),
+                    ).transition.nextState
+            val prior =
+                baseline.copy(
+                    viewerCursors =
+                        mapOf(
+                            SeatId(1) to ViewerProjectionCursor(previousSnapshot = previous, fullState = published),
+                        ),
+                )
+            val result = StateProjectionCompiler.compileOneViewer(compilerEnvironment(), compilerInput(current, previous), prior)
+            result.gsm.playersCount shouldBe 2
+            result.gsm.playersList
+                .first()
+                .pendingMessageType.number shouldBe 0
+        }
+
+        test("public zone permission rows survive a prompt and disappear when permission expires") {
+            val previous = GsmSnapshot.forTest(matchId = "compiler", gameStateId = 1)
+            val current =
+                GsmSnapshot.forTest(
+                    matchId = "compiler",
+                    gameStateId = 2,
+                    objects =
+                        (1..2).associate { seat ->
+                            ForgeCardId(seat) to CardSnapshot(ForgeCardId(seat), "Permitted Card", 9000 + seat, SeatId(seat), SeatId(seat))
+                        },
+                )
+            val editor = ProjectionState.initial().editor()
+            val display =
+                (1..2).map { seat ->
+                    wotc.mtgo.gre.external.messaging.Messages.ActionInfo
+                        .newBuilder()
+                        .setSeatId(seat)
+                        .setAction(
+                            Action
+                                .newBuilder()
+                                .setActionType(ActionType.Cast)
+                                .setInstanceId(editor.identities.getOrAlloc(ForgeCardId(seat)).value),
+                        ).build()
+                }
+            val input = compilerInput(current, previous).copy(zoneCastActions = display)
+            val result = StateProjectionCompiler.compileOneViewer(compilerEnvironment(), input, editor.freeze())
+            result.gsm.actionsList shouldBe display
+            result.gsm.pendingMessageCount shouldBe 0
+            val next =
+                StateProjectionCompiler.compileOneViewer(
+                    compilerEnvironment(),
+                    input.copy(zoneCastActions = emptyList()),
+                    result.transition.nextState,
+                )
+            next.gsm.actionsCount shouldBe 0
+        }
+
+        test("face-down exile suppresses identity for both players including the owner") {
+            val fid = ForgeCardId(71)
+            val snapshot =
+                GsmSnapshot.forTest(
+                    objects =
+                        mapOf(
+                            fid to
+                                CardSnapshot(fid, "Secret land", 9001, SeatId(1), SeatId(1), isFaceDownExile = true),
+                        ),
+                    zones = mapOf(ZoneIds.EXILE to ZoneSnapshot(ZoneIds.EXILE, ZoneType.Exile, null, Visibility.Public, listOf(fid))),
+                )
+            for (seat in listOf(1, 2)) {
+                val result =
+                    StateProjectionCompiler.compileOneViewer(
+                        compilerEnvironment(),
+                        compilerInput(snapshot).copy(viewingSeatId = seat),
+                        ProjectionState.initial(),
+                    )
+                val card = result.gsm.gameObjectsList.single { it.zoneId == ZoneIds.EXILE }
+                card.visibility shouldBe Visibility.Hidden
+                card.grpId shouldBe 0
+                card.name shouldBe 0
+                card.cardTypesCount shouldBe 0
+            }
+        }
+
+        test("face-down zone permissions remain private to the owning player") {
+            val cardId = ForgeCardId(40)
+            val snap =
+                GsmSnapshot.forTest(
+                    objects =
+                        mapOf(
+                            cardId to CardSnapshot(cardId, "Private Exile", 9001, SeatId(2), SeatId(2), isForetold = true),
+                        ),
+                )
+            val editor = ProjectionState.initial().editor()
+            val iid = editor.identities.getOrAlloc(cardId).value
+            val info =
+                wotc.mtgo.gre.external.messaging.Messages.ActionInfo
+                    .newBuilder()
+                    .setSeatId(2)
+                    .setAction(Action.newBuilder().setActionType(ActionType.Cast).setInstanceId(iid))
+                    .build()
+            val prior = editor.freeze()
+
+            fun actionsFor(
+                seat: Int,
+                role: ProjectionViewerRole,
+            ) = StateProjectionCompiler
+                .compileViewers(
+                    compilerEnvironment(),
+                    prior,
+                    listOf(
+                        StateProjectionCompiler.ViewerInput(
+                            compilerInput(snap).copy(viewingSeatId = seat, zoneCastActions = listOf(info)),
+                            role = role,
+                        ),
+                    ),
+                ).viewers
+                .single()
+                .result.gsm.actionsList
+            actionsFor(1, ProjectionViewerRole.Player) shouldBe emptyList()
+            actionsFor(2, ProjectionViewerRole.Player) shouldBe listOf(info)
+            actionsFor(2, ProjectionViewerRole.Observer) shouldBe emptyList()
+        }
 
         test("viewer intent defensively freezes ordered supplements and order values") {
             val supplementValues = mutableListOf<ProjectionSupplement>(ProjectionSupplement.NewTurnStarted)
@@ -68,9 +435,265 @@ class StateProjectionCompilerTest :
             }
         }
 
+        test("phase changes repair a missing client phase event from the authoritative snapshots") {
+            val previous =
+                GsmSnapshot.forTest(
+                    matchId = "compiler",
+                    gameStateId = 4,
+                    phase = phaseSnapshot(PhaseType.MAIN1),
+                )
+            val current =
+                GsmSnapshot.forTest(
+                    matchId = "compiler",
+                    gameStateId = 5,
+                    phase = phaseSnapshot(PhaseType.COMBAT_BEGIN),
+                )
+
+            val result =
+                StateProjectionCompiler.compileOneViewer(
+                    compilerEnvironment(),
+                    compilerInput(current, previous),
+                    ProjectionState.initial(),
+                )
+            val phaseAnnotations =
+                result.gsm.annotationsList.filter { AnnotationType.PhaseOrStepModified in it.typeList }
+
+            assertSoftly {
+                result.gsm.turnInfo.phase shouldBe wotc.mtgo.gre.external.messaging.Messages.Phase.Combat_a549
+                result.gsm.turnInfo.step shouldBe wotc.mtgo.gre.external.messaging.Messages.Step.BeginCombat_a2cb
+                phaseAnnotations.size shouldBe 1
+                phaseAnnotations.single().affectedIdsList shouldContainExactly listOf(1)
+                phaseAnnotations
+                    .single()
+                    .detailsList
+                    .first { it.key == "phase" }
+                    .valueInt32List shouldContainExactly listOf(3)
+                phaseAnnotations
+                    .single()
+                    .detailsList
+                    .first { it.key == "step" }
+                    .valueInt32List shouldContainExactly listOf(4)
+            }
+        }
+
+        test("same-frame leave and return emits both touched zones in the diff") {
+            val cardId = ForgeCardId(42)
+            val card = CardSnapshot(cardId, "Transforming permanent", 95997, SeatId(1), SeatId(1))
+            val zones =
+                linkedMapOf(
+                    ZoneIds.BATTLEFIELD to
+                        ZoneSnapshot(ZoneIds.BATTLEFIELD, ZoneType.Battlefield, null, Visibility.Public, listOf(cardId)),
+                    ZoneIds.EXILE to
+                        ZoneSnapshot(ZoneIds.EXILE, ZoneType.Exile, null, Visibility.Public, emptyList()),
+                    ZoneIds.LIMBO to
+                        ZoneSnapshot(ZoneIds.LIMBO, ZoneType.Limbo, null, Visibility.Public, emptyList()),
+                )
+            val previous = GsmSnapshot.forTest(matchId = "compiler", gameStateId = 4, objects = mapOf(cardId to card), zones = zones)
+            val first =
+                StateProjectionCompiler.compileOneViewer(
+                    compilerEnvironment(),
+                    compilerInput(previous),
+                    ProjectionState.initial(),
+                )
+            val current = previous.withGameStateId(5)
+            val moves =
+                FrameEventLog(
+                    emptyList(),
+                    listOf(
+                        ZoneMove(0, cardId, Zone.Battlefield, Zone.Exile, cause = null),
+                        ZoneMove(1, cardId, Zone.Exile, Zone.Battlefield, cause = null),
+                    ),
+                )
+            val result =
+                StateProjectionCompiler.compileOneViewer(
+                    compilerEnvironment(),
+                    compilerInput(current, previous, moves),
+                    first.transition.nextState,
+                )
+
+            val battlefield = result.gsm.zonesList.single { it.zoneId == ZoneIds.BATTLEFIELD }
+            val exile = result.gsm.zonesList.single { it.zoneId == ZoneIds.EXILE }
+            val finalIid =
+                result.transition.nextState.identities.forgeIdToInstanceId
+                    .getValue(cardId)
+                    .value
+            battlefield.objectInstanceIdsList shouldContainExactly listOf(finalIid)
+            exile.objectInstanceIdsList shouldContainExactly emptyList()
+            result.gsm.annotationsList.count { AnnotationType.ZoneTransfer_af5a in it.typeList } shouldBe 2
+        }
+
+        test("phase reconciliation does not duplicate an event-backed current phase") {
+            val previous =
+                GsmSnapshot.forTest(
+                    matchId = "compiler",
+                    gameStateId = 4,
+                    phase = phaseSnapshot(PhaseType.MAIN1),
+                )
+            val current =
+                GsmSnapshot.forTest(
+                    matchId = "compiler",
+                    gameStateId = 5,
+                    phase = phaseSnapshot(PhaseType.COMBAT_BEGIN),
+                )
+            val events =
+                FrameEventLog(
+                    listOf(GameEvent.PhaseChanged(SeatId(1), phase = 3, step = 4)),
+                )
+
+            val result =
+                StateProjectionCompiler.compileOneViewer(
+                    compilerEnvironment(),
+                    compilerInput(current, previous, events),
+                    ProjectionState.initial(),
+                )
+
+            result.gsm.annotationsList.count { AnnotationType.PhaseOrStepModified in it.typeList } shouldBe 1
+        }
+
+        test("phase annotations are not repeated across stable frames per viewer") {
+            val phase = phaseSnapshot(PhaseType.MAIN1)
+            val firstSnapshot =
+                GsmSnapshot.forTest(
+                    matchId = "compiler",
+                    gameStateId = 4,
+                    phase = phase,
+                )
+            val phaseFrame = GsmFrame.from(firstSnapshot)
+            val repeatedEvent =
+                FrameEventLog(
+                    listOf(GameEvent.PhaseChanged(SeatId(1), phaseFrame.phase.number, phaseFrame.step.number)),
+                )
+            val first =
+                StateProjectionCompiler.compileOneViewer(
+                    compilerEnvironment(),
+                    compilerInput(firstSnapshot, events = repeatedEvent),
+                    ProjectionState.initial(),
+                )
+            val stableSnapshot = firstSnapshot.withGameStateId(5)
+            val stable =
+                StateProjectionCompiler.compileOneViewer(
+                    compilerEnvironment(),
+                    compilerInput(stableSnapshot, first.projectionSnapshot, repeatedEvent),
+                    first.transition.nextState,
+                )
+
+            assertSoftly {
+                first.gsm.annotationsList.count { AnnotationType.PhaseOrStepModified in it.typeList } shouldBe 1
+                stable.gsm.annotationsList.count { AnnotationType.PhaseOrStepModified in it.typeList } shouldBe 0
+                stable.transition.nextState.viewerCursors
+                    .getValue(SeatId(1))
+                    .lastEmittedPhase shouldBe
+                    first.transition.nextState.viewerCursors
+                        .getValue(SeatId(1))
+                        .lastEmittedPhase
+            }
+        }
+
+        test("stable-frame phase suppression is isolated per viewer cursor") {
+            val snapshot =
+                GsmSnapshot.forTest(
+                    matchId = "compiler",
+                    gameStateId = 4,
+                    phase = phaseSnapshot(PhaseType.MAIN1),
+                )
+            val frame = GsmFrame.from(snapshot)
+            val events =
+                FrameEventLog(
+                    listOf(GameEvent.PhaseChanged(SeatId(1), frame.phase.number, frame.step.number)),
+                )
+            val first =
+                StateProjectionCompiler.compileOneViewer(
+                    compilerEnvironment(),
+                    compilerInput(snapshot, events = events),
+                    ProjectionState.initial(),
+                )
+            val stable = snapshot.withGameStateId(5)
+            val second =
+                StateProjectionCompiler.compileViewers(
+                    compilerEnvironment(),
+                    first.transition.nextState,
+                    listOf(
+                        StateProjectionCompiler.ViewerInput(
+                            compilerInput(stable, first.projectionSnapshot, events).copy(viewingSeatId = 1),
+                        ),
+                        StateProjectionCompiler.ViewerInput(
+                            compilerInput(stable, first.projectionSnapshot, events).copy(viewingSeatId = 2),
+                            role = ProjectionViewerRole.Observer,
+                        ),
+                    ),
+                )
+
+            assertSoftly {
+                second.viewers[0]
+                    .result.gsm.annotationsList
+                    .count { AnnotationType.PhaseOrStepModified in it.typeList } shouldBe 0
+                second.viewers[1]
+                    .result.gsm.annotationsList
+                    .count { AnnotationType.PhaseOrStepModified in it.typeList } shouldBe 1
+            }
+        }
+
+        test("authoritative phase advance still repairs a missing event after a stable frame") {
+            val firstSnapshot =
+                GsmSnapshot.forTest(
+                    matchId = "compiler",
+                    gameStateId = 4,
+                    phase = phaseSnapshot(PhaseType.MAIN1),
+                )
+            val firstFrame = GsmFrame.from(firstSnapshot)
+            val firstEvent =
+                FrameEventLog(
+                    listOf(GameEvent.PhaseChanged(SeatId(1), firstFrame.phase.number, firstFrame.step.number)),
+                )
+            val first =
+                StateProjectionCompiler.compileOneViewer(
+                    compilerEnvironment(),
+                    compilerInput(firstSnapshot, events = firstEvent),
+                    ProjectionState.initial(),
+                )
+            val stableSnapshot = firstSnapshot.withGameStateId(5)
+            val stable =
+                StateProjectionCompiler.compileOneViewer(
+                    compilerEnvironment(),
+                    compilerInput(stableSnapshot, first.projectionSnapshot, firstEvent),
+                    first.transition.nextState,
+                )
+            val advancedSnapshot =
+                GsmSnapshot.forTest(
+                    matchId = "compiler",
+                    gameStateId = 6,
+                    phase = phaseSnapshot(PhaseType.COMBAT_BEGIN),
+                )
+            val repaired =
+                StateProjectionCompiler.compileOneViewer(
+                    compilerEnvironment(),
+                    compilerInput(advancedSnapshot, stable.projectionSnapshot),
+                    stable.transition.nextState,
+                )
+
+            assertSoftly {
+                stable.gsm.annotationsList.count { AnnotationType.PhaseOrStepModified in it.typeList } shouldBe 0
+                repaired.gsm.annotationsList.count { AnnotationType.PhaseOrStepModified in it.typeList } shouldBe 1
+                repaired.gsm.annotationsList
+                    .single { AnnotationType.PhaseOrStepModified in it.typeList }
+                    .affectedIdsList shouldContainExactly listOf(1)
+            }
+        }
+
         test("one shared plan renders distinct viewer baselines without renumbering Player output") {
             val previous = GsmSnapshot.forTest(matchId = "compiler", gameStateId = 4)
-            val current = GsmSnapshot.forTest(matchId = "compiler", gameStateId = 5)
+            val current =
+                GsmSnapshot.forTest(
+                    matchId = "compiler",
+                    gameStateId = 5,
+                    phase =
+                        PhaseSnapshot(
+                            turn = 1,
+                            activePlayer = SeatId(2),
+                            priorityPlayer = SeatId(2),
+                            phase = PhaseType.MAIN1,
+                        ),
+                )
             val prior =
                 ProjectionState.initial().copy(
                     viewerCursors =
@@ -112,6 +735,10 @@ class StateProjectionCompilerTest :
                     .result.gsm.pendingMessageCount shouldBe 1
                 both.viewers[0]
                     .result.gsm.actionsCount shouldBe 1
+                both.viewers[0]
+                    .result.gsm.actionsList
+                    .single()
+                    .seatId shouldBe 1
                 both.viewers[1]
                     .result.gsm.pendingMessageCount shouldBe 0
                 both.viewers[1]
@@ -441,6 +1068,63 @@ class StateProjectionCompilerTest :
                 olderIid shouldNotBe newRootIid
             }
         }
+
+        test("actions follow an identity reallocated by a same-frame library draw") {
+            val cardId = ForgeCardId(108)
+            val oldIid = 100
+            val actions =
+                ActionsAvailableReq
+                    .newBuilder()
+                    .addActions(
+                        Action
+                            .newBuilder()
+                            .setActionType(ActionType.Cast)
+                            .setInstanceId(oldIid)
+                            .setFacetId(oldIid)
+                            .setSourceId(oldIid),
+                    ).addInactiveActions(
+                        Action
+                            .newBuilder()
+                            .setActionType(ActionType.Cast)
+                            .setInstanceId(oldIid)
+                            .setFacetId(oldIid)
+                            .setSourceId(oldIid),
+                    ).build()
+
+            val result =
+                StateProjectionCompiler.compileOneViewerWithActions(
+                    compilerEnvironment(),
+                    compilerInput(orderSnapshot(cardId)),
+                    ProjectionState.initial(),
+                    intent =
+                        ViewerProjectionIntent.of(
+                            orderPrompt =
+                                OrderPromptProjection.of(
+                                    candidateForgeIds = listOf(cardId),
+                                    move = OrderZoneMoveFact.of(SeatId(1), listOf(cardId), putOnTop = true),
+                                ),
+                        ),
+                    actions = actions,
+                )
+            val newIid =
+                result.transition.nextState.identities.forgeIdToInstanceId
+                    .getValue(cardId)
+                    .value
+            val cast =
+                result.gsm.actionsList
+                    .single { it.action.actionType == ActionType.Cast }
+                    .action
+            val remapped = ActionMapper.remapInstanceIds(actions, result.output.idReallocations)
+            val inactive = remapped.inactiveActionsList.single()
+
+            assertSoftly {
+                newIid shouldNotBe oldIid
+                cast.instanceId shouldBe newIid
+                inactive.instanceId shouldBe newIid
+                result.gsm.actionsList.none { it.action.instanceId == oldIid } shouldBe true
+                remapped.inactiveActionsList.none { it.instanceId == oldIid } shouldBe true
+            }
+        }
     })
 
 private fun compilerEnvironment(): StateProjectionEnvironment {
@@ -470,6 +1154,14 @@ private fun compilerInput(
         mechanicSourceFacts = MechanicSourceFacts(),
         abilityExhaustionFacts = AbilityExhaustionFacts(),
         persistentFeedFacts = PersistentFeedFacts(),
+    )
+
+private fun phaseSnapshot(phase: PhaseType): PhaseSnapshot =
+    PhaseSnapshot(
+        turn = 1,
+        activePlayer = SeatId(1),
+        priorityPlayer = SeatId(1),
+        phase = phase,
     )
 
 private fun stackAbility(
@@ -522,6 +1214,38 @@ private fun orderSnapshot(cardId: ForgeCardId): GsmSnapshot =
                     ZoneSnapshot(ZoneIds.P1_LIBRARY, ZoneType.Library, SeatId(1), Visibility.Hidden, emptyList()),
             ),
     )
+
+private fun drawSnapshot(
+    gameStateId: Int,
+    cardId: ForgeCardId,
+    inLibrary: Boolean,
+): GsmSnapshot {
+    val card = CardSnapshot(cardId, "Drawn Card", 9001, SeatId(1), SeatId(1))
+    return GsmSnapshot.forTest(
+        matchId = "compiler",
+        gameStateId = gameStateId,
+        objects = mapOf(cardId to card),
+        zones =
+            linkedMapOf(
+                ZoneIds.P1_LIBRARY to
+                    ZoneSnapshot(
+                        ZoneIds.P1_LIBRARY,
+                        ZoneType.Library,
+                        SeatId(1),
+                        Visibility.Hidden,
+                        if (inLibrary) listOf(cardId) else emptyList(),
+                    ),
+                ZoneIds.P1_HAND to
+                    ZoneSnapshot(
+                        ZoneIds.P1_HAND,
+                        ZoneType.Hand,
+                        SeatId(1),
+                        Visibility.Private,
+                        if (inLibrary) emptyList() else listOf(cardId),
+                    ),
+            ),
+    )
+}
 
 private fun privateHandsSnapshot(
     gameStateId: Int,

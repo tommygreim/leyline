@@ -86,6 +86,7 @@ internal class MatchModalChoiceRuntime(
         pending: Window,
         message: ClientToGREMessage,
     ): SettledPromptOwner.SlotAdmission<ModalChoiceInteractionResult>? {
+        if (!pending.value.allowCancel && message.type == ClientMessageType.CancelActionReq_097b) return null
         val selectedGrpIds =
             if (message.type == ClientMessageType.CancelActionReq_097b) {
                 emptyList()
@@ -174,7 +175,7 @@ internal class MatchModalChoiceRuntime(
             timeoutMs = timeoutMs,
             timeoutException = { error("ModalChoice timeout should complete with a default") },
             beforeTimeoutCompleteLocked = {
-                val fallback = listOf(pending.value.defaultOptionIndex)
+                val fallback = if (pending.value.isVote && pending.value.min == 0) emptyList() else listOf(pending.value.defaultOptionIndex)
                 val grpIds = fallback.map { pending.value.possible[it].grpId }
                 recordSelection(pending, grpIds)
                 val receipt = cleanupReceipt(pending)
@@ -194,10 +195,11 @@ internal class MatchModalChoiceRuntime(
         pending: Window,
         selectedGrpIds: List<Int>,
     ) {
-        if (selectedGrpIds.singleOrNull() != null) {
-            owner.bridge.recordSelectedModalAbilityGrpId(
+        if (!pending.value.isVote && selectedGrpIds.isNotEmpty()) {
+            owner.bridge.recordSelectedModalAbilityGrpIds(
                 pending.value.sourceForgeCardId,
-                selectedGrpIds.single(),
+                pending.value.sourceForgeAbilityId,
+                selectedGrpIds,
             )
         }
     }

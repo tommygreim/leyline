@@ -133,7 +133,7 @@ class MatchOrderInteractionRuntimeTest :
                     .single()
                     .numberValue shouldBeGreaterThan 0
                 order.allowCancel shouldBe AllowCancel.No_a526
-                order.allowUndo shouldBe true
+                order.allowUndo shouldBe false
                 annotations.map { it.typeList.first() }.filter {
                     it == AnnotationType.ObjectIdChanged || it == AnnotationType.ZoneTransfer_af5a
                 } shouldContainExactly

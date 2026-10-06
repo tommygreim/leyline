@@ -18,6 +18,8 @@ data class AcceptanceScenario(
     val steps: List<AcceptanceStep>,
     /** Headless-only control for scenarios that explicitly respond to their own stack. */
     val fullControl: Boolean = false,
+    /** Read the installed catalog when slim fixtures omit required mechanic metadata. */
+    val forgeCatalog: Boolean = false,
 )
 
 sealed interface AcceptanceStep {
@@ -434,6 +436,7 @@ enum class AcceptanceAltCost(
     Plot("plot", KeywordAbilityIds.PLOT),
     Warp("warp", KeywordAbilityIds.WARP),
     Sneak("sneak", KeywordAbilityIds.SNEAK),
+    WebSlinging("web_slinging", KeywordAbilityIds.WEB_SLINGING),
     Enlist("enlist", KeywordAbilityIds.ENLIST),
     Airbend("airbend", KeywordAbilityIds.AIRBEND),
     ;

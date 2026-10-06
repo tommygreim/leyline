@@ -211,7 +211,7 @@ class MatchOneShotPayCostsRuntimeTest :
                     message.prompt.promptId shouldBe promptId
                     message.gameStateId shouldBe published.gameStateId
                     message.allowCancel shouldBe AllowCancel.Abort
-                    message.allowUndo shouldBe true
+                    message.allowUndo shouldBe false
                     message.prompt.parametersList
                         .single { it.parameterName == "CardId" }
                         .numberValue shouldBe sourceInstanceId
@@ -251,6 +251,7 @@ class MatchOneShotPayCostsRuntimeTest :
                         }
                     PayCostsRouteKind.Sacrifice,
                     PayCostsRouteKind.SelectCostReturnAttacker,
+                    PayCostsRouteKind.SelectCostReturnTappedCreature,
                     PayCostsRouteKind.StationTapCost,
                     PayCostsRouteKind.EnlistCost,
                     ->

@@ -155,6 +155,20 @@
       "currentRelease": 1
     },
     {
+      "code": "FRA",
+      "digitalOnly": 2,
+      "releaseTs": 1790899200,
+      "active": 1,
+      "currentRelease": 1
+    },
+    {
+      "code": "FRC",
+      "digitalOnly": 2,
+      "releaseTs": 1790899200,
+      "active": 1,
+      "currentRelease": 1
+    },
+    {
       "code": "MKM",
       "collations": [
         {
@@ -1230,6 +1244,8 @@
         "TMT",
         "SPM",
         "MSH",
+        "FRA",
+        "FRC",
         "ECL",
         "Y26_ECL",
         "TLE",

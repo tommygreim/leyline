@@ -280,6 +280,20 @@ class GamePlaybackTest :
             ).zoneMoves.single().from shouldBe Zone.Stack
         }
 
+        test("compulsory draw playback does not advertise actions before the card reaches hand") {
+            val plan =
+                CombatPlaybackFramePlanner.plan(
+                    PlaybackCutRequest(PlaybackCutReason.DrawStep, 0, turnStarted = false),
+                    FrameEventLog.EMPTY,
+                    SeatId(1),
+                    currentTurnSeat = 1,
+                    matchSeats = setOf(1, 2),
+                    sourceControllerSeats = emptyMap(),
+                )
+
+            plan.single().embedActions shouldBe false
+        }
+
         test("ambiguous mixed damage emits without waiting for an unrelated resolution") {
             val events =
                 listOf(

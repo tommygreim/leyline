@@ -45,6 +45,13 @@ object ChooseSingleEntityPlanner {
         val allOptionsAreCards =
             context.candidateRefs.size == context.optionCount &&
                 context.candidateRefs.all { it.kind == PromptCandidateKind.Card }
+        val soleCardIsAlreadyTargeted =
+            context.optionCount == 1 &&
+                allOptionsAreCards &&
+                context.sa
+                    ?.targets
+                    ?.targetCards
+                    ?.any { target -> target.id == context.candidateRefs.single().entityId } == true
         val resolutionInput =
             resolutionRouteInput(
                 context.candidateRefs,
@@ -67,7 +74,8 @@ object ChooseSingleEntityPlanner {
             when {
                 context.sa?.isMutate == true -> ChooseSingleEntityRoutePolicy.MutateTopCard
                 context.activeReveal && allOptionsAreCards -> ChooseSingleEntityRoutePolicy.ActiveReveal
-                context.optionCount == 1 && !context.isOptional -> ChooseSingleEntityRoutePolicy.AutoReturnFirst
+                soleCardIsAlreadyTargeted && !context.isOptional -> ChooseSingleEntityRoutePolicy.AutoReturnFirst
+                context.optionCount == 1 && !context.isOptional && !allOptionsAreCards -> ChooseSingleEntityRoutePolicy.AutoReturnFirst
                 else -> ChooseSingleEntityRoutePolicy.Prompt
             }
 
@@ -87,7 +95,11 @@ object ChooseSingleEntityPlanner {
                     CandidateRefsPolicy.None
                 },
             sourceIdPolicy =
-                if (isLearn || semantic == PromptSemantic.ManifestDread || resolutionInput.isHiddenLibraryCardChoice) {
+                if (isLearn ||
+                    context.sa?.api == ApiType.Clone ||
+                    semantic == PromptSemantic.ManifestDread ||
+                    resolutionInput.isHiddenLibraryCardChoice
+                ) {
                     SourceIdPolicy.HostCard
                 } else {
                     SourceIdPolicy.None

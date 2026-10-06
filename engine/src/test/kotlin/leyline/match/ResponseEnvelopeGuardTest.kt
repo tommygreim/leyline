@@ -1,5 +1,6 @@
 package leyline.match
 
+import io.kotest.assertions.assertSoftly
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import leyline.UnitTag
@@ -53,6 +54,25 @@ class ResponseEnvelopeGuardTest :
                 sequence,
                 ResponseAcceptanceTracker(),
             ) shouldBe FailureReason.ReqRespMismatch
+        }
+
+        test("correlates Auto Pay to its payment prompt") {
+            val sequence = LogicalSequenceState(lastPromptMsgId = 17)
+            val responses = ResponseAcceptanceTracker()
+            assertSoftly {
+                ResponseEnvelopeGuard.mismatchReason(
+                    response(respId = 16, type = ClientMessageType.PerformAutoTapActionsResp_097b),
+                    sequence,
+                    responses,
+                ) shouldBe FailureReason.ReqRespMismatch
+                responses.responsesAccepted() shouldBe 0
+                ResponseEnvelopeGuard.mismatchReason(
+                    response(respId = 17, type = ClientMessageType.PerformAutoTapActionsResp_097b),
+                    sequence,
+                    responses,
+                ) shouldBe null
+                responses.responsesAccepted() shouldBe 1
+            }
         }
 
         test("correlates London tuck group responses") {

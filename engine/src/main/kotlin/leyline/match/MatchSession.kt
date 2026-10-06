@@ -288,6 +288,11 @@ class MatchSession(
             awaitHandlerResult(targetingHandler.onEffectCost(greMsg), completedActionId)
         }
 
+    override fun onPerformAutoTap(greMsg: ClientToGREMessage) =
+        withValidResponse(greMsg) { completedActionId ->
+            awaitHandlerResult(targetingHandler.onPerformAutoTap(greMsg), completedActionId)
+        }
+
     /** Handle CastingTimeOptionsResp — delegates to [TargetingHandler]. */
     override fun onCastingTimeOptions(greMsg: ClientToGREMessage) =
         withValidResponse(greMsg) { completedActionId ->

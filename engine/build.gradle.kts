@@ -64,7 +64,7 @@ dependencies {
 }
 
 tasks.named<Test>("test") {
-    systemProperty("kotest.tags", "!SimClientTag & !AcceptanceTag & !ForgeCatalogTag")
+    systemProperty("kotest.tags", "!SimClientTag & !AcceptanceTag & !ForgeCatalogTag & !ConformanceTag")
     systemProperty("leyline.content.root", rootProject.projectDir.absolutePath)
 }
 
@@ -113,14 +113,14 @@ val testGate =
 
 val testIntegration =
     registerEngineTest("testIntegration") {
-        systemProperty("kotest.tags", "IntegrationTag & !AcceptanceTag & !ForgeCatalogTag")
+        systemProperty("kotest.tags", "IntegrationTag & !AcceptanceTag & !ForgeCatalogTag & !ConformanceTag")
         maxParallelForks = integrationForks
     }
 
 val testIntegrationStrict =
     registerEngineTest("testIntegrationStrict") {
         (project.findProperty("jfrFile") as String?)?.let { jvmArgs("-XX:StartFlightRecording=filename=$it,settings=profile") }
-        systemProperty("kotest.tags", "IntegrationTag & !AcceptanceTag & !ForgeCatalogTag")
+        systemProperty("kotest.tags", "IntegrationTag & !AcceptanceTag & !ForgeCatalogTag & !ConformanceTag")
         maxParallelForks = integrationForks
         outputs.cacheIf { false }
         outputs.upToDateWhen { false }
@@ -142,6 +142,17 @@ registerEngineTest("testAcceptance") {
     (project.findProperty("acceptanceScenarios") as String?)?.let { systemProperty("acceptance.scenarios", it) }
     (project.findProperty("acceptanceScry") as String?)?.let { systemProperty("acceptance.scry", it) }
     maxParallelForks = 1
+    inputs.dir(rootProject.layout.projectDirectory.dir("data/puzzles"))
+}
+
+registerEngineTest("testConformance") {
+    systemProperty("kotest.tags", "IntegrationTag")
+    filter {
+        includeTestsMatching("leyline.testkit.ProtocolConformanceTest")
+        includeTestsMatching("leyline.testkit.ProtocolContractMutationTest")
+    }
+    maxParallelForks = 1
+    inputs.dir(rootProject.layout.projectDirectory.dir("conformance/contracts"))
     inputs.dir(rootProject.layout.projectDirectory.dir("data/puzzles"))
 }
 

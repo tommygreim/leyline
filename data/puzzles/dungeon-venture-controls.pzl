@@ -1,0 +1,17 @@
+[metadata]
+Name:Dungeon entry, branching, completion, and re-entry
+Goal:Survive
+Turns:4
+Difficulty:Easy
+Description:Cast four Kick in the Door on Grizzly Bears to complete Lost Mine of Phandelver. Use Dungeon Map to venture again after completion; reset to try the other room branch.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanhand=Kick in the Door;Kick in the Door;Kick in the Door;Kick in the Door
+humanbattlefield=Grizzly Bears;Dungeon Map;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+humanlibrary=Mountain;Forest;Island;Plains;Swamp;Mountain;Forest;Island;Plains;Swamp
+aibattlefield=Forest
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

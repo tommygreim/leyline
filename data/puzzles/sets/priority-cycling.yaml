@@ -14,9 +14,9 @@ scenarios:
   - id: payable-cycling-stops-opponent
     puzzle: priority-cycling-payable
     run: observe the available cycling response during the opponent turn
-    expect: the initial upkeep offers cycling with two Islands available
+    expect: the first opponent-turn stop offers cycling with two Islands available
     steps:
       - expect:
           all:
-            - phase: UPKEEP
+            - phase: COMBAT_BEGIN
             - action: { type: activate, card: Shark Typhoon }

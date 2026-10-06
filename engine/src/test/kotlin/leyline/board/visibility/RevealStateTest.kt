@@ -27,6 +27,78 @@ import wotc.mtgo.gre.external.messaging.Messages.GameObjectType
 
 class RevealStateTest :
     BoardTest({
+        test("puzzle opponent records public reveals from either owner but not a private library look") {
+            val board =
+                startPuzzleAtMain1(
+                    """
+                    [metadata]
+                    Name:Reveal audience regression
+                    Goal:Survive
+                    Turns:2
+                    Difficulty:Easy
+                    Description:Track public reveal audiences.
+                    [state]
+                    ActivePlayer=Human
+                    ActivePhase=Main1
+                    HumanLife=20
+                    AILife=20
+                    humanlibrary=Burst Lightning;Mountain
+                    ailibrary=Burst Lightning;Forest
+                    """.trimIndent(),
+                )
+            val human = board.game.humanPlayer
+            val ai = board.game.aiPlayer
+            val humanCard = human.getZone(ZoneType.Library).cards.first()
+            val aiCard = ai.getZone(ZoneType.Library).cards.first()
+            human.controller.reveal(CardCollection(listOf(humanCard)), ZoneType.Library, human, null, true)
+            val privateLook = board.bridge.drainReveals(1).single()
+            privateLook.viewerSeatId shouldBe privateLook.ownerSeatId
+
+            // GameAction's public-reveal path deliberately skips the owner.
+            board.game.action.reveal(CardCollection(listOf(humanCard)), human, true)
+            val humanReveal = board.bridge.drainReveals(1).single()
+            board.game.action.reveal(CardCollection(listOf(aiCard)), ai, true)
+            val aiReveal = board.bridge.drainReveals(1).single()
+            assertSoftly {
+                humanReveal.forgeCardIds shouldBe listOf(ForgeCardId(humanCard.id))
+                humanReveal.ownerSeatId shouldBe SeatId(1)
+                humanReveal.viewerSeatId shouldBe SeatId(2)
+                aiReveal.forgeCardIds shouldBe listOf(ForgeCardId(aiCard.id))
+                aiReveal.ownerSeatId shouldBe SeatId(2)
+                aiReveal.viewerSeatId shouldBe SeatId(1)
+            }
+        }
+
+        test("public library selection retains opponent knowledge after moving to hand in the same frame") {
+            val board =
+                startPuzzleAtMain1(
+                    """
+                    [metadata]
+                    Name:Reveal move regression
+                    Goal:Survive
+                    Turns:2
+                    Difficulty:Easy
+                    Description:Reveal a selection then move it to hand.
+                    [state]
+                    ActivePlayer=Human
+                    ActivePhase=Main1
+                    HumanLife=20
+                    AILife=20
+                    humanlibrary=Burst Lightning;Mountain
+                    ailibrary=Forest
+                    """.trimIndent(),
+                )
+            val human = board.game.humanPlayer
+            val card = human.getZone(ZoneType.Library).cards.first()
+            val gsm =
+                board.snapshotDiff {
+                    board.game.action.reveal(CardCollection(listOf(card)), human, true)
+                    board.game.action.moveToHand(card, null)
+                }
+            gsm.persistentAnnotation(AnnotationType.InstanceRevealedToOpponent).affectedIdsList shouldBe
+                listOf(board.instanceId(card.id))
+        }
+
         test("hand reveal emits both contracts with separate affected identities") {
             val board = startWithBoard { _, human, _ -> addCard("Lightning Bolt", human, ZoneType.Hand) }
             val card =

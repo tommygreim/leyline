@@ -1,6 +1,7 @@
 package leyline.game.snapshot
 
 import forge.game.Game
+import forge.game.ability.ApiType
 import forge.game.card.Card
 import forge.game.player.Player
 import leyline.bridge.types.ForgeCardId
@@ -11,6 +12,7 @@ import leyline.game.annotations.AbilityWordScanner
 import leyline.game.annotations.CastAbilityWordScanner
 import leyline.game.data.BasicLandAbilities
 import leyline.game.data.CardRepository
+import leyline.game.data.grantedKeywordAbilityGrpId
 import leyline.game.mapping.FrameIdResolver
 import leyline.game.mapping.ObjectMapper
 import leyline.game.mapping.ZoneIds
@@ -46,6 +48,7 @@ object SnapshotCapture {
                     startingLife = player.startingLife,
                     maxHandSize = player.maxHandSize,
                     speed = player.speed,
+                    hasBlessing = player.hasBlessing(),
                     manaPool = ManaSnapshotCapture.capturePool(player, bridge),
                 )
             }
@@ -56,6 +59,7 @@ object SnapshotCapture {
         val stack = captureStack(game, bridge)
         val abilityWordEntries = computeAbilityWordEntries(game, bridge)
         val pendingTriggers = PendingTriggerCapture.run(game, bridge)
+        val dungeonStates = captureDungeonStates(bridge)
         // Day/Night state. `Game.getDayTime()` is null=neither, false=Day, true=Night.
         // APSC reads from `playerTurn` (turn-owner) since the spell-count tally is
         // owned by that player; priority can shift mid-turn but the tally doesn't.
@@ -71,6 +75,7 @@ object SnapshotCapture {
             stack = stack,
             abilityWordEntries = abilityWordEntries,
             pendingTriggers = pendingTriggers,
+            dungeonStates = dungeonStates,
             capturedAt =
                 CaptureMarker(
                     gsIdBeforeCapture = -1,
@@ -80,6 +85,36 @@ object SnapshotCapture {
             activePlayerSpellsCastThisTurn = activePlayerSpellsCastThisTurn,
         )
     }
+
+    /** Capture the compact state consumed by Arena's DungeonStatus parser. */
+    private fun captureDungeonStates(bridge: GameBridge): Map<SeatId, DungeonStateSnapshot> =
+        (1..2)
+            .mapNotNull { seatNumber ->
+                val seat = SeatId(seatNumber)
+                val player = bridge.getPlayer(seat) ?: return@mapNotNull null
+                val current = player.getCardsIn(ForgeZoneType.Command).firstOrNull { it.type.isDungeon }
+                val currentRoom = current?.currentRoom
+                val currentRoomAbility =
+                    current
+                        ?.triggers
+                        ?.mapNotNull { it.overridingAbility }
+                        ?.firstOrNull { it.getParamOrDefault("RoomName", "") == currentRoom }
+                val state =
+                    DungeonStateSnapshot(
+                        currentDungeonGrpId = current?.let { bridge.resolveGrpId(it) } ?: 0,
+                        currentDungeonInstanceId = current?.let { bridge.getOrAllocInstanceId(ForgeCardId(it.id)).value } ?: 0,
+                        currentRoomGrpId =
+                            currentRoomAbility
+                                ?.let { bridge.resolveAbilityIdentity(current, it)?.abilityGrpId }
+                                ?: 0,
+                        completedDungeonGrpIds =
+                            player.completedDungeons
+                                .map { bridge.resolveGrpId(it) }
+                                .filter { it != 0 }
+                                .distinct(),
+                    )
+                seat to state
+            }.toMap()
 
     /** Capture one transient card that is not yet reachable from a Forge zone. */
     internal fun captureBoundCard(
@@ -225,8 +260,26 @@ object SnapshotCapture {
         val stack = game.getStack()
         if (stack.isEmpty) return StackSnapshot(emptyList())
         val entries = mutableListOf<StackEntry>()
+        var concealedResolvingAbility = false
         for (entry in stack) {
             val sourceCard = entry.sourceCard ?: continue
+            // Forge retains the resolving ability until its callback returns.
+            // If that callback casts a child spell, Arena should already have
+            // removed the parent from its visual stack. Keep older abilities
+            // from the same permanent: only the first resolving match is hidden.
+            val hasRepeatedCastChoice =
+                generateSequence(entry.spellAbility) { it.subAbility }.any {
+                    it.api == ApiType.Play && it.getParam("Amount") == "All"
+                }
+            if (!concealedResolvingAbility &&
+                entry.isAbility &&
+                stack.isResolving(sourceCard) &&
+                entries.any { it.isSpell } &&
+                !hasRepeatedCastChoice
+            ) {
+                concealedResolvingAbility = true
+                continue
+            }
             val fid = ForgeCardId(sourceCard.id)
             val controller = entry.activatingPlayer
             val ownerSeat = bridge.seatOf(sourceCard.owner) ?: SeatId(1)
@@ -249,18 +302,32 @@ object SnapshotCapture {
                     targets = targets,
                     forgeAbilityId = entry.spellAbility?.id ?: 0,
                     runtimeTriggerId = runtimeTriggerId,
+                    abilityOriginalCardGrpId = resolveAbilityOriginalCardGrpId(entry.spellAbility, bridge.cardRepository),
                     effectSourceForgeCardId = sourceCard.effectSource?.let { ForgeCardId(it.id) },
+                    selectedModalAbilityGrpIds =
+                        if (entry.isSpell) bridge.selectedModalAbilityGrpIds(fid) else emptyList(),
                 ),
             )
         }
         return StackSnapshot(entries)
     }
 
+    internal fun resolveAbilityOriginalCardGrpId(
+        ability: forge.game.spellability.SpellAbility,
+        cards: CardRepository,
+    ): Int {
+        val original = ability.trigger?.originalHost ?: ability.originalHost
+        val definitionName = ability.trigger?.cardState?.name ?: ability.cardState?.name ?: original?.name
+        return definitionName?.let(cards::findGrpIdByName) ?: 0
+    }
+
     internal fun resolveStackSourceCardGrpId(
         sourceCard: Card,
         cards: CardRepository,
     ): Int =
-        cards.findGrpIdByName(sourceCard.name)
+        SpeedEffectIdentity.CARD_GRP_ID.takeIf { SpeedEffectIdentity.matches(sourceCard) }
+            ?: GrpIdResolver.activeCloneSource(sourceCard)?.let { GrpIdResolver.resolve(sourceCard, cards) }
+            ?: cards.findGrpIdByName(sourceCard.name)
             ?: sourceCard.effectSource?.let { source -> cards.findGrpIdByName(source.name) }
             ?: 0
 
@@ -277,6 +344,7 @@ object SnapshotCapture {
             capturePlayerZone(player, seatNum, ForgeZoneType.Sideboard, result)
         }
         captureSharedZone(game, ForgeZoneType.Battlefield, result)
+        capturePhasedOutZone(game, result)
         captureSharedZone(game, ForgeZoneType.Stack, result)
         result[ZoneIds.SUPPRESSED] = MutateSnapshotSupport.captureMergedZone(game, bridge)
         captureSharedZone(game, ForgeZoneType.Exile, result)
@@ -318,6 +386,32 @@ object SnapshotCapture {
                 owner = null,
                 visibility = Visibility.Public,
                 contents = game.getCardsIn(fz).filter(::isSnapshotVisibleCard).map { ForgeCardId(it.id) },
+            )
+    }
+
+    /**
+     * Phasing is a state change, not a Forge zone change: phased permanents stay in
+     * the battlefield collection with their attachments and counters intact. Arena
+     * nevertheless exposes them through its dedicated shared PhasedOut zone (id 12),
+     * which makes them action-ineligible while preserving their identity and
+     * phased battlefield presentation. The wire mapper retains their rail IDs.
+     */
+    private fun capturePhasedOutZone(
+        game: Game,
+        out: MutableMap<Int, ZoneSnapshot>,
+    ) {
+        out[ZoneIds.PHASED_OUT] =
+            ZoneSnapshot(
+                id = ZoneIds.PHASED_OUT,
+                type = ZoneType.PhasedOut_a5ce,
+                owner = null,
+                visibility = Visibility.Public,
+                contents =
+                    game
+                        .getCardsIncludePhasingIn(ForgeZoneType.Battlefield)
+                        .filter { it.isPhasedOut() }
+                        .filter(::isSnapshotVisibleCard)
+                        .map { ForgeCardId(it.id) },
             )
     }
 
@@ -375,7 +469,6 @@ object SnapshotCapture {
         cards.putAll(MutateSnapshotSupport.liveCardsByZoneId(game, bridge))
         val sharedZoneTypes =
             listOf(
-                ForgeZoneType.Battlefield,
                 ForgeZoneType.Stack,
                 ForgeZoneType.Exile,
                 ForgeZoneType.Command,
@@ -383,6 +476,10 @@ object SnapshotCapture {
         for (zoneType in sharedZoneTypes) {
             val zoneId = sharedZoneId(zoneType) ?: continue
             game.getCardsIn(zoneType).forEach { cards[zoneId to ForgeCardId(it.id)] = it }
+        }
+        game.getCardsIncludePhasingIn(ForgeZoneType.Battlefield).forEach { card ->
+            val zoneId = if (card.isPhasedOut()) ZoneIds.PHASED_OUT else ZoneIds.BATTLEFIELD
+            if (isSnapshotVisibleCard(card)) cards[zoneId to ForgeCardId(card.id)] = card
         }
         return cards
     }
@@ -407,15 +504,17 @@ object SnapshotCapture {
         bridge: GameBridge,
         preparedLinkage: PreparedLinkage,
     ): CardSnapshot {
-        val onBf = card.isInZone(ForgeZoneType.Battlefield)
+        // Forge keeps phased permanents in the Battlefield collection, but Arena
+        // treats them as absent until phase-in.  Project them as off-battlefield
+        // state while retaining the same Forge/client identity in zone 12.
+        val onBf = card.isInZone(ForgeZoneType.Battlefield) && !card.isPhasedOut()
         // Foretold cards are face-down — `card.type` reads from the FaceDown state
         // (Creature 2/2). Owner-perspective output must show the Original state
         // (Instant for Demon Bolt, etc.) so MTGA renders the real card and offers
         // the foretell-cast UX. (Forge's FaceDown defaults are appropriate for
         // morph / disguise on the battlefield, not for face-down-in-exile.)
-        val isForetoldCard = Foretell.isForetold(card)
         val originalState =
-            if (isForetoldCard) card.getOriginalState(forge.card.CardStateName.Original) else null
+            if (card.isFaceDown && !onBf) card.getOriginalState(forge.card.CardStateName.Original) else null
         val type = originalState?.type ?: card.type
         val resolvedName = originalState?.name?.takeIf { it.isNotEmpty() } ?: card.name
 
@@ -466,6 +565,8 @@ object SnapshotCapture {
                 tokenRegistry = bridge.tokenRegistry,
             )
         val isEngineToken = card.isToken && preparedRole !is PreparedRole.Copy
+        val hasCopyLayer = GrpIdResolver.activeCloneSource(card) != null
+        val copiedTitleId = if (hasCopyLayer) bridge.cardRepository.findTitleIdByName(resolvedName) ?: 0 else 0
         val tokenAbility = card.tokenSpawningAbility
         val tokenSourceCard = tokenAbility?.hostCard?.takeIf { isEngineToken && tokenAbility.isAbility }
         val tokenSourceCardGrpId =
@@ -493,7 +594,11 @@ object SnapshotCapture {
         val isOmenCard =
             card.hasState(forge.card.CardStateName.Secondary) &&
                 card.getState(forge.card.CardStateName.Secondary).type.hasSubtype("Omen")
-        val isRoom = card.isRoom
+        // Face-down exile permissions (for example, Gandalf/Flameshape) still
+        // let the owner cast a printed Room. The current FaceDown state has no
+        // Room subtype, but its owner-facing snapshot and cast rail must keep
+        // the original two-door identity.
+        val isRoom = type.hasSubtype("Room")
         val hasManaAbilities = card.manaAbilities.isNotEmpty()
         val manaProductionColors = ManaSnapshotCapture.captureProductionColors(card, onBf)
         val classLevel = card.classLevel.takeIf { onBf && card.isClassCard }
@@ -515,11 +620,13 @@ object SnapshotCapture {
             grpId = grpId,
             owner = ownerSeat,
             controller = controllerSeat,
+            battleProtectorSeatId = if (onBf && card.isBattle) card.protectingPlayer?.let(bridge::seatOf) else null,
             mayLookSeatIds = mayLookSeatIds,
             isProjectable =
                 card.gamePieceType == forge.card.GamePieceType.CARD ||
                     card.gamePieceType == forge.card.GamePieceType.COPIED_SPELL ||
-                    card.isToken,
+                    card.isToken ||
+                    card.gamePieceType == forge.card.GamePieceType.DUNGEON,
             basicLandManaAbilityGrpId = BasicLandAbilities.byForgeSubtypeNames(type.subtypes) ?: 0,
             effectSourceForgeCardId = card.effectSource?.let { ForgeCardId(it.id) },
             hasParadigmKeyword = card.hasKeyword("Paradigm"),
@@ -532,6 +639,7 @@ object SnapshotCapture {
             classLevel = classLevel,
             chosenType = chosenType,
             chosenColorIds = chosenColorIds,
+            chosenCardNameTitleIds = if (onBf) card.namedCards.mapNotNull(bridge.cardRepository::findTitleIdByName) else emptyList(),
             hasNonManaActivatedAbilities = hasNonManaActivatedAbilities,
             isOnBattlefield = onBf,
             // P/T captured for all creatures so off-battlefield object shape stays stable.
@@ -543,11 +651,14 @@ object SnapshotCapture {
             currentLoyalty = if (onBf && type.isPlaneswalker) card.currentLoyalty else 0,
             isOnAdventure = card.isOnAdventure,
             endOfTurnLeavePlay = card.isToken && card.hasSVar("EndOfTurnLeavePlay"),
+            grantedCastAbilityGrpId = card.castSA?.let { bridge.cardRepository.grantedKeywordAbilityGrpId(it) },
             evokePaid =
                 (onBf || card.isInZone(ForgeZoneType.Stack)) &&
                     card.castSA?.isEvoke == true,
             isToken = card.isToken,
             isCopyToken = card.gamePieceType == forge.card.GamePieceType.COPIED_SPELL || (card.isToken && card.copiedPermanent != null),
+            copiedFromGrpId = if (!card.isToken && hasCopyLayer) grpId else 0,
+            copiedTitleId = copiedTitleId,
             tokenSourceCardGrpId = tokenSourceCardGrpId,
             tokenParentAbilityInstanceId = tokenParentAbilityInstanceId,
             attachedToInstanceId = attachedToInstanceId,
@@ -564,6 +675,8 @@ object SnapshotCapture {
             isSolved = onBf && card.isSolved,
             isForetold = Foretell.isForetold(card),
             faceDownKind = FaceDown.kind(card),
+            isFaceDownExile = card.isFaceDown && card.isInZone(ForgeZoneType.Exile),
+            isFaceDown = card.isFaceDown,
             isCommander = card.isCommander,
             commanderTax = commanderTax(card),
             commanderColorIdentity = commanderColorIdentity(card),
@@ -657,6 +770,7 @@ object SnapshotCapture {
             return CombatRole.Attacker(
                 targetInstanceId = targetInstanceId,
                 isBlocked = isBlocked,
+                blockerInstanceIds = combat.getBlockers(card).map(bridge::instanceId),
             )
         }
         if (combat.isBlocking(card)) {
@@ -784,7 +898,7 @@ object SnapshotCapture {
     ): List<AbilityWordScanner.AbilityWordEntry> {
         val bfCards =
             game.registeredPlayers.flatMap {
-                it.getZone(ForgeZoneType.Battlefield).cards.toList()
+                it.getCardsIn(ForgeZoneType.Battlefield).toList()
             }
         val handCards =
             game.registeredPlayers.flatMap {

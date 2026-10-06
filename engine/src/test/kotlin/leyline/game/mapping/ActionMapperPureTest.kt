@@ -292,18 +292,44 @@ class ActionMapperPureTest :
             }
         }
 
-        test("stripActionForGsm preserves manaCost on CastAdventure") {
-            val s =
-                stripped(ActionType.CastAdventure) {
-                    instanceId = 200
-                    grpId = 80000
-                    addManaCost(mana(ManaColor.White_afc9, 1))
-                }
+        test("stripActionForGsm preserves linked spell-face identity and mana cost") {
+            for (type in listOf(ActionType.CastAdventure, ActionType.CastOmen)) {
+                val s =
+                    stripped(type) {
+                        instanceId = 200
+                        grpId = 80000
+                        addManaCost(mana(ManaColor.White_afc9, 1))
+                    }
 
-            assertSoftly {
-                s.instanceId shouldBe 200
-                s should haveManaCost(white = 1)
-                s.grpId shouldBe 0
+                assertSoftly {
+                    s.instanceId shouldBe 200
+                    s should haveManaCost(white = 1)
+                    s.grpId shouldBe 0
+                }
+            }
+        }
+
+        test("stripActionForGsm preserves both Room door costs") {
+            for (
+            (type, generic, black) in
+            listOf(
+                Triple(ActionType.CastLeftRoom, 2, 1),
+                Triple(ActionType.CastRightRoom, 3, 2),
+            )
+            ) {
+                val s =
+                    stripped(type) {
+                        instanceId = 200
+                        shouldStop = true
+                        addManaCost(mana(ManaColor.Generic, generic))
+                        addManaCost(mana(ManaColor.Black_afc9, black))
+                    }
+
+                assertSoftly {
+                    s.instanceId shouldBe 200
+                    s should haveManaCost(generic = generic, black = black)
+                    s.shouldStop shouldBe false
+                }
             }
         }
 
@@ -342,5 +368,27 @@ class ActionMapperPureTest :
 
             s.actionType shouldBe ActionType.Pass
             s.instanceId shouldBe 0
+        }
+
+        test("GSM action embedding retains distinct abilities from one source") {
+            val active =
+                Action
+                    .newBuilder()
+                    .setActionType(ActionType.Activate_add3)
+                    .setInstanceId(42)
+                    .setAbilityGrpId(1001)
+                    .build()
+            val inactive = active.toBuilder().setAbilityGrpId(1002).build()
+
+            val embedded =
+                ActionMapper.actionsForGsm(
+                    ActionsAvailableReq
+                        .newBuilder()
+                        .addActions(active)
+                        .addInactiveActions(inactive)
+                        .build(),
+                )
+
+            embedded.map { it.abilityGrpId } shouldBe listOf(1001, 1002)
         }
     })

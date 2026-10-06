@@ -9,6 +9,7 @@ import leyline.game.codes.CounterTypes
 import leyline.game.codes.DetailKeys
 import leyline.game.codes.QualificationType
 import leyline.game.event.DamageSourceKind
+import leyline.game.snapshot.DungeonStateSnapshot
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationInfo
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
@@ -16,6 +17,7 @@ import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
 import wotc.mtgo.gre.external.messaging.Messages.CounterType
 import wotc.mtgo.gre.external.messaging.Messages.KeyValuePairInfo
 import wotc.mtgo.gre.external.messaging.Messages.KeyValuePairValueType
+import wotc.mtgo.gre.external.messaging.Messages.StaticList
 
 /**
  * Builds client-format [AnnotationInfo] protos for [GameStateMessage] bundles.
@@ -147,6 +149,40 @@ object AnnotationBuilder {
             .addDetails(int32Detail(DetailKeys.PHASE, phase))
             .addDetails(int32Detail(DetailKeys.STEP, step))
             .build()
+
+    /** Marks permanents that phased out while retaining their client identity. */
+    fun phasedOut(instanceIds: List<InstanceId>): AnnotationInfo =
+        AnnotationInfo
+            .newBuilder()
+            .addType(AnnotationType.PhasedOut_af5a)
+            .addAllAffectedIds(instanceIds.map { it.value })
+            .build()
+
+    /** Marks permanents that phased in while retaining their client identity. */
+    fun phasedIn(instanceIds: List<InstanceId>): AnnotationInfo =
+        AnnotationInfo
+            .newBuilder()
+            .addType(AnnotationType.PhasedIn)
+            .addAllAffectedIds(instanceIds.map { it.value })
+            .build()
+
+    /** Updates Arena's per-player Venture/dungeon state. */
+    fun dungeonStatus(
+        player: SeatId,
+        state: DungeonStateSnapshot,
+    ): AnnotationInfo =
+        AnnotationInfo
+            .newBuilder()
+            .addType(AnnotationType.DungeonStatus)
+            .setAffectorId(player.value)
+            .addDetails(int32Detail(DetailKeys.CURRENT_DUNGEON, state.currentDungeonGrpId))
+            .addDetails(int32Detail(DetailKeys.CURRENT_DUNGEON_ZCID, state.currentDungeonInstanceId))
+            .addDetails(int32Detail(DetailKeys.CURRENT_ROOM, state.currentRoomGrpId))
+            .apply {
+                if (state.completedDungeonGrpIds.isNotEmpty()) {
+                    addDetails(int32ListDetail(DetailKeys.ALL_DUNGEONS_COMPLETED, state.completedDungeonGrpIds))
+                }
+            }.build()
 
     /** Card's instanceId changed (e.g. zone move creates new object).
      *  [affectorId] = ability instance that caused the change (null = unset). */
@@ -457,6 +493,36 @@ object AnnotationBuilder {
             .addDetails(int32Detail(DetailKeys.REPLACEMENT_SOURCE_ZCID, sourceZoneChangeId.value))
             .build()
 
+    /** PendingEffectController draws a command-side mini card for a resolving
+     * source, including Static abilities suppressed by ReplacementEffectController.
+     * MiscContinuousEffectStateAnnotationParser attaches this to a player.
+     */
+    fun pendingEffect(
+        sourceId: InstanceId,
+        affectedPlayer: SeatId,
+        abilityGrpId: GrpId,
+    ): AnnotationInfo =
+        AnnotationInfo
+            .newBuilder()
+            .addType(AnnotationType.MiscContinuousEffect)
+            .setAffectorId(sourceId.value)
+            .addAffectedIds(affectedPlayer.value)
+            .addDetails(int32Detail(DetailKeys.GRPID, abilityGrpId.value))
+            .build()
+
+    /** Arena distinguishes a permanent's copy layer from a copied token/spell. */
+    fun copiedPermanent(
+        instanceId: InstanceId,
+        donorGrpId: GrpId,
+    ): AnnotationInfo =
+        AnnotationInfo
+            .newBuilder()
+            .addType(AnnotationType.CopiedObject)
+            .addAffectedIds(instanceId.value)
+            .addDetails(typedStringDetail(DetailKeys.LAYERED_EFFECT_TYPE, "CopyObject"))
+            .addDetails(int32Detail(DetailKeys.COPY_FROM_GRPID, donorGrpId.value))
+            .build()
+
     fun choiceResult(
         sourceInstanceId: InstanceId,
         chooserSeatId: SeatId,
@@ -485,6 +551,22 @@ object AnnotationBuilder {
             .setAffectorId(abilityInstanceId.value)
             .addAffectedIds(flipperSeatId.value)
             .addDetails(int32Detail(DetailKeys.COIN_FLIP_RESULT, result))
+            .build()
+
+    /** Public naming event, including choices made by an AI controller. */
+    fun cardNamed(
+        sourceInstanceId: InstanceId,
+        playerSeatId: Int,
+        titleId: Int,
+    ): AnnotationInfo =
+        AnnotationInfo
+            .newBuilder()
+            .addType(AnnotationType.LinkInfo)
+            .setAffectorId(sourceInstanceId.value)
+            .addAffectedIds(playerSeatId)
+            .addDetails(int32Detail(DetailKeys.LINK_TYPE, 3))
+            .addDetails(int32Detail(DetailKeys.CHOICE_DOMAIN, StaticList.CardNames.number))
+            .addDetails(int32Detail(DetailKeys.CHOICE_VALUE, titleId))
             .build()
 
     fun linkInfoChoice(
@@ -692,6 +774,14 @@ object AnnotationBuilder {
             .addAffectedIds(instanceId.value)
             .build()
 
+    /** A permanent regenerated instead of being destroyed. */
+    fun permanentRegenerated(instanceId: InstanceId): AnnotationInfo =
+        AnnotationInfo
+            .newBuilder()
+            .addType(AnnotationType.PermanentRegenerated)
+            .addAffectedIds(instanceId.value)
+            .build()
+
     /** Counter added to a permanent. client type 16 (CounterAdded). */
     fun counterAdded(
         instanceId: InstanceId,
@@ -847,6 +937,7 @@ object AnnotationBuilder {
         threshold: Int? = null,
         abilityGrpId: GrpId? = null,
         colors: List<Int>? = null,
+        hasBlessing: Boolean = false,
         affectorId: InstanceId = instanceId,
         affectedIds: List<InstanceId> = listOf(instanceId),
     ): AnnotationInfo =
@@ -861,6 +952,7 @@ object AnnotationBuilder {
                 if (threshold != null) addDetails(int32Detail(DetailKeys.THRESHOLD, threshold))
                 if (abilityGrpId != null) addDetails(int32Detail(DetailKeys.ABILITY_GRP_ID_UPPER, abilityGrpId.value))
                 if (colors != null) addDetails(int32ListDetail(DetailKeys.COLORS, colors))
+                if (hasBlessing) addDetails(int32Detail("City's Blessing", 1))
             }.build()
 
     /**
@@ -1003,13 +1095,14 @@ object AnnotationBuilder {
         abilityGrpId: GrpId,
         usesRemaining: Int,
         uniqueAbilityId: Int,
+        exhaustedGrpIds: List<Int> = listOf(abilityGrpId.value),
     ): AnnotationInfo =
         AnnotationInfo
             .newBuilder()
             .addType(AnnotationType.AbilityExhausted)
             .setAffectorId(instanceId.value)
             .addAffectedIds(instanceId.value)
-            .addDetails(int32Detail(DetailKeys.ABILITY_GRP_ID_UPPER, abilityGrpId.value))
+            .addDetails(int32ListDetail(DetailKeys.ABILITY_GRP_ID_UPPER, exhaustedGrpIds))
             .addDetails(int32Detail(DetailKeys.USES_REMAINING, usesRemaining))
             .addDetails(int32Detail(DetailKeys.UNIQUE_ABILITY_ID, uniqueAbilityId))
             .build()
@@ -1030,6 +1123,13 @@ object AnnotationBuilder {
     /** Designation state (persistent). client type 45 (Designation).
      *  Stub — always-present key only. Full version needs PromptMessage, CostIncrease,
      *  grpid, ActivePlayerSpellCount, value, ColorIdentity (context needed). */
+    fun citysBlessingDesignation(seatId: SeatId): AnnotationInfo =
+        designation(seatId, AnnotationConstants.DESIGNATION_TYPE_CITYS_BLESSING)
+            .toBuilder()
+            .setAffectorId(seatId.value)
+            .addDetails(int32Detail(DetailKeys.PROMPT_MESSAGE, 126))
+            .build()
+
     fun designation(
         seatId: SeatId,
         designationType: Int,

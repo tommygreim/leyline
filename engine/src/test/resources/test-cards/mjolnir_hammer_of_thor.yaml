@@ -1,0 +1,21 @@
+name: "Mjölnir, Hammer of Thor"
+grpId: 105041
+titleId: 1117699
+abilities:
+  - id: 206225
+    textId: 1118896
+    category: 2
+    subCategory: 10
+  - id: 206226
+    textId: 1117703
+    category: 3
+  - id: 206227
+    textId: 1117704
+    category: 1
+    baseId: 5
+    mana: "o1"
+  - id: 206228
+    textId: 1117705
+    category: 1
+    mana: "o2oR"
+expansionCode: "MSH"

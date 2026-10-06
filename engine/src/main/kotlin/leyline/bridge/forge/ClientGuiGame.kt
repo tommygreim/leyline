@@ -25,7 +25,6 @@ import forge.interfaces.IGameController
 import forge.item.PaperCard
 import forge.localinstance.skin.FSkinProp
 import forge.player.PlayerZoneUpdate
-import forge.player.PlayerZoneUpdates
 import forge.trackable.TrackableCollection
 import forge.util.FSerializableFunction
 import forge.util.ITriggerEvent
@@ -925,19 +924,7 @@ class ClientGuiGame(
 
     override fun handleGameEvent(event: GameEvent) {}
 
-    override fun tempShowZones(
-        controller: PlayerView,
-        zonesToUpdate: Iterable<PlayerZoneUpdate>,
-    ): Iterable<PlayerZoneUpdate> = zonesToUpdate
-
-    override fun hideZones(
-        controller: PlayerView,
-        zonesToUpdate: Iterable<PlayerZoneUpdate>,
-    ) {}
-
     override fun updateZones(zonesToUpdate: Iterable<PlayerZoneUpdate>) {}
-
-    override fun updateSingleCard(card: CardView) {}
 
     override fun updateCards(cards: Iterable<CardView>) {}
 
@@ -970,12 +957,6 @@ class ClientGuiGame(
         controller: PlayerView,
         zones: Collection<ZoneType>,
         players: Map<PlayerView, Any>,
-        backupLastZones: Boolean,
-    ): PlayerZoneUpdates = PlayerZoneUpdates()
-
-    override fun restoreOldZones(
-        playerView: PlayerView,
-        playerZoneUpdates: PlayerZoneUpdates,
     ) {}
 
     override fun setHighlighted(

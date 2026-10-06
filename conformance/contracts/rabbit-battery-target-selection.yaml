@@ -1,0 +1,74 @@
+name: Rabbit Battery reconfigure targeting
+scenario: {suite: mechanics-warmup, id: reconfigure-attach-unattach}
+frames:
+  - id: ability
+    events:
+      - id: created
+        type: AbilityInstanceCreated
+        lane: transient
+        keys: [source_zone]
+        fields: {details.source_zone: [28]}
+      - id: selecting
+        type: PlayerSelectingTargets
+        lane: transient
+        keys: []
+        equals: {"affectedIds[0]": "created.affectedIds[0]"}
+  - id: prompt
+    events:
+      - id: target-prompt
+        type: SelectTargetsReq
+        lane: prompt
+        fields:
+          raw.prompt.promptId: 10
+          raw.allowCancel: Abort
+          raw.allowUndo: false
+          raw.selectTargetsReq.targets.length: 1
+          "raw.selectTargetsReq.targets[0].targetIdx": 1
+          "raw.selectTargetsReq.targets[0].minTargets": 1
+          "raw.selectTargetsReq.targets[0].maxTargets": 1
+          "raw.selectTargetsReq.targets[0].prompt.parameters.length": 1
+        equals:
+          raw.selectTargetsReq.sourceId: "created.affectedIds[0]"
+          "raw.selectTargetsReq.targets[0].prompt.parameters[0].numberValue": "created.affectedIds[0]"
+  - id: submitted
+    events:
+      - id: submitted
+        type: PlayerSubmittedTargets
+        lane: transient
+        keys: []
+        equals: {"affectedIds[0]": "created.affectedIds[0]"}
+      - id: target
+        type: TargetSpec
+        lane: persistent
+        op: create
+        fields: {details.index: [1]}
+        equals:
+          affectorId: "created.affectedIds[0]"
+          "details.abilityGrpId[0]": "target-prompt.raw.selectTargetsReq.targets[0].targetingAbilityGrpId"
+          "affectedIds[0]": "target-prompt.raw.selectTargetsReq.targets[0].targets[0].targetInstanceId"
+  - id: resolution
+    events:
+      - id: resolved
+        type: ResolutionComplete
+        lane: transient
+        equals: {affectorId: "created.affectedIds[0]"}
+  - id: retirement
+    events:
+      - id: target-retired
+        type: TargetSpec
+        lane: persistent
+        op: delete
+        sameRow: target
+counts:
+  - match: {type: AbilityInstanceCreated, lane: transient, equals: {affectedIds: created.affectedIds}}
+    exactly: 1
+  - match: {type: PlayerSelectingTargets, lane: transient}
+    exactly: 1
+  - match: {type: PlayerSubmittedTargets, lane: transient}
+    exactly: 1
+  - match: {type: TargetSpec, lane: persistent, op: create, sameRow: target}
+    exactly: 1
+  - match: {type: TargetSpec, lane: persistent, op: delete, sameRow: target}
+    exactly: 1
+  - match: {type: TargetSpec, lane: persistent, op: update, sameRow: target}
+    exactly: 0

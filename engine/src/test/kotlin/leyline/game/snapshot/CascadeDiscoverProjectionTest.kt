@@ -119,9 +119,10 @@ class CascadeDiscoverProjectionTest :
             allMessages.addAll(sink.messages)
             accumulator.processAll(sink.messages)
             sink.clear()
-            // PlayEffect's single-castable-option branch now asks "Do you want to
-            // play Llanowar Elves?" before playSaFromPlayEffect's own free-cast
-            // gate — accept it.
+            // PlayEffect selects the revealed card before asking whether to
+            // play it and before opening the free-cast action window.
+            holdNextOptionalAction()
+            respondToSelectN(listOf(lastSelectNReq().idsList.single()))
             send(submitWithGsId(leyline.testkit.optionalActionResp(true)))
             allMessages.addAll(sink.messages)
             accumulator.processAll(sink.messages)
@@ -318,6 +319,8 @@ class CascadeDiscoverProjectionTest :
             allMessages.addAll(sink.messages)
             accumulator.processAll(sink.messages)
             sink.clear()
+            holdNextOptionalAction()
+            respondToSelectN(listOf(lastSelectNReq().idsList.single()))
             send(submitWithGsId(leyline.testkit.optionalActionResp(true)))
             allMessages.addAll(sink.messages)
             accumulator.processAll(sink.messages)

@@ -22,6 +22,9 @@ object CounterTypes {
         map["+1/+1"] = CounterType.P1P1.number
         map["-1/-1"] = CounterType.M1M1.number
         map["LOYAL"] = CounterType.Loyalty_a40e.number
+        // The checked-in proto predates the client enum entry, but the current
+        // client accepts Plan at this stable protocol value.
+        map["PLAN"] = 211
         map
     }
 

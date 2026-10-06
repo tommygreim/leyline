@@ -12,6 +12,7 @@ import leyline.bridge.handoff.StrictPromptRefusalException
 import leyline.bridge.types.ManaColorMapping
 import wotc.mtgo.gre.external.messaging.Messages.Action
 import wotc.mtgo.gre.external.messaging.Messages.ManaColor
+import wotc.mtgo.gre.external.messaging.Messages.ManaCostSpecType
 import wotc.mtgo.gre.external.messaging.Messages.ManaRequirement
 import forge.game.zone.ZoneType as ForgeZoneType
 
@@ -24,6 +25,45 @@ import forge.game.zone.ZoneType as ForgeZoneType
  * those fields before returning.
  */
 internal object ActionManaCosts {
+    data class ManaPaymentPreview(
+        val cost: ManaCost,
+        val sources: List<SpellAbility>,
+    )
+
+    /**
+     * Predict a payment without choosing or consuming the player's resources.
+     * Emerge and Offering require a hypothetical sacrifice before Forge can
+     * plan the residual mana payment. Keep that choice inside the same
+     * probe and restore it afterwards; the displayed cost stays pre-choice.
+     */
+    fun predictManaPayment(
+        displayedCost: ManaCost,
+        sa: SpellAbility,
+        player: Player,
+    ): ManaPaymentPreview? =
+        affordabilityProbe(
+            probe = {
+                preservingPaymentProbeState(sa, player) {
+                    NonInteractiveScope.bestEffort {
+                        val needsSacrifice =
+                            (sa.isEmerge && sa.sacrificedAsEmerge == null) ||
+                                (sa.isOffering && sa.sacrificedAsOffering == null)
+                        val toPay =
+                            if (needsSacrifice) {
+                                ComputerUtilMana.calculateManaCost(sa.payCosts, sa, player, true, 0, false)
+                            } else {
+                                ManaCostBeingPaid(displayedCost)
+                            }
+                        val cost = toPay.toManaCost()
+                        ComputerUtilMana
+                            .getManaPaymentPlan(toPay, sa, player, false)
+                            ?.let { ManaPaymentPreview(cost, it.toList()) }
+                    }
+                }
+            },
+            fallback = { null },
+        )
+
     fun canPayManaCost(
         sa: SpellAbility,
         player: Player,
@@ -42,10 +82,10 @@ internal object ActionManaCosts {
             fallback = { canPayOrTwoGenericManaCost(sa, player) },
         )
 
-    internal fun affordabilityProbe(
-        probe: () -> Boolean,
-        fallback: () -> Boolean,
-    ): Boolean =
+    internal fun <T> affordabilityProbe(
+        probe: () -> T,
+        fallback: () -> T,
+    ): T =
         try {
             probe()
         } catch (refusal: StrictPromptRefusalException) {
@@ -164,13 +204,21 @@ internal object ActionManaCosts {
     ): Boolean {
         val cost = computeEffectiveCost(sa, player) ?: return false
         val hybridColors = cost.mapNotNull { ManaColorMapping.fromOrTwoGenericShard(it) }
+        val choiceRequirements = cost.map(ManaColorMapping::standardHybridColors).filter { it.size > 1 }
 
         val coloredRequirements =
             cost.mapNotNull { shard ->
-                if (ManaColorMapping.fromOrTwoGenericShard(shard) == null) ManaColorMapping.fromShard(shard) else null
+                if (ManaColorMapping.fromOrTwoGenericShard(shard) == null &&
+                    !shard.isPhyrexian() &&
+                    ManaColorMapping.standardHybridColors(shard).isEmpty()
+                ) {
+                    ManaColorMapping.fromShard(shard)
+                } else {
+                    null
+                }
             }
+        val phyrexianRequirements = cost.filter { it.isPhyrexian() }
         val sourceColors = availableManaSourceColors(player, sa)
-        if (sourceColors.isEmpty()) return false
 
         fun canPayColor(
             sourceIndex: Int,
@@ -195,12 +243,31 @@ internal object ActionManaCosts {
             return false
         }
 
+        fun payPhyrexian(
+            index: Int,
+            used: BooleanArray,
+        ): Boolean {
+            if (index == phyrexianRequirements.size) {
+                return payGeneric(cost.genericCost, used) { true }
+            }
+            val colors = ManaColorMapping.paymentColors(phyrexianRequirements[index])
+            for (color in colors) {
+                for (i in sourceColors.indices) {
+                    if (used[i] || !canPayColor(i, color)) continue
+                    used[i] = true
+                    if (payPhyrexian(index + 1, used)) return true
+                    used[i] = false
+                }
+            }
+            return if (player.canPayLife(2, false, sa)) payPhyrexian(index + 1, used) else false
+        }
+
         fun payHybrids(
             index: Int,
             used: BooleanArray,
         ): Boolean {
             if (index == hybridColors.size) {
-                return payGeneric(cost.genericCost, used) { true }
+                return payPhyrexian(0, used)
             }
             val color = hybridColors[index]
             for (i in sourceColors.indices) {
@@ -212,11 +279,27 @@ internal object ActionManaCosts {
             return payGeneric(2, used) { payHybrids(index + 1, used) }
         }
 
+        fun payChoices(
+            index: Int,
+            used: BooleanArray,
+        ): Boolean {
+            if (index == choiceRequirements.size) return payHybrids(0, used)
+            for (color in choiceRequirements[index]) {
+                for (i in sourceColors.indices) {
+                    if (used[i] || !canPayColor(i, color)) continue
+                    used[i] = true
+                    if (payChoices(index + 1, used)) return true
+                    used[i] = false
+                }
+            }
+            return false
+        }
+
         fun payColored(
             index: Int,
             used: BooleanArray,
         ): Boolean {
-            if (index == coloredRequirements.size) return payHybrids(0, used)
+            if (index == coloredRequirements.size) return payChoices(0, used)
             val color = coloredRequirements[index]
             for (i in sourceColors.indices) {
                 if (used[i] || !canPayColor(i, color)) continue
@@ -238,6 +321,10 @@ internal object ActionManaCosts {
             .getZone(ForgeZoneType.Battlefield)
             .cards
             .filterNot { it.isTapped }
+            // A source whose tap is part of the ability's own activation cost
+            // cannot also supply mana for that cost. Forge's primary payment
+            // probe excludes it; keep this fallback probe equally strict.
+            .filterNot { card -> payingAbility?.payCosts?.hasTapCost() == true && card === payingAbility.hostCard }
             .mapNotNull { card ->
                 getPlayableManaAbilities(card, player)
                     .flatMap { sa ->
@@ -260,6 +347,15 @@ internal object ActionManaCosts {
         val originalActivator = sa.activatingPlayer
         if (originalActivator == null) sa.setActivatingPlayer(player)
         val originalCastFrom = hostCard.castFrom
+        val originalState = hostCard.currentStateName
+        val castState = sa.cardStateName
+        // Forge switches a card to the chosen spell face before paying its
+        // cost. Do the same for this quiet display probe: otherwise a static
+        // reducer printed only on the creature face also reduces its Adventure
+        // (or another linked spell face) while the card remains in hand.
+        val switchedState =
+            !hostCard.isInPlay && castState != null && castState != originalState && hostCard.hasState(castState)
+        if (switchedState) hostCard.setState(castState, false)
         val seededCastFrom =
             hostCard.isCommander &&
                 originalCastFrom == null &&
@@ -282,6 +378,7 @@ internal object ActionManaCosts {
                 }
             }
         } finally {
+            if (switchedState) hostCard.setState(originalState, false)
             if (seededCastFrom) hostCard.setCastFrom(originalCastFrom)
             if (originalActivator == null) sa.setActivatingPlayer(null)
         }
@@ -297,6 +394,7 @@ internal object ActionManaCosts {
         val tappedForConvoke = CardCollection(sa.tappedForConvoke)
         val host = sa.hostCard
         val delved = host?.let { CardCollection(it.delved) }
+        val castFrom = host?.castFrom
         val usedToPay =
             player.game
                 .getCardsIn(ForgeZoneType.Battlefield)
@@ -312,6 +410,7 @@ internal object ActionManaCosts {
             if (host != null && delved != null) {
                 host.clearDelved()
                 delved.forEach(host::addDelved)
+                host.setCastFrom(castFrom)
             }
             usedToPay.forEach { (card, wasUsed) -> card.setUsedToPay(wasUsed) }
         }
@@ -323,31 +422,33 @@ internal object ActionManaCosts {
         manaCost: ManaCost,
         actionBuilder: Action.Builder,
         abilityGrpId: Int? = null,
+        specs: List<ManaCostSpecType> = emptyList(),
     ) {
-        forgeManaCostToRequirements(manaCost, abilityGrpId).forEach(actionBuilder::addManaCost)
+        forgeManaCostToRequirements(manaCost, abilityGrpId, specs).forEach(actionBuilder::addManaCost)
     }
 
     fun forgeManaCostToRequirements(
         manaCost: ManaCost,
         abilityGrpId: Int? = null,
+        specs: List<ManaCostSpecType> = emptyList(),
     ): List<ManaRequirement> {
-        if (manaCost.none { ManaColorMapping.fromOrTwoGenericShard(it) != null }) {
-            return aggregatedManaRequirements(manaCost, abilityGrpId)
+        if (manaCost.none { ManaColorMapping.requirementColors(it).size > 1 }) {
+            return aggregatedManaRequirements(manaCost, abilityGrpId, specs)
         }
         val result = mutableListOf<ManaRequirement>()
+        // Arena serializes the generic portion before colored/hybrid pips.
+        // Forge's shard iteration is not stable with respect to that wire
+        // order after cost adjustments (for example Eddymurk Crab commonly
+        // arrives as U,U,1). Keep the requirement order canonical so every
+        // action rail backed by this conversion renders the same effective cost.
+        addGenericRequirement(manaCost, abilityGrpId, specs, result)
         for (shard in manaCost) {
-            val hybridColor = ManaColorMapping.fromOrTwoGenericShard(shard)
-            val color = hybridColor ?: ManaColorMapping.fromShard(shard) ?: continue
+            val colors = ManaColorMapping.requirementColors(shard)
+            if (colors.isEmpty()) continue
             val req = ManaRequirement.newBuilder().setCount(1)
-            if (hybridColor != null) req.addColor(ManaColor.TwoGeneric)
-            req.addColor(color)
+            req.addAllColor(colors)
             if (abilityGrpId != null) req.setAbilityGrpId(abilityGrpId)
-            result.add(req.build())
-        }
-        val generic = manaCost.genericCost
-        if (generic > 0) {
-            val req = ManaRequirement.newBuilder().addColor(ManaColor.Generic).setCount(generic)
-            if (abilityGrpId != null) req.setAbilityGrpId(abilityGrpId)
+            req.addAllSpecs(specs)
             result.add(req.build())
         }
         return result
@@ -356,21 +457,41 @@ internal object ActionManaCosts {
     private fun aggregatedManaRequirements(
         manaCost: ManaCost,
         abilityGrpId: Int?,
+        specs: List<ManaCostSpecType>,
     ): List<ManaRequirement> {
         val result = mutableListOf<ManaRequirement>()
+        addGenericRequirement(manaCost, abilityGrpId, specs, result)
         for ((color, count) in ManaColorMapping.colorCounts(manaCost)) {
             val req = ManaRequirement.newBuilder().addColor(color).setCount(count)
             if (abilityGrpId != null) req.setAbilityGrpId(abilityGrpId)
-            result.add(req.build())
-        }
-        val generic = manaCost.genericCost
-        if (generic > 0) {
-            val req = ManaRequirement.newBuilder().addColor(ManaColor.Generic).setCount(generic)
-            if (abilityGrpId != null) req.setAbilityGrpId(abilityGrpId)
+            req.addAllSpecs(specs)
             result.add(req.build())
         }
         return result
     }
+
+    private fun addGenericRequirement(
+        manaCost: ManaCost,
+        abilityGrpId: Int?,
+        specs: List<ManaCostSpecType>,
+        result: MutableList<ManaRequirement>,
+    ) {
+        val generic = manaCost.genericCost
+        if (generic > 0) {
+            val req = ManaRequirement.newBuilder().addColor(ManaColor.Generic).setCount(generic)
+            if (abilityGrpId != null) req.setAbilityGrpId(abilityGrpId)
+            req.addAllSpecs(specs)
+            result.add(req.build())
+        }
+    }
+
+    /**
+     * Cost annotations that Forge exposes as first-class cost metadata.
+     * Waterbend is the only ManaCostSpecType currently represented by Forge;
+     * the other protocol values have no corresponding Forge cost accessor.
+     */
+    fun manaCostSpecs(cost: forge.game.cost.Cost?): List<ManaCostSpecType> =
+        if (cost?.getMaxWaterbend() != null) listOf(ManaCostSpecType.Waterbend) else emptyList()
 
     fun producedToManaColor(produced: String): ManaColor? = ManaColorMapping.fromProduced(produced)
 }

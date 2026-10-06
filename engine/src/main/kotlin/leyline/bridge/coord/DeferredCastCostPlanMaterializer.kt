@@ -9,15 +9,20 @@ import forge.game.cost.CostPayLife
 import forge.game.keyword.Keyword
 import forge.game.spellability.OptionalCost
 import forge.game.spellability.SpellAbility
+import leyline.bridge.ActionAvailability
 import leyline.bridge.handoff.DeferredCastCostPlan
 import leyline.bridge.handoff.GameActionBridge
 import leyline.bridge.handoff.ManaRequirementSpec
 import leyline.bridge.handoff.PlayerAction
+import leyline.bridge.types.GrpId
 import leyline.bridge.types.ManaColorMapping
 import leyline.game.data.CardData
+import leyline.game.mapping.ActionAutoTapSupport
+import leyline.game.mapping.ActionBuildContext
 import leyline.game.mapping.ActionMapper
 import leyline.game.mapping.PromptIds
 import leyline.game.state.GameBridge
+import wotc.mtgo.gre.external.messaging.Messages.AutoTapSolution
 import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
 import wotc.mtgo.gre.external.messaging.Messages.ManaColor
 
@@ -36,13 +41,29 @@ internal object DeferredCastCostPlanMaterializer {
         val card = (offer.command as? PlayerAction.CastSpell)?.ability?.hostCard ?: return null
         val cardData = bridge.cardRepository.findByGrpId(offer.action.grpId)
         val keywordCount = bridge.abilityRegistryFor(card, cardData)?.slotLayout?.keywordCount ?: 0
-        return materialize(offer, cardData, keywordCount, nextToken)
+        val player = offer.command.ability?.activatingPlayer ?: return null
+        val context =
+            ActionBuildContext(
+                player,
+                { bridge.getOrAllocInstanceId(it) },
+                { GrpId(bridge.resolveGrpId(it, bridge.instanceId(it))) },
+                { bridge.cardRepository.findByGrpId(it.value) },
+                { source, data -> bridge.abilityRegistryFor(source, data) },
+            )
+        return materialize(
+            offer,
+            cardData,
+            keywordCount,
+            autoTapSolution = { ability, cost -> ActionAutoTapSupport.build(cost, context, ability) },
+            nextToken = nextToken,
+        )
     }
 
     fun materialize(
         offer: GameActionBridge.ActionOffer,
         cardData: CardData?,
         keywordCount: Int,
+        autoTapSolution: (SpellAbility, ManaCost) -> AutoTapSolution? = { _, _ -> null },
         nextToken: () -> Long,
     ): Result? {
         val command = offer.command as? PlayerAction.CastSpell ?: return null
@@ -53,14 +74,21 @@ internal object DeferredCastCostPlanMaterializer {
         val hybrid =
             if (offer.action.alternativeGrpId == 0) {
                 val effectiveCost = ActionMapper.computeEffectiveCost(ability, player)
-                val paymentColors = effectiveCost?.hybridOrTwoGenericColors().orEmpty()
-                if (effectiveCost != null && paymentColors.isNotEmpty()) {
+                val paymentPips = effectiveCost?.manaTypePips().orEmpty()
+                val paymentColors = paymentPips.map { it.colors.first() }
+                if (effectiveCost != null && paymentPips.isNotEmpty()) {
                     val baseCost = ability.payCosts?.totalMana
-                    val promptCost = baseCost?.takeIf { it.hybridOrTwoGenericColors().size == paymentColors.size } ?: effectiveCost
+                    val promptPips = baseCost?.manaTypePips()
+                    val promptCost = baseCost?.takeIf { promptPips?.size == paymentPips.size } ?: effectiveCost
+                    val selectedPromptPips = promptCost.manaTypePips()
                     DeferredCastCostPlan.hybrid(
-                        promptCost.hybridOrTwoGenericColors(),
+                        selectedPromptPips.map { it.colors.first() },
                         paymentColors,
                         promptCost.toManaRequirementSpecs(),
+                        selectedPromptPips.map { it.alternative },
+                        paymentPips.map { it.alternative },
+                        selectedPromptPips.map { it.colors },
+                        paymentPips.map { it.colors },
                     )
                 } else {
                     null
@@ -79,7 +107,12 @@ internal object DeferredCastCostPlanMaterializer {
                     optionalCosts.mapIndexed { index, cost ->
                         val type = optionalCostType(cost.type)
                         val abilityGrpId =
-                            if (cost.type == OptionalCost.Bargain || cost.type == OptionalCost.Teamwork) {
+                            if (cost.type == OptionalCost.Kicker1 || cost.type == OptionalCost.Kicker2) {
+                                card
+                                    .findKeywordSlot("Kicker", keywordCount)
+                                    ?.let { cardData?.abilityIds?.getOrNull(it)?.first }
+                                    ?: 0
+                            } else if (cost.type == OptionalCost.Bargain || cost.type == OptionalCost.Teamwork) {
                                 card
                                     .findKeywordSlot(cost.type.name, keywordCount)
                                     ?.let { cardData?.abilityIds?.getOrNull(it)?.first }
@@ -87,14 +120,29 @@ internal object DeferredCastCostPlanMaterializer {
                             } else {
                                 cardData?.abilityIds?.getOrNull(keywordCount + index)?.first ?: 0
                             }
-                        DeferredCastCostPlan.OptionalCostEntry(type, abilityGrpId, null)
+                        val withCost = GameActionUtil.addOptionalCosts(ability, listOf(cost))
+                        val effectiveCost = ActionMapper.computeEffectiveCost(withCost, player)
+                        val canPay = ActionAvailability.canExecute(withCost, player)
+                        DeferredCastCostPlan.OptionalCostEntry(
+                            type,
+                            abilityGrpId,
+                            null,
+                            effectiveCost?.let(ActionMapper::forgeManaCostToPairs),
+                            isAffordable = canPay,
+                            autoTapSolution = effectiveCost?.takeIf { canPay }?.let { autoTapSolution(withCost, it) },
+                        )
                     } +
                         keywordCosts.map { name ->
                             val slot = card.findKeywordSlot(name, keywordCount)
                             val abilityGrpId = slot?.let { cardData?.abilityIds?.getOrNull(it)?.first } ?: 0
                             DeferredCastCostPlan.OptionalCostEntry(keywordCostType(name), abilityGrpId, name)
                         }
-                DeferredCastCostPlan.optional(entries, cardData?.manaCost.orEmpty())
+                val baseCost = ActionMapper.computeEffectiveCost(ability, player)
+                DeferredCastCostPlan.optional(
+                    entries,
+                    baseCost?.let(ActionMapper::forgeManaCostToPairs).orEmpty(),
+                    baseCost?.let { autoTapSolution(ability, it) },
+                )
             }
 
         val childSelections = linkedMapOf<Long, RuntimeActionSelection>()
@@ -219,14 +267,25 @@ internal object DeferredCastCostPlanMaterializer {
             ?: true
     }
 
-    private fun ManaCost.hybridOrTwoGenericColors(): List<ManaColor> = mapNotNull(ManaColorMapping::fromOrTwoGenericShard)
+    private data class ManaTypePip(
+        val alternative: ManaColor,
+        val colors: List<ManaColor>,
+    )
+
+    private fun ManaCost.manaTypePips(): List<ManaTypePip> =
+        mapNotNull { shard ->
+            val alternative = ManaColorMapping.manaTypeAlternative(shard) ?: return@mapNotNull null
+            val colors = ManaColorMapping.paymentColors(shard)
+            if (colors.isEmpty()) return@mapNotNull null
+            ManaTypePip(alternative, colors)
+        }
 
     private fun ManaCost.toManaRequirementSpecs(): List<ManaRequirementSpec> =
         buildList {
             for (shard in this@toManaRequirementSpecs) {
-                val hybrid = ManaColorMapping.fromOrTwoGenericShard(shard)
-                val color = hybrid ?: ManaColorMapping.fromShard(shard) ?: continue
-                add(ManaRequirementSpec.frozen(if (hybrid == null) listOf(color) else listOf(ManaColor.TwoGeneric, color)))
+                val colors = ManaColorMapping.requirementColors(shard)
+                if (colors.isEmpty()) continue
+                add(ManaRequirementSpec.frozen(colors))
             }
             if (genericCost > 0) add(ManaRequirementSpec.frozen(listOf(ManaColor.Generic), genericCost))
         }

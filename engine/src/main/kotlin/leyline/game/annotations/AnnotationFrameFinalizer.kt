@@ -22,7 +22,7 @@ object AnnotationFrameFinalizer {
     }
 
     /**
-     * Keep one PhaseOrStepModified per distinct phase/step in a frame.
+     * Keep one PhaseOrStepModified per distinct player/phase/step in a frame.
      *
      * The frame's own PhaseChanged events and a PhaseTransition supplement both
      * emit one, so a single step could arrive two or three times over. Arena
@@ -31,10 +31,16 @@ object AnnotationFrameFinalizer {
      * and never repeats a pair.
      */
     private fun dedupePhaseSteps(annotations: List<AnnotationInfo>): List<AnnotationInfo> {
-        val seen = mutableSetOf<Pair<Int, Int>>()
+        val seen = mutableSetOf<Triple<Int, Int, Int>>()
         return annotations.filter { annotation ->
             if (AnnotationType.PhaseOrStepModified !in annotation.typeList) return@filter true
-            seen.add((annotation.intDetail(DetailKeys.PHASE) ?: -1) to (annotation.intDetail(DetailKeys.STEP) ?: -1))
+            seen.add(
+                Triple(
+                    annotation.affectedIdsList.firstOrNull() ?: -1,
+                    annotation.intDetail(DetailKeys.PHASE) ?: -1,
+                    annotation.intDetail(DetailKeys.STEP) ?: -1,
+                ),
+            )
         }
     }
 

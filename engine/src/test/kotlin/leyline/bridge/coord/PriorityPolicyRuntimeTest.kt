@@ -66,18 +66,23 @@ class PriorityPolicyRuntimeTest :
             }
         }
 
-        test("own stack opens a window only when there is something to respond with; an opponent response always reopens") {
+        test("default resolve-my-stack-effects auto-passes own objects even when there are legal responses") {
             assertSoftly {
                 val policy = runtime()
                 val ownSpell = PriorityStackObject(1, 1)
                 val response = PriorityStackObject(2, 2)
-                // Another castable instant lets the player stack a second spell on their own.
-                policy.visible(observation(phase = PhaseType.UPKEEP, meaningful = true, stack = listOf(ownSpell))).shouldBeTrue()
+                // The client normally submits AutoPassPriority.Yes for an action while
+                // Full Control is disabled.  ResolveMyStackEffects must carry that
+                // through later trigger/choice microsteps, even if an instant is legal.
+                policy.submitAutoPassPriority(AutoPassPriority.Yes_a099)
+                policy.actionCompleted(true)
+                policy.visible(observation(phase = PhaseType.UPKEEP, meaningful = true, stack = listOf(ownSpell))).shouldBeFalse()
                 policy.visible(observation(phase = PhaseType.UPKEEP, stack = listOf(ownSpell))).shouldBeFalse()
+                // An opponent object remains an actionable response window.
                 policy.visible(observation(phase = PhaseType.UPKEEP, meaningful = true, stack = listOf(response, ownSpell))).shouldBeTrue()
                 policy.visible(observation(phase = PhaseType.UPKEEP, stack = listOf(response, ownSpell))).shouldBeFalse()
                 policy.classifyPriorityWindow(observation(meaningful = true, stack = listOf(ownSpell))) shouldBe
-                    PriorityWindowDecision.Present(PriorityWindowMode.Visible, autoResolve = false)
+                    PriorityWindowDecision.Present(PriorityWindowMode.SyncOnly, autoResolve = true)
                 policy.classifyPriorityWindow(observation(stack = listOf(ownSpell))) shouldBe
                     PriorityWindowDecision.Present(PriorityWindowMode.SyncOnly, autoResolve = true)
             }
@@ -97,6 +102,23 @@ class PriorityPolicyRuntimeTest :
             }
         }
 
+        test("locked full control keeps own-stack priority across phases and turns") {
+            val policy = runtime()
+            policy.submit(
+                settingsMessage {
+                    autoPassOption = AutoPassOption.FullControl
+                    defaultAutoPassOption = AutoPassOption.FullControl
+                },
+            )
+            val copy = listOf(PriorityStackObject(42, 1))
+            policy.visible(observation(phase = PhaseType.MAIN1, turn = 1, stack = copy)).shouldBeTrue()
+            policy.visible(observation(phase = PhaseType.COMBAT_BEGIN, turn = 1, stack = copy)).shouldBeTrue()
+            policy.visible(observation(own = false, phase = PhaseType.MAIN1, turn = 2, stack = copy)).shouldBeTrue()
+            policy.visible(observation(phase = PhaseType.MAIN1, turn = 3, stack = copy)).shouldBeTrue()
+            policy.currentSettings().defaultAutoPassOption shouldBe AutoPassOption.FullControl
+            policy.currentSettings().autoPassOption shouldBe AutoPassOption.FullControl
+        }
+
         test("response No holds exactly one ensuing priority after successful action") {
             assertSoftly {
                 val policy = runtime()
@@ -112,6 +134,17 @@ class PriorityPolicyRuntimeTest :
             }
         }
 
+        test("response Yes never creates a hold, including after a successful action") {
+            assertSoftly {
+                val policy = runtime()
+                policy.submitAutoPassPriority(AutoPassPriority.Yes_a099)
+                policy.actionCompleted(true)
+                policy.visible(observation(meaningful = true, stack = listOf(PriorityStackObject(1, 1)))).shouldBeFalse()
+                policy.visible(observation(meaningful = true, stack = listOf(PriorityStackObject(2, 2)))).shouldBeTrue()
+                policy.isFullControl().shouldBeFalse()
+            }
+        }
+
         test("manual mana retains its window without creating later empty stops") {
             assertSoftly {
                 val policy = runtime()
@@ -121,6 +154,30 @@ class PriorityPolicyRuntimeTest :
                 policy.classifyPriorityWindow(observation().copy(forceVisible = true)) shouldBe
                     PriorityWindowDecision.Present(PriorityWindowMode.Visible, autoResolve = false)
             }
+        }
+
+        test("smart stops permit responding to own spells targeting own permanents") {
+            val selfTarget =
+                observation(meaningful = true, stack = listOf(PriorityStackObject(1, 1)))
+                    .copy(ownStackTargetsOwnPermanent = true)
+            val policy = runtime()
+            policy.submitAutoPassPriority(AutoPassPriority.Yes_a099)
+            policy.actionCompleted(true)
+            policy.visible(selfTarget).shouldBeTrue()
+            policy.isFullControl().shouldBeFalse()
+            policy.visible(selfTarget.copy(hasMeaningfulAction = false)).shouldBeFalse()
+            policy.submit(settingsMessage { setSmartStopsSetting(SmartStopsSetting.Disable_a188) })
+            policy.visible(selfTarget).shouldBeFalse()
+        }
+
+        test("explicit stack yield takes precedence over own-target smart stop") {
+            val policy = runtime()
+            policy.submit(settingsMessage { setStackAutoPassOption(AutoPassOption.ResolveAll) })
+            policy
+                .visible(
+                    observation(meaningful = true, stack = listOf(PriorityStackObject(1, 1)))
+                        .copy(ownStackTargetsOwnPermanent = true),
+                ).shouldBeFalse()
         }
 
         test("transient stops force exact scoped occurrence and expire after leaving it") {

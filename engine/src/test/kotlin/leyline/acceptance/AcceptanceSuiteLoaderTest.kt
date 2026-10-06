@@ -11,6 +11,28 @@ class AcceptanceSuiteLoaderTest :
     FunSpec({
         tags(UnitTag)
 
+        test("parses installed catalog and full-control headless options independently") {
+            val suite =
+                AcceptanceSuiteLoader.loadFromText(
+                    """
+                    name: catalog-control
+                    scenarios:
+                      - id: full-catalog
+                        puzzle: sample
+                        headless: { forge_catalog: true, full_control: true }
+                      - id: explicit-fixture
+                        puzzle: sample
+                        headless: { forge_catalog: false }
+                    """.trimIndent(),
+                )
+            assertSoftly {
+                suite.scenarios[0].forgeCatalog shouldBe true
+                suite.scenarios[0].fullControl shouldBe true
+                suite.scenarios[1].forgeCatalog shouldBe false
+                suite.scenarios[1].fullControl shouldBe false
+            }
+        }
+
         test("parses backend-neutral executable steps") {
             val suite =
                 AcceptanceSuiteLoader.loadFromText(
@@ -63,6 +85,7 @@ class AcceptanceSuiteLoaderTest :
                 val scenario = suite.scenarios.single()
                 scenario.id shouldBe "cast-face"
                 scenario.fullControl shouldBe false
+                scenario.forgeCatalog shouldBe false
                 scenario.steps shouldHaveSize 21
                 scenario.steps[0] shouldBe WaitStep(listOf(ActionAvailableCondition(AcceptanceActionType.Activate, "Miscalculation")))
                 scenario.steps[1] shouldBe ActivateStep("Miscalculation", AcceptanceZone.Hand, 0, 188841)

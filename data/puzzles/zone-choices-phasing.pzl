@@ -1,0 +1,17 @@
+[metadata]
+Name:Library destination choices and phasing
+Goal:Survive
+Turns:4
+Difficulty:Easy
+Description:Use Aether Gust on your own permanent or spell to choose top or bottom. Reset and use Slip Out the Back to observe phase-out and next-untap return.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanhand=Aether Gust;Aether Gust;Slip Out the Back;Burst Lightning;Wall of Runes;Evolving Wilds
+humanbattlefield=Grizzly Bears;Island;Island;Island;Island;Mountain;Forest
+humanlibrary=Plains;Mountain;Island;Swamp;Forest;Mountain;Island;Swamp;Plains;Forest
+aibattlefield=Forest
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

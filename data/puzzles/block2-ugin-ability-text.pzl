@@ -1,0 +1,17 @@
+[metadata]
+Name:Block 2 Ugin cast and loyalty text
+Goal:Survive
+Turns:5
+Difficulty:Easy
+Description:Cast Ugin, exile opposing Bears with his cast trigger, then activate +2. Inspect the individual ability text on each stack tile.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanhand=Ugin, Eye of the Storms;Lightning Bolt
+humanbattlefield=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+humanlibrary=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+aibattlefield=Grizzly Bears
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

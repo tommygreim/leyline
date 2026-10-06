@@ -1,0 +1,18 @@
+[metadata]
+Name:Remaining opponent permissions and chosen-name announcement
+Goal:Survive
+Turns:6
+Difficulty:Easy
+Description:Duress the opponent's Winternight Stories, then pass without attacking. The opponent can play Petrified Hamlet and Tablet, drawing Bears then milling Thor. Observe their named-land bubble and alternate-zone rails, never on your side.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanbattlefield=Swamp;Swamp
+humanhand=Duress
+humanlibrary=Swamp;Swamp;Swamp;Swamp;Swamp;Swamp;Swamp;Swamp;Swamp;Swamp;Swamp;Swamp
+aibattlefield=Mountain;Mountain
+aihand=Winternight Stories;Petrified Hamlet;Tablet of Discovery
+ailibrary=Grizzly Bears;Thor, God of Thunder;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

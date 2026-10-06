@@ -1,0 +1,99 @@
+name: Lightning Bolt cast and resolution
+scenario: {suite: warmup, id: land-spell-face}
+frames:
+  - id: cast
+    events:
+      - id: stack-object
+        type: Card
+        lane: object
+        op: create
+        fields: {raw.zoneId: 27}
+      - id: cast-reallocated
+        type: ObjectIdChanged
+        lane: transient
+        keys: [orig_id, new_id]
+        equals: {"details.new_id[0]": stack-object.affectorId}
+      - id: cast
+        type: ZoneTransfer
+        lane: transient
+        keys: [category, zone_src, zone_dest]
+        fields: {details.category: [CastSpell], details.zone_src: [31], details.zone_dest: [27]}
+        equals: {"affectedIds[0]": stack-object.affectorId}
+      - id: selecting-targets
+        type: PlayerSelectingTargets
+        lane: transient
+        keys: []
+        equals: {"affectedIds[0]": stack-object.affectorId}
+  - id: submitted
+    events:
+      - id: submitted
+        type: PlayerSubmittedTargets
+        lane: transient
+        keys: []
+        equals: {"affectedIds[0]": stack-object.affectorId}
+      - id: mana-paid
+        type: ManaPaid
+        lane: transient
+        keys: [id, color]
+        equals: {"affectedIds[0]": stack-object.affectorId}
+      - id: action
+        type: UserActionTaken
+        lane: transient
+        keys: [abilityGrpId, actionType]
+        fields: {details.actionType: [1], details.abilityGrpId: [0]}
+        equals: {"affectedIds[0]": stack-object.affectorId, affectorId: submitted.affectorId}
+      - id: target
+        type: TargetSpec
+        lane: persistent
+        op: create
+        keys: [abilityGrpId, index, promptId, promptParameters]
+        # Our native-tested bridge uses the dedicated "deal 3 damage" target prompt.
+        fields: {affectedIds: [2], details.index: [1], details.promptId: [15845]}
+        equals: {affectorId: stack-object.affectorId}
+  - id: resolution
+    events:
+      - id: resolution-started
+        type: ResolutionStart
+        lane: transient
+        equals: {affectorId: stack-object.affectorId}
+      - id: damage
+        type: DamageDealt
+        lane: transient
+        keys: [damage, markDamage, type]
+        fields:
+          details.damage: [3]
+          details.type: [2]
+          details.markDamage: [1]
+          detailTypes.damage: Int32
+          detailTypes.type: Int32
+          detailTypes.markDamage: Int32
+        equals: {affectorId: stack-object.affectorId, "affectedIds[0]": "target.affectedIds[0]"}
+      - id: resolved
+        type: ResolutionComplete
+        lane: transient
+        equals: {affectorId: stack-object.affectorId}
+      - id: graveyard-reallocated
+        type: ObjectIdChanged
+        lane: transient
+        equals: {"details.orig_id[0]": stack-object.affectorId}
+      - id: graveyard
+        type: ZoneTransfer
+        lane: transient
+        fields: {details.category: [Resolve], details.zone_src: [27], details.zone_dest: [33]}
+        equals: {"affectedIds[0]": "graveyard-reallocated.details.new_id[0]"}
+  - id: retirement
+    events:
+      - id: target-retired
+        type: TargetSpec
+        lane: persistent
+        op: delete
+        sameRow: target
+counts:
+  - match: {type: DamageDealt, lane: transient}
+    exactly: 1
+  - match: {type: TargetSpec, lane: persistent, op: delete, sameRow: target}
+    exactly: 1
+  - match: {type: TargetSpec, lane: persistent, op: create, sameRow: target}
+    exactly: 1
+  - match: {type: TargetSpec, lane: persistent, op: update, sameRow: target}
+    exactly: 0

@@ -10,6 +10,7 @@ import leyline.testkit.detail
 import leyline.testkit.gameStateMessages
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
 import wotc.mtgo.gre.external.messaging.Messages.GameStateUpdate
+import wotc.mtgo.gre.external.messaging.Messages.Step
 
 /**
  * Stream contract: a turn-boundary or trigger-driven own-seat draw must be
@@ -48,5 +49,18 @@ class DrawUpdateTypeShapeTest :
 
             drawGsm.shouldNotBeNull()
             drawGsm.update shouldBe GameStateUpdate.SendHiFi
+            // The transport cut is installed by Forge's draw-step safe point,
+            // not delayed until Main1's priority frame. This keeps the card's
+            // ZoneTransfer UX event alive until it reaches the hand.
+            drawGsm.turnInfo.step shouldBe Step.Draw_a2cb
+            // Apply replacement PlayerInfo records just as Arena does; Forge's
+            // life/mana snapshot alone misses lifecycle-only MulliganResp.
+            val lastPlayerBeforeDraw =
+                allMessages
+                    .gameStateMessages()
+                    .takeWhile { it.gameStateId <= drawGsm.gameStateId }
+                    .flatMap { it.playersList }
+                    .last { it.systemSeatNumber == 1 }
+            lastPlayerBeforeDraw.pendingMessageType.number shouldBe 0
         }
     })

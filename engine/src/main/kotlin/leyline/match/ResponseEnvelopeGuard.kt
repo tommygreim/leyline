@@ -18,6 +18,7 @@ internal val CORRELATED_CLIENT_MESSAGE_TYPES: Set<ClientMessageType> =
         ClientMessageType.SelectTargetsResp_097b,
         ClientMessageType.SubmitTargetsReq,
         ClientMessageType.EffectCostResp_097b,
+        ClientMessageType.PerformAutoTapActionsResp_097b,
         ClientMessageType.CastingTimeOptionsResp_097b,
         ClientMessageType.GroupResp_097b,
         ClientMessageType.AssignDamageResp_097b,

@@ -9,6 +9,7 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.InstanceId
+import leyline.game.bundle.GsmBuilder
 import leyline.game.event.FrameEventLog
 import leyline.game.mapping.FrameIdResolver
 import leyline.game.mapping.ZoneIds
@@ -58,6 +59,58 @@ class AdventureCompanionTest :
                 hand.objectInstanceIdsList shouldContain parentIid
                 hand.objectInstanceIdsList shouldNotContain companion.instanceId
             }
+        }
+
+        test("drawing Hearth Elemental projects Stoke Genius beside its parent in hand") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Hearth Elemental", human, ZoneType.Library)
+                }
+            val (gsm, parentIid) =
+                board.transferCard("Hearth Elemental") { card, game ->
+                    game.action.moveTo(ZoneType.Hand, card, null, AbilityKey.newMap())
+                }
+            val parent = gsm.gameObjectsList.single { it.instanceId == parentIid }
+            val companion = gsm.gameObjectsList.single { it.type == GameObjectType.Adventure_a4aa }
+
+            assertSoftly {
+                parent.grpId shouldBe 86835
+                companion.grpId shouldBe 86836
+                companion.parentId shouldBe parentIid
+                companion.zoneId shouldBe ZoneIds.P1_HAND
+                companion.visibility shouldBe Visibility.Private
+                companion.viewersList shouldBe listOf(1)
+            }
+        }
+
+        test("opening hand deal projects Stoke Genius companion with Hearth Elemental") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Hearth Elemental", human, ZoneType.Hand)
+                }
+            val snapshot = SnapshotCapture.run(board.game, board.bridge, "test", 2)
+            val gsm = GsmBuilder.buildDealHand(board.bridge, 2, 1, snapshot)
+            val parent = gsm.gameObjectsList.single { it.grpId == 86835 }
+            val companion = gsm.gameObjectsList.single { it.type == GameObjectType.Adventure_a4aa }
+
+            assertSoftly {
+                companion.grpId shouldBe 86836
+                companion.parentId shouldBe parent.instanceId
+                companion.zoneId shouldBe ZoneIds.P1_HAND
+                companion.visibility shouldBe Visibility.Private
+                companion.viewersList shouldBe listOf(1)
+            }
+        }
+
+        test("opening hand deal does not reveal the opponent's Adventure companion") {
+            val board =
+                startWithBoard { _, _, ai ->
+                    addCard("Hearth Elemental", ai, ZoneType.Hand)
+                }
+            val snapshot = SnapshotCapture.run(board.game, board.bridge, "test", 2)
+            val gsm = GsmBuilder.buildDealHand(board.bridge, 2, 1, snapshot)
+
+            gsm.gameObjectsList.none { it.grpId == 86835 || it.grpId == 86836 } shouldBe true
         }
 
         test("non-Adventure linked card has no Adventure companion") {

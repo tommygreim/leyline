@@ -1,0 +1,25 @@
+name: block2-trigger-chain
+description: Simultaneous cast triggers and Tablet entry finish in the original main phase.
+scenarios:
+  - id: tablet-vision-death
+    puzzle: block2-tablet-trigger-chain
+    run: cast Tablet and choose The Vision's draw mode
+    expect: draw, plan Treasure, Tablet entry, and mill complete without a phase advance
+    steps:
+      - cast: Tablet of Discovery
+      - pass_until:
+          prompt: CastingTimeOptionsReq
+          max_passes: 12
+      - modal_choice: { index: 2, count: 3 }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - phase: Main1
+            - zone_contains: { side: ours, zone: battlefield, card: Tablet of Discovery }
+            - zone_contains: { side: ours, zone: battlefield, card: Treasure Token }
+            - zone_contains: { side: ours, zone: battlefield, card: Death to Our Enemies }
+            - zone_contains: { side: ours, zone: hand, card: Mountain }
+            - zone_contains: { side: ours, zone: graveyard, card: Mountain }
+            - opponent_life: 30
+            - our_life: 30
+            - stack_empty: true

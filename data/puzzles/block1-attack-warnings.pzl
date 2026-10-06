@@ -1,0 +1,20 @@
+# Shore Up enables Juggernaut for the must-attack route; reset and leave it tapped
+# to isolate Flunkies' cannot-attack-alone rule. The low life encourages blocking;
+# record trample as NOT TESTED if the opponent does not block Monstrosaur.
+[metadata]
+Name:Block 1 attack requirements and trample controls
+Goal:Survive
+Turns:5
+Difficulty:Easy
+Description:Test missing mandatory attacker, cannot-attack-alone warning, and a legal combined attack. Inspect trample if Monstrosaur is blocked.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=5
+humanhand=Shore Up
+humanbattlefield=Mogg Flunkies;Juggernaut|Tapped;Charging Monstrosaur;Island
+humanlibrary=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+aibattlefield=Grizzly Bears;Grizzly Bears;Grizzly Bears;Grizzly Bears
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

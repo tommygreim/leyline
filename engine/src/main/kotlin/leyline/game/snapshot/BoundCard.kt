@@ -71,7 +71,7 @@ data class BoundCard(
 
     companion object {
         /**
-         * BaseId chain roots that identify alt-cost ability rows on a card.
+         * BaseId chain roots that identify keyword alt-cost rows on a card.
          * Each appears as the `BaseId` of at most one ability row per printing
          * (Warp/Sneak/Plot/Foretell/Disturb/Escape/Jump-start/Mutate/
          * Impending/Cleave/Evoke/Blitz/Dash/Overload/Emerge/Spectacle/Surge/Harmonize/Madness/Flashback/Retrace/Mobilize).
@@ -100,6 +100,7 @@ data class BoundCard(
                 KeywordAbilityIds.MOBILIZE,
                 KeywordAbilityIds.WARP,
                 KeywordAbilityIds.SNEAK,
+                KeywordAbilityIds.WEB_SLINGING,
                 KeywordAbilityIds.DISGUISE,
                 KeywordAbilityIds.PARADIGM,
             )
@@ -118,6 +119,8 @@ data class BoundCard(
          *  2. **BaseId chain** — an ability on the card has
          *     [leyline.game.data.AbilityInfo.baseId] equal to a well-known
          *     root.
+         *  3. **Intrinsic conditional cost** — a base-less Category 8 row
+         *     binds with `keywordBaseId = 0`.
          */
         fun bindAltCosts(
             data: CardData?,
@@ -139,7 +142,7 @@ data class BoundCard(
                     continue
                 }
                 val info = repo.findAbilityInfo(abilityGrpId) ?: continue
-                if (info.baseId !in ALT_COST_BASE_IDS) continue
+                if (info.baseId !in ALT_COST_BASE_IDS && !(info.baseId == 0 && info.category == 8)) continue
                 out +=
                     AltCostBinding(
                         keywordBaseId = info.baseId,

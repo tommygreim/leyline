@@ -102,6 +102,14 @@ object ZoneTransferAdapter {
                             )
                         },
                         sourceZoneLookup = mechanicSourceFacts::recordedSourceZone,
+                        previousStackCardLookup = { fid ->
+                            previousSnapshot?.objects?.get(fid)?.let { it.owner.value to it.grpId }
+                                ?: previousSnapshot
+                                    ?.stack
+                                    ?.entries
+                                    ?.firstOrNull { it.forgeCardId == fid }
+                                    ?.let { it.owner.value to it.sourceCardGrpId }
+                        },
                         zoneMoves = zoneMoves,
                     ),
             )

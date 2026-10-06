@@ -1,0 +1,10 @@
+name: "Spider-Man, Web-Slinger"
+grpId: 999382
+titleId: 999382
+abilities:
+  - id: 999383
+    textId: 999383
+    category: 8
+    baseId: 382
+    mana: "oW"
+expansionCode: "SPM"

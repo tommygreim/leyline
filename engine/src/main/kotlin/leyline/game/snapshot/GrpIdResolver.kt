@@ -187,7 +187,9 @@ object GrpIdResolver {
                 ?: GameBridge.FALLBACK_GRPID
         }
 
-        if ((card.isInZone(forge.game.zone.ZoneType.Stack) && card.isSplitCard) || card.isSpecialized) {
+        val secondary = forge.card.CardStateName.Secondary
+        val isLinkedSecondarySpell = card.isAdventureCard || (card.hasState(secondary) && card.getState(secondary).type.hasSubtype("Omen"))
+        if ((card.isInZone(forge.game.zone.ZoneType.Stack) && (card.isSplitCard || isLinkedSecondarySpell)) || card.isSpecialized) {
             val parentName = card.getOriginalState(forge.card.CardStateName.Original)?.name
             val parentGrpId = parentName?.let(cards::findGrpIdByName)
             parentGrpId
@@ -209,6 +211,13 @@ object GrpIdResolver {
                     ?: card.name
             resolveByName(originalName, cards)?.let { return it }
         }
+
+        // A transformed DFC's back-face name can occur in more than one print
+        // family. A plain any-face lookup is therefore not stable: it can turn
+        // a normal Clive into the borderless Ifrit printing merely because that
+        // row happens to be returned first. Resolve the original face first,
+        // then follow *that exact printing's* linked-face relationship.
+        resolvePairedTransformFace(card, cards)?.let { return it }
 
         // Primary-face lookup, falling back to any-face for DFC back faces
         // (e.g. saga transforms to Echo of Death's Wail — the back face lives in
@@ -253,6 +262,7 @@ object GrpIdResolver {
         cards: CardRepository,
     ): Int? {
         val candidates = mutableListOf<Card>()
+        activeCloneSource(card)?.let { candidates += it }
         card.cloneOrigin?.let { candidates += it }
         if (card.isCloned) {
             candidates += card.remembered.filterIsInstance<Card>()
@@ -265,6 +275,14 @@ object GrpIdResolver {
             }
         }
     }
+
+    /** Remembered cards are temporary; the clone layer's origin survives their cleanup. */
+    internal fun activeCloneSource(card: Card): Card? =
+        card.cloneStates.entries
+            .maxByOrNull { it.key }
+            ?.value
+            ?.origin
+            ?.takeIf { it.id != card.id }
 
     private fun resolveCopiedPermanentGrpId(
         copiedPermanent: Card,
@@ -295,6 +313,18 @@ object GrpIdResolver {
     ): Int? =
         cards.findGrpIdByName(name)
             ?: cards.findGrpIdByNameAnyFace(name)
+
+    private fun resolvePairedTransformFace(
+        card: Card,
+        cards: CardRepository,
+    ): Int? {
+        if (card.currentStateName != forge.card.CardStateName.Backside || !card.isDoubleFaced) return null
+        val originalName = card.getOriginalState(forge.card.CardStateName.Original)?.name?.takeIf { it.isNotEmpty() } ?: return null
+        val originalGrpId = cards.findGrpIdByName(originalName) ?: return null
+        return cards.findLinkedFaces(originalGrpId).singleOrNull { linkedGrpId ->
+            cards.findNameByGrpId(linkedGrpId) == card.name
+        }
+    }
 
     private fun resolveTokenByName(
         card: Card,

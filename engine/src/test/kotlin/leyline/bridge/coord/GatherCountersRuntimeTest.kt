@@ -186,7 +186,7 @@ class GatherCountersRuntimeTest :
                     listOf(GREMessageType.GameStateMessage_695e, GREMessageType.PayCostsReq_695e)
                 payCostsMessage.prompt.promptId shouldBe PromptIds.GATHER_COUNTERS
                 payCostsMessage.allowCancel shouldBe AllowCancel.Abort
-                payCostsMessage.allowUndo shouldBe true
+                payCostsMessage.allowUndo shouldBe false
                 payCosts.effectCostReq.effectCostType shouldBe EffectCostType.GatherCounters
                 payCosts.paymentActions shouldBe
                     wotc.mtgo.gre.external.messaging.Messages.ActionsAvailableReq

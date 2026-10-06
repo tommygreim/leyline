@@ -173,6 +173,7 @@ private fun selectorMatchScore(
     listOf(
         offer.grpId to response.grpId,
         offer.abilityGrpId to response.abilityGrpId,
+        offer.uniqueAbilityId to response.uniqueAbilityId,
         offer.alternativeGrpId to response.alternativeGrpId,
     ).count { (offered, returned) -> offered != 0 && returned != 0 && offered == returned }
 

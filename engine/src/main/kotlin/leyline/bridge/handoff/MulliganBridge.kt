@@ -21,7 +21,7 @@ import java.util.concurrent.TimeoutException
  */
 class MulliganBridge(
     private val autoKeep: Boolean = false,
-    private val timeoutMs: Long? = 60_000,
+    private val timeoutMs: Long? = null,
 ) {
     companion object {
         private val log = LoggerFactory.getLogger(MulliganBridge::class.java)

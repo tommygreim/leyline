@@ -28,6 +28,115 @@ import wotc.mtgo.gre.external.messaging.Messages.*
 class ActionMapperSnapshotTest :
     BoardTest({
 
+        test("flashback prediction preserves restricted double mana production") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Tablet of Discovery", human, ZoneType.Battlefield)
+                    addCard("Mountain", human, ZoneType.Battlefield)
+                    addCard("Faithless Looting", human, ZoneType.Graveyard)
+                }
+            val iid = board.human.graveyard.iid("Faithless Looting")
+            val projection =
+                ActionMapper.buildProjectionFromSnapshot(
+                    1,
+                    SnapshotCapture.run(board.game, board.bridge, "test", 0),
+                    board.bridge,
+                )
+            val action = projection.actions.actionsList.single { it.instanceId == iid && it.actionType == ActionType.Cast }
+            assertSoftly {
+                action.hasAutoTapSolution() shouldBe true
+                action.autoTapSolution.autoTapActionsList
+                    .flatMap { it.manaPaymentOption.manaList }
+                    .sumOf { it.count } shouldBe 3
+                action.autoTapSolution.autoTapActionsList.flatMap { it.manaPaymentOption.manaList }.any { mana ->
+                    mana.count == 2 && mana.specsList.any { it.type == ManaSpecType.Restricted }
+                } shouldBe true
+                projection.offers.single { it.action.instanceId == iid && it.action.actionType == ActionType.Cast }.action shouldBe action
+                board.human.battlefield
+                    .card("Tablet of Discovery")
+                    .isTapped shouldBe false
+                board.human.battlefield
+                    .card("Mountain")
+                    .isTapped shouldBe false
+            }
+        }
+
+        test("battlefield activation prediction preserves a source producing two mana") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Sol Ring", human, ZoneType.Battlefield)
+                    addCard("Island", human, ZoneType.Battlefield)
+                    addCard("Cryptic Coat", human, ZoneType.Battlefield)
+                }
+            val iid = board.human.battlefield.iid("Cryptic Coat")
+            val actions = ActionMapper.buildFromSnapshot(1, SnapshotCapture.run(board.game, board.bridge, "test", 0), board.bridge)
+            val action = actions.actionsList.single { it.instanceId == iid && it.actionType == ActionType.Activate_add3 }
+            assertSoftly {
+                action.hasAutoTapSolution() shouldBe true
+                action.autoTapSolution.autoTapActionsList
+                    .flatMap { it.manaPaymentOption.manaList }
+                    .sumOf { it.count } shouldBe 3
+                board.human.battlefield
+                    .card("Sol Ring")
+                    .isTapped shouldBe false
+                board.human.battlefield
+                    .card("Island")
+                    .isTapped shouldBe false
+            }
+        }
+
+        test("graveyard activation prediction preserves multi-mana output without paying its exile cost") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Sol Ring", human, ZoneType.Battlefield)
+                    addCard("Swamp", human, ZoneType.Battlefield)
+                    addCard("Scrapheap Scrounger", human, ZoneType.Graveyard)
+                    addCard("Grizzly Bears", human, ZoneType.Graveyard)
+                }
+            val iid = board.human.graveyard.iid("Scrapheap Scrounger")
+            val actions = ActionMapper.buildFromSnapshot(1, SnapshotCapture.run(board.game, board.bridge, "test", 0), board.bridge)
+            val action = actions.actionsList.single { it.instanceId == iid && it.actionType == ActionType.Activate_add3 }
+            assertSoftly {
+                action.hasAutoTapSolution() shouldBe true
+                action.autoTapSolution.autoTapActionsList
+                    .flatMap { it.manaPaymentOption.manaList }
+                    .sumOf { it.count } shouldBe 3
+                board.human.battlefield
+                    .card("Sol Ring")
+                    .isTapped shouldBe false
+                board.human.battlefield
+                    .card("Swamp")
+                    .isTapped shouldBe false
+                board.human.graveyard
+                    .card("Grizzly Bears")
+                    .zone.zoneType shouldBe ZoneType.Graveyard
+            }
+        }
+
+        test("cycling prediction cannot use spell-only mana for an activated ability") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Tablet of Discovery", human, ZoneType.Battlefield)
+                    addCard("Island", human, ZoneType.Battlefield)
+                    addCard("Shark Typhoon", human, ZoneType.Hand)
+                }
+            val iid = board.human.hand.iid("Shark Typhoon")
+            val actions = ActionMapper.buildFromSnapshot(1, SnapshotCapture.run(board.game, board.bridge, "test", 0), board.bridge)
+            val action = actions.actionsList.single { it.instanceId == iid && it.actionType == ActionType.Activate_add3 }
+            val mana = action.autoTapSolution.autoTapActionsList.flatMap { it.manaPaymentOption.manaList }
+            assertSoftly {
+                action.hasAutoTapSolution() shouldBe true
+                mana.sumOf { it.count } shouldBe 2
+                mana.any { it.specsList.any { spec -> spec.type == ManaSpecType.Restricted } } shouldBe false
+                board.human.battlefield
+                    .card("Tablet of Discovery")
+                    .isTapped shouldBe false
+                board.human.battlefield
+                    .card("Island")
+                    .isTapped shouldBe false
+            }
+        }
+
         // -----------------------------------------------------------------------
         // Test 1: empty hand + battlefield → Pass + FloatMana only
         // -----------------------------------------------------------------------
@@ -232,6 +341,28 @@ class ActionMapperSnapshotTest :
                 inactive.manaPaymentOptionsCount shouldBe 0
                 inactive.manaSelectionsCount shouldBe 0
             }
+        }
+
+        test("tapped Demolition Field does not offer its destroy activation") {
+            var fieldForgeId = 0
+            val (b, game, _) =
+                startWithBoard { _, human, ai ->
+                    addCard("Demolition Field", human, ZoneType.Battlefield)
+                        .also { fieldForgeId = it.id }
+                        .tap(true, true, null, null)
+                    // Keep a legal opposing nonbasic target present so this
+                    // assertion exercises the source's tap-cost legality,
+                    // rather than target filtering.
+                    addCard("Demolition Field", ai, ZoneType.Battlefield)
+                }
+
+            val projection = ActionMapper.buildProjectionFromSnapshot(1, SnapshotCapture.run(game, b, "test", 0), b)
+            val fieldInstanceId = b.getOrAllocInstanceId(ForgeCardId(fieldForgeId)).value
+
+            projection.offers
+                .none {
+                    it.action.actionType == ActionType.Activate_add3 && it.action.instanceId == fieldInstanceId
+                }.shouldBeTrue()
         }
 
         test("battlefield activated ability carries matching uniqueAbilityId") {

@@ -151,6 +151,18 @@ class GamePlayback(
         requestCut(PlaybackCutReason.PhaseChanged, delay)
     }
 
+    /**
+     * Publishes the compulsory draw while Forge is still in DRAW. Waiting for
+     * the following main-loop completion lets the priority/action frame race
+     * the ZoneTransfer UX event, which can leave the drawn card at center
+     * screen until a later pass drains the client queue.
+     */
+    fun onDrawStepCompleted() {
+        val viewerSeat = SeatId(seatId)
+        requestCut(PlaybackCutReason.DrawStep, DRAW_DELAY)
+        bridge.cutCoordinator.flushPlaybackCut(viewerSeat, PlaybackCutBoundary.MainLoopStep)
+    }
+
     override fun visit(ev: GameEventAttackersDeclared) {
         // Capture for BOTH local and remote attackers. The client expects a
         // combat-state diff (tapped creatures + attackState=Attacking) after
@@ -249,6 +261,10 @@ class GamePlayback(
 
     companion object {
         const val PHASE_DELAY = 200 // ms
+
+        // Draws have their own cut. The center-screen regression was stale
+        // MulliganResp state, not a need for a longer animation delay.
+        const val DRAW_DELAY = 350
         const val COMBAT_DELAY = 400
         const val CAST_DELAY = 400
         const val RESOLVE_DELAY = 400

@@ -29,13 +29,14 @@ class OptionalActionHandler(
                 .promptRuntimes(ctx.seatId)
                 .blocking
                 .current()
-                ?.takeIf { it.interaction is BlockingInteraction.Optional }
+                ?.takeIf {
+                    it.interaction is BlockingInteraction.Optional ||
+                        it.interaction is BlockingInteraction.TopOrBottom
+                }
                 ?: run {
                     log.warn("OptionalActionHandler: no pending prompt for OptionalActionResp")
                     return false
                 }
-        val prompt = pending.interaction as BlockingInteraction.Optional
-
         val resp = greMsg.optionalResp
         val accepted = resp.response == OptionResponse.AllowYes
 
@@ -43,15 +44,28 @@ class OptionalActionHandler(
             "OptionalActionHandler: {} responded {} for {}",
             if (accepted) "Accept" else "Decline",
             resp.response,
-            prompt.sourceId ?: "unknown",
+            when (val interaction = pending.interaction) {
+                is BlockingInteraction.Optional -> interaction.sourceId
+                is BlockingInteraction.TopOrBottom -> interaction.sourceId
+                else -> null
+            } ?: "unknown",
         )
 
-        if (!bridge.cutCoordinator
-                .promptRuntimes(
-                    ctx.seatId,
-                ).blocking
-                .submitOptional(pending.interactionId, greMsg.gameStateId, accepted)
-        ) {
+        val submitted =
+            when (pending.interaction) {
+                is BlockingInteraction.Optional ->
+                    bridge.cutCoordinator
+                        .promptRuntimes(ctx.seatId)
+                        .blocking
+                        .submitOptional(pending.interactionId, greMsg.gameStateId, accepted)
+                is BlockingInteraction.TopOrBottom ->
+                    bridge.cutCoordinator
+                        .promptRuntimes(ctx.seatId)
+                        .blocking
+                        .submitTopOrBottom(pending.interactionId, greMsg.gameStateId, accepted)
+                else -> false
+            }
+        if (!submitted) {
             return false
         }
         bridge.prioritySignal.markPromptResolved()

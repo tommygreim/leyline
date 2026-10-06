@@ -21,6 +21,7 @@ data class ProjectionState(
     val effects: SyntheticEffectProjection = SyntheticEffectProjection.initial(),
     val revealProxies: RevealProxyTracker.State = RevealProxyTracker.State(emptyMap()),
     val opponentKnowledge: OpponentKnowledgeTracker.State = OpponentKnowledgeTracker.State(emptyMap()),
+    val libraryKnowledge: LibraryKnowledgeTracker.State = LibraryKnowledgeTracker.State(),
     val annotations: AnnotationProjectionState = AnnotationProjectionState(),
     val limboInstanceIds: Set<Int> = emptySet(),
     val protoZones: Map<Int, Int> = emptyMap(),
@@ -42,6 +43,7 @@ data class ProjectionState(
         val annotations = AnnotationProjectionState.Planner(prior.annotations)
 
         var opponentKnowledge: OpponentKnowledgeTracker.State = prior.opponentKnowledge
+        var libraryKnowledge: LibraryKnowledgeTracker.State = prior.libraryKnowledge
         val limboInstanceIds = prior.limboInstanceIds.toMutableSet()
         val protoZones = prior.protoZones.toMutableMap()
         var persistentAnnotations: PersistentAnnotationState = prior.persistentAnnotations
@@ -60,6 +62,7 @@ data class ProjectionState(
                 effects = effects.freeze(),
                 revealProxies = revealProxies.freeze(),
                 opponentKnowledge = opponentKnowledge,
+                libraryKnowledge = libraryKnowledge,
                 annotations = annotations.freeze(),
                 limboInstanceIds = limboInstanceIds.toSet(),
                 protoZones = protoZones.toMap(),
@@ -92,6 +95,18 @@ data class ViewerProjectionCursor(
     val previousSnapshot: GsmSnapshot? = null,
     val fullState: GameStateMessage? = null,
     val pendingSubmittedTargets: PendingSubmittedTargets? = null,
+    /** Last phase/step announcement actually emitted to this viewer. */
+    val lastEmittedPhase: LastEmittedPhaseState? = null,
+    /** Native resolving source carried between GSMs until ResolutionComplete. */
+    val resolvingInstanceId: Int? = null,
+)
+
+/** Cross-frame phase cursor; turn distinguishes identical phase/step pairs in new turns. */
+data class LastEmittedPhaseState(
+    val activeSeat: Int,
+    val turnNumber: Int,
+    val phase: Int,
+    val step: Int,
 )
 
 enum class ProjectionViewerRole {

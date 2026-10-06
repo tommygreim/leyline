@@ -6,7 +6,7 @@ import wotc.mtgo.gre.external.messaging.Messages.*
  * Simulates a reference client's state accumulator.
  *
  * Processes GREToClientMessage stream. Full replaces; Diff merges.
- * Tracks objects, zones, actions, turnInfo -- enough to assert session-level
+ * Tracks objects, zones, persistent annotations, actions, and turnInfo -- enough to assert session-level
  * invariants like "every action instanceId exists in known objects".
  *
  * Test-only utility -- not part of production code.
@@ -20,6 +20,9 @@ class ClientAccumulator {
 
     /** systemSeatNumber -> PlayerInfo (latest version). Full replaces all; Diff merges per seat. */
     val players = mutableMapOf<Int, PlayerInfo>()
+
+    /** Persistent annotation id -> latest row. Unchanged Diff frames retain these rows. */
+    val persistentAnnotations = mutableMapOf<Int, AnnotationInfo>()
 
     /** Latest turnInfo from most recent GameStateMessage. */
     var turnInfo: TurnInfo? = null
@@ -155,9 +158,11 @@ class ClientAccumulator {
                 objects.clear()
                 zones.clear()
                 players.clear()
+                persistentAnnotations.clear()
                 gs.gameObjectsList.forEach { objects[it.instanceId] = it }
                 gs.zonesList.forEach { zones[it.zoneId] = it }
                 gs.playersList.forEach { players[it.systemSeatNumber] = it }
+                gs.persistentAnnotationsList.forEach { persistentAnnotations[it.id] = it }
             }
             GameStateType.Diff -> {
                 // Remove deleted instances first (client sends these for retired IDs)
@@ -165,6 +170,8 @@ class ClientAccumulator {
                 gs.gameObjectsList.forEach { objects[it.instanceId] = it }
                 gs.zonesList.forEach { zones[it.zoneId] = it }
                 gs.playersList.forEach { players[it.systemSeatNumber] = it }
+                gs.diffDeletedPersistentAnnotationIdsList.forEach(persistentAnnotations::remove)
+                gs.persistentAnnotationsList.forEach { persistentAnnotations[it.id] = it }
             }
             else -> {} // ignore
         }

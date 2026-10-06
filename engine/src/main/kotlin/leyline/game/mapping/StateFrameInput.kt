@@ -7,6 +7,7 @@ import leyline.game.state.EffectProjectionFacts
 import leyline.game.state.MechanicSourceFacts
 import leyline.game.state.PersistentFeedFacts
 import leyline.game.state.PromptProjectionFacts
+import wotc.mtgo.gre.external.messaging.Messages.ActionInfo
 import wotc.mtgo.gre.external.messaging.Messages.GameStateUpdate
 
 /**
@@ -33,6 +34,8 @@ data class StateFrameInput(
     val abilityExhaustionFacts: AbilityExhaustionFacts,
     /** Time-sensitive observations used only by persistent-feed projection. */
     val persistentFeedFacts: PersistentFeedFacts,
+    /** Display permissions for public non-hand cards, independent of priority. */
+    val zoneCastActions: List<ActionInfo> = emptyList(),
 )
 
 /** Viewer-neutral observation read once at an engine safe point. */
@@ -46,6 +49,7 @@ data class CapturedStateFrame(
     val mechanicSourceFacts: MechanicSourceFacts,
     val abilityExhaustionFacts: AbilityExhaustionFacts,
     val persistentFeedFacts: PersistentFeedFacts,
+    val zoneCastActions: List<ActionInfo> = emptyList(),
 ) {
     fun forViewer(
         viewingSeatId: Int,
@@ -77,6 +81,7 @@ data class CapturedStateFrame(
             mechanicSourceFacts = mechanicSourceFacts,
             abilityExhaustionFacts = abilityExhaustionFacts,
             persistentFeedFacts = persistentFeedFacts,
+            zoneCastActions = zoneCastActions,
         )
     }
 }

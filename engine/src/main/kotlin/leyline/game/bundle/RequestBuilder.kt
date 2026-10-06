@@ -2,13 +2,16 @@ package leyline.game.bundle
 
 import forge.game.Game
 import forge.game.card.Card
+import forge.game.combat.Combat
 import forge.game.combat.CombatUtil
 import forge.game.cost.CostExert
 import forge.game.player.Player
 import forge.game.staticability.StaticAbilityMustAttack
+import forge.game.staticability.StaticAbilityMustBlock
 import leyline.bridge.types.SeatId
 import leyline.bridge.types.opponent
 import leyline.game.data.KeywordAbilityIds
+import leyline.game.mapping.PromptIds
 import leyline.game.state.GameBridge
 import org.slf4j.LoggerFactory
 import wotc.mtgo.gre.external.messaging.Messages.*
@@ -24,6 +27,64 @@ import forge.game.zone.ZoneType as ForgeZoneType
 @Suppress("LargeClass") // One object mirrors the interactive request proto surface.
 object RequestBuilder {
     private val log = LoggerFactory.getLogger(RequestBuilder::class.java)
+
+    private fun attackWarning(
+        instanceId: Int,
+        type: AttackWarningType,
+        promptId: Int,
+    ): AttackWarning =
+        AttackWarning
+            .newBuilder()
+            .setInstanceId(instanceId)
+            .setType(type)
+            .setWarningPromptId(promptId)
+            .build()
+
+    private fun blockWarning(
+        instanceId: Int,
+        type: BlockWarningType,
+        promptId: Int,
+    ): BlockWarning =
+        BlockWarning
+            .newBuilder()
+            .setInstanceId(instanceId)
+            .setType(type)
+            .setWarningPromptId(promptId)
+            .build()
+
+    private fun hasCannotAttackAlone(card: Card): Boolean =
+        card.hasKeyword("CARDNAME can't attack or block alone.") || card.hasKeyword("CARDNAME can't attack alone.")
+
+    private fun hasCannotBlockAlone(card: Card): Boolean =
+        card.hasKeyword("CARDNAME can't attack or block alone.") || card.hasKeyword("CARDNAME can't block alone.")
+
+    private fun hasMustBeBlocked(card: Card): Boolean =
+        card.hasKeyword("CARDNAME must be blocked if able.") ||
+            card.hasKeyword("CARDNAME must be blocked by exactly one creature if able.") ||
+            card.hasKeyword("CARDNAME must be blocked by two or more creatures if able.") ||
+            card.keywords.any { it.original.startsWith("MustBeBlockedBy ") }
+
+    private fun hasMustBeBlockedByAll(card: Card): Boolean =
+        card.keywords.any { it.original.startsWith("MustBeBlockedByAll") } ||
+            card.hasKeyword("All creatures able to block CARDNAME do so.")
+
+    /** A shared requirement to block an attacker is not a requirement on every candidate blocker. */
+    private fun hasIndividualBlockRequirement(
+        blocker: Card,
+        legalAttackers: List<Card>,
+    ): Boolean {
+        val costFreeAttackers = legalAttackers.filter { CombatUtil.getBlockCost(blocker.game, blocker, it) == null }
+        if (costFreeAttackers.isEmpty()) return false
+        return StaticAbilityMustBlock.blocksEachCombatIfAble(blocker) ||
+            costFreeAttackers.any { attacker ->
+                attacker in blocker.mustBlockCards ||
+                    attacker.hasKeyword("All creatures able to block CARDNAME do so.") ||
+                    attacker.keywords.any { keyword ->
+                        val text = keyword.original
+                        text.startsWith("MustBeBlockedByAll:") && blocker.isValid(text.substringAfter(':'), null, null, null)
+                    }
+            }
+    }
 
     /** Build the [SearchReq] fields for a library search.
      *
@@ -81,7 +142,7 @@ object RequestBuilder {
                 if (!CombatUtil.canAttack(card, defender)) continue
                 when (defender) {
                     is Player -> add(playerDamageRecipient(seatId))
-                    is Card -> if (defender.isPlaneswalker) add(planeswalkerDamageRecipient(defender, bridge))
+                    is Card -> add(planeswalkerDamageRecipient(defender, bridge))
                 }
             }
         }
@@ -109,7 +170,7 @@ object RequestBuilder {
 
     /**
      * Build [DeclareAttackersReq] listing all creatures that can legally attack.
-     * Each attacker includes legal damage recipients (opponent player and planeswalkers).
+     * Each attacker includes legal player and permanent damage recipients.
      *
      * @param committedAttackerIds instanceIds of attackers already selected (echo-back).
      *   Committed attackers get [selectedDamageRecipient] set to their chosen recipient.
@@ -126,8 +187,33 @@ object RequestBuilder {
         val player = bridge.getPlayer(seatId) ?: return DeclareAttackersReq.getDefaultInstance()
         val builder = DeclareAttackersReq.newBuilder()
         var hasRequirements = false
+        val combat = player.game.phaseHandler.combat ?: Combat(player)
+        val globalRestrictions = combat.attackConstraints.globalRestrictions
+        val globalMustAttack = !StaticAbilityMustAttack.mustAttackSpecific(player, combat.defenders).isEmpty
+        if (globalMustAttack) hasRequirements = true
 
-        for (card in player.getZone(ForgeZoneType.Battlefield).cards) {
+        // `CannotBeAttackedByMoreThanOne` is keyed by the defender, not by an
+        // attacker. The client uses it to remove that defender from the common
+        // target set while selecting multiple attackers.
+        for ((defender, maxAttackers) in globalRestrictions.defenderMax) {
+            if (maxAttackers == 1 && defender is Card) {
+                builder.addAttackWarnings(
+                    attackWarning(
+                        bridge.instanceId(defender),
+                        AttackWarningType.CannotBeAttackedByMoreThanOne,
+                        0,
+                    ),
+                )
+            }
+        }
+        val hasAttackRestrictions =
+            globalRestrictions.max != null ||
+                globalRestrictions.defenderMax.isNotEmpty() ||
+                combat.attackConstraints.restrictions.values.any {
+                    it.types.isNotEmpty()
+                }
+
+        for (card in player.getCardsIn(ForgeZoneType.Battlefield)) {
             if (!card.isCreature) continue
             if (!CombatUtil.canAttack(card)) continue
 
@@ -142,6 +228,27 @@ object RequestBuilder {
             // creature entitiesMustAttack() lists is forced into combat.
             val mustAttack = StaticAbilityMustAttack.entitiesMustAttack(card).isNotEmpty()
             if (mustAttack) hasRequirements = true
+
+            // These are current-state warnings. A requirement warning remains
+            // until the player satisfies it in the echoed request; a warning
+            // for an already selected attacker would incorrectly keep Submit
+            // disabled. `CannotAttackAlone` is only the exact Arena warning
+            // for Forge's NOT_ALONE restriction; ONLY_ALONE and the
+            // power/color/two-others restrictions have no faithful wire value.
+            if (mustAttack && !isCommitted) {
+                builder.addAttackWarnings(
+                    attackWarning(instanceId, AttackWarningType.MustAttack, PromptIds.WARNING_MUST_ATTACK),
+                )
+            }
+            if (isCommitted && committedAttackerIds.size == 1 && hasCannotAttackAlone(card)) {
+                builder.addAttackWarnings(
+                    attackWarning(
+                        instanceId,
+                        AttackWarningType.CannotAttackAlone,
+                        PromptIds.WARNING_ATTACKER_CANNOT_ATTACK_ALONE,
+                    ),
+                )
+            }
 
             val attacker = buildAttackerOption(instanceId, legalRecipients, mustAttack = mustAttack)
             if (isCommitted && selectedAlternativeGrpId == 0) {
@@ -177,8 +284,16 @@ object RequestBuilder {
                 )
             }
         }
+        if (globalMustAttack && committedAttackerIds.isEmpty()) {
+            // No card owns a player-level warning, so Arena uses the neutral
+            // instance id while the AI consumes the warning by type.
+            builder.addAttackWarnings(
+                attackWarning(0, AttackWarningType.MustAttackWithAtLeastOne, PromptIds.WARNING_MUST_ATTACK_WITH_AT_LEAST_ONE),
+            )
+        }
         builder.setCanSubmitAttackers(true)
         builder.setHasRequirements(hasRequirements)
+        builder.setHasRestrictions(hasAttackRestrictions)
         // Conformance: client expects an empty manaCost entry entry.
         builder.addManaCost(ManaRequirement.getDefaultInstance())
 
@@ -203,8 +318,11 @@ object RequestBuilder {
         val combat = game.phaseHandler.combat ?: return DeclareBlockersReq.getDefaultInstance()
         val builder = DeclareBlockersReq.newBuilder()
         var hasRequirements = false
+        val assignedBlockCount = blockerAssignments.size
+        val blockersByAttacker = blockerAssignments.values.groupingBy { it }.eachCount()
+        var hasBlockRestrictions = false
 
-        for (card in player.getZone(ForgeZoneType.Battlefield).cards) {
+        for (card in player.getCardsIn(ForgeZoneType.Battlefield)) {
             if (!card.isCreature) continue
             if (!CombatUtil.canBlock(card, combat)) continue
 
@@ -214,11 +332,29 @@ object RequestBuilder {
             if (legalAttackers.isEmpty()) continue
 
             val instanceId = bridge.instanceId(card)
-            // Same check Forge's own InputBlock/validateBlocks uses to nag the
-            // player: this creature is forced to block one of its requirement
-            // attackers unless something already excuses it (lure satisfied, etc.).
-            val mustBlock = CombatUtil.mustBlockAnAttacker(card, combat, null)
+            val assignedAttacker = blockerAssignments[instanceId]
+            // Forge's aggregate mustBlockAnAttacker also reports any candidate
+            // that could satisfy "must be blocked". Arena's per-blocker flag
+            // instead means this specific creature is required to block.
+            val mustBlock = hasIndividualBlockRequirement(card, legalAttackers)
             if (mustBlock) hasRequirements = true
+            if (hasCannotBlockAlone(card) || card.hasKeyword("CARDNAME can't block unless at least two other creatures block.")) {
+                hasBlockRestrictions = true
+            }
+            if (assignedAttacker != null && assignedBlockCount == 1 && hasCannotBlockAlone(card)) {
+                builder.addBlockWarnings(
+                    blockWarning(
+                        instanceId,
+                        BlockWarningType.CannotBlockAlone,
+                        PromptIds.WARNING_BLOCKER_CANNOT_BLOCK_ALONE,
+                    ),
+                )
+            }
+            if (mustBlock && assignedAttacker == null) {
+                builder.addBlockWarnings(
+                    blockWarning(instanceId, BlockWarningType.MustBlock, PromptIds.WARNING_MUST_BLOCK),
+                )
+            }
             val blocker =
                 Blocker
                     .newBuilder()
@@ -226,7 +362,6 @@ object RequestBuilder {
                     .setMaxAttackers(1)
                     .setMustBlock(mustBlock)
 
-            val assignedAttacker = blockerAssignments[instanceId]
             if (assignedAttacker != null) {
                 blocker.addSelectedAttackerInstanceIds(assignedAttacker)
             } else {
@@ -235,7 +370,48 @@ object RequestBuilder {
             }
             builder.addBlockers(blocker)
         }
+
+        // Warnings keyed by attackers describe requirements imposed by the
+        // defending player. Only minimum-two (or more) requirements have an
+        // exact Arena warning type; the ordinary minimum of one is not a
+        // warning because an unblocked attacker is a legal choice.
+        for (attacker in combat.attackers) {
+            val attackerId = bridge.instanceId(attacker)
+            val assigned = blockersByAttacker[attackerId] ?: 0
+            val minBlockers = CombatUtil.getMinNumBlockersForAttacker(attacker, player)
+            if (minBlockers > 1) {
+                hasBlockRestrictions = true
+                // Menace restricts a chosen block; it never requires one.
+                // Arena disables Submit for every warning, so warning at zero
+                // would forbid the legal decision to take combat damage.
+                if (assigned in 1 until minBlockers) {
+                    builder.addBlockWarnings(
+                        blockWarning(attackerId, BlockWarningType.InsufficientBlockers, PromptIds.WARNING_INSUFFICIENT_BLOCKERS),
+                    )
+                }
+            }
+
+            if (assigned == 0 && CombatUtil.canBeBlocked(attacker, combat, player)) {
+                if (hasMustBeBlocked(attacker)) {
+                    hasRequirements = true
+                    builder.addBlockWarnings(
+                        blockWarning(attackerId, BlockWarningType.MustBeBlocked, PromptIds.WARNING_ATTACKER_MUST_BE_BLOCKED),
+                    )
+                }
+                if (hasMustBeBlockedByAll(attacker)) {
+                    hasRequirements = true
+                    builder.addBlockWarnings(
+                        blockWarning(
+                            attackerId,
+                            BlockWarningType.MustBeBlockedByAll,
+                            PromptIds.WARNING_ATTACKER_MUST_BE_BLOCKED_BY_ALL,
+                        ),
+                    )
+                }
+            }
+        }
         builder.setHasRequirements(hasRequirements)
+        builder.setHasRestrictions(hasBlockRestrictions)
         // Conformance: client expects empty manaCost
         builder.addManaCost(ManaRequirement.getDefaultInstance())
 

@@ -26,6 +26,8 @@ data class CardSelectWindowValue(
     val choiceResultSentiment: Int?,
     /** True when the client's cancel may retire this window with an empty selection. */
     val cancellable: Boolean = false,
+    val promptId: Int? = null,
+    val replacementAbilityGrpId: Int? = null,
 )
 
 data class PublishedCardSelectInteraction(

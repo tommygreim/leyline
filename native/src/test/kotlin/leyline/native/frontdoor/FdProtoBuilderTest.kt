@@ -43,7 +43,7 @@ class FdProtoBuilderTest :
                     .lengthDelimitedList
                     .flatMap { UnknownFieldSet.parseFrom(it).getField(3).lengthDelimitedList }
                     .map { it.toStringUtf8() }
-            setCodes shouldContainAll listOf("HOB", "HOC", "SPM", "MSH")
+            setCodes shouldContainAll listOf("HOB", "HOC", "SPM", "MSH", "FRA", "FRC")
             setCodes shouldNotContain "OM1"
         }
 
@@ -104,7 +104,7 @@ class FdProtoBuilderTest :
                         .single()
                         .toStringUtf8()
                 }
-            setCodes shouldContainAll listOf("HOB", "HOC", "SPM", "MSH", "OM1")
+            setCodes shouldContainAll listOf("HOB", "HOC", "SPM", "MSH", "FRA", "FRC", "OM1")
             val missingReleaseDates =
                 setEntries.mapNotNull { entry ->
                     entry
@@ -123,7 +123,7 @@ class FdProtoBuilderTest :
                     .getField(2)
                     .lengthDelimitedList
                     .map { it.toStringUtf8() }
-            filterCodes shouldContainAll listOf("HOB", "HOC", "SPM", "MSH")
+            filterCodes shouldContainAll listOf("HOB", "HOC", "SPM", "MSH", "FRA", "FRC")
             filterCodes shouldNotContain "OM1"
         }
     })

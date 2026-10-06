@@ -1,0 +1,43 @@
+name: "Dungeon of the Mad Mage"
+grpId: 78768
+titleId: 543140
+abilities:
+  - id: 146073
+    textId: 543142
+    category: 2
+  - id: 146074
+    textId: 543143
+    category: 2
+    subCategory: 15
+  - id: 146075
+    textId: 543144
+    category: 2
+  - id: 146076
+    textId: 543145
+    category: 2
+  - id: 146077
+    textId: 543146
+    category: 2
+    subCategory: 15
+  - id: 146078
+    textId: 543147
+    category: 2
+  - id: 146079
+    textId: 543148
+    category: 2
+  - id: 146080
+    textId: 543149
+    category: 2
+    subCategory: 15
+  - id: 146081
+    textId: 543150
+    category: 2
+isToken: false
+isPrimaryCard: false
+power: ""
+toughness: ""
+colors: []
+types: [13]
+subtypes: []
+supertypes: []
+manaCost: ""

@@ -37,14 +37,14 @@ import wotc.mtgo.gre.external.messaging.Messages.ManaColor
  */
 
 /**
- * Identity of an alt-cost keyword. Each value carries the keyword's BaseId
- * chain root — the dedup key into [AltCostBinding.keywordBaseId] and the
- * `findAbilityInfo(...).baseId` returned by the card repository for any
- * per-printing alt-cost ability row.
+ * Identity of an alternative-cost family. Keyword values carry their BaseId
+ * chain root. [GENERIC] uses zero for script-defined costs without a keyword
+ * BaseId. The value keys [AltCostBinding.keywordBaseId].
  */
 enum class AltCostKind(
     val keywordBaseId: Int,
 ) {
+    GENERIC(0),
     PLOT(KeywordAbilityIds.PLOT),
     FORETELL(KeywordAbilityIds.FORETELL),
     FLASHBACK(KeywordAbilityIds.FLASHBACK),
@@ -65,6 +65,7 @@ enum class AltCostKind(
     HARMONIZE(KeywordAbilityIds.HARMONIZE),
     WARP(KeywordAbilityIds.WARP),
     SNEAK(KeywordAbilityIds.SNEAK),
+    WEB_SLINGING(KeywordAbilityIds.WEB_SLINGING),
     DISGUISE(KeywordAbilityIds.DISGUISE),
     PARADIGM(KeywordAbilityIds.PARADIGM),
     AIRBEND(KeywordAbilityIds.AIRBEND),
@@ -296,6 +297,11 @@ object CastRails {
     val handWithAltCost: List<HandWithAltCost> =
         listOf(
             HandWithAltCost(
+                kind = AltCostKind.GENERIC,
+                saPredicate = { it.isOptionalCostPaid(OptionalCost.AltCost) },
+                lookupMode = LookupMode.CostAgnostic,
+            ),
+            HandWithAltCost(
                 kind = AltCostKind.WARP,
                 saPredicate = { it.alternativeCost == AlternativeCost.Warp },
                 lookupMode = LookupMode.CostAware,
@@ -303,6 +309,11 @@ object CastRails {
             HandWithAltCost(
                 kind = AltCostKind.SNEAK,
                 saPredicate = { it.alternativeCost == AlternativeCost.Sneak },
+                lookupMode = LookupMode.CostAware,
+            ),
+            HandWithAltCost(
+                kind = AltCostKind.WEB_SLINGING,
+                saPredicate = { it.alternativeCost == AlternativeCost.WebSlinging },
                 lookupMode = LookupMode.CostAware,
             ),
             HandWithAltCost(

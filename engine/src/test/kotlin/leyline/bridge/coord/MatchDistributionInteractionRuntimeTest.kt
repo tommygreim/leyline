@@ -89,7 +89,7 @@ class MatchDistributionInteractionRuntimeTest :
             assertSoftly {
                 req.gameStateId shouldBe interaction.gameStateId
                 req.allowCancel shouldBe AllowCancel.Abort
-                req.allowUndo shouldBe true
+                req.allowUndo shouldBe false
                 req.prompt.promptId shouldBe PromptIds.DISTRIBUTE_DAMAGE
                 req.distributionReq.minAmount shouldBe 5
                 req.distributionReq.maxAmount shouldBe 5

@@ -1,0 +1,21 @@
+name: "The Irencrag"
+grpId: 86980
+titleId: 732025
+abilities:
+  - id: 1152
+    textId: 227595
+    category: 1
+    subCategory: 1
+  - id: 168981
+    textId: 865494
+    category: 2
+hiddenAbilities:
+  - id: 1156
+    textId: 2568
+    category: 1
+    baseId: 5
+    mana: "o3"
+  - id: 2515
+    textId: 24529
+    category: 3
+expansionCode: "WOE"

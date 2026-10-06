@@ -1,5 +1,6 @@
 package leyline.bridge.handoff
 
+import forge.game.spellability.LandAbility
 import forge.game.spellability.SpellAbility
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.ForgePlayerId
@@ -96,6 +97,7 @@ sealed class PlayerAction {
 
     data class PlayLand(
         val cardId: ForgeCardId,
+        val ability: LandAbility? = null,
     ) : PlayerAction()
 
     data class DeclareAttackers(

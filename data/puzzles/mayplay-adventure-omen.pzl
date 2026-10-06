@@ -1,0 +1,17 @@
+[metadata]
+Name:MayPlay land Adventure and Omen
+Goal:Survive
+Turns:3
+Difficulty:Easy
+Description:Cast Flameshape to exile Lindblum and Riling Dawnbreaker, then test their secondary faces.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanhand=Gandalf, Goblins' Bane
+humanbattlefield=Gandalf, Goblins' Bane;Mountain;Mountain;Mountain;Plains;Plains;Island;Island;Forest;Forest;Swamp
+humanlibrary=Lindblum, Industrial Regency;Riling Dawnbreaker;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+aibattlefield=Forest
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest

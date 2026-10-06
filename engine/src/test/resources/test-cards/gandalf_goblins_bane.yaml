@@ -1,0 +1,11 @@
+name: "Gandalf, Goblins' Bane"
+grpId: 103472
+titleId: 1113592
+abilities:
+  - id: 205166
+    textId: 1113594
+    category: 2
+expansionCode: "HOB"
+linkedFaceType: 8
+linkedFaces:
+  - 103473
