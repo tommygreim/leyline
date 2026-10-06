@@ -79,12 +79,13 @@ object ZoneMoveLedger {
                 move.to == Zone.Battlefield -> TransferCategory.PlayLand
             move.to == Zone.Stack && cast?.isAbility != true -> TransferCategory.CastSpell
             move.from == Zone.Stack && resolved?.hasFizzled == true -> TransferCategory.Countered
+            move.from == Zone.Stack && resolved != null && move.to != Zone.Exile -> TransferCategory.Resolve
+            move.from == Zone.Stack && resolved != null && move.to == Zone.Exile -> TransferCategory.Exile
             move.from == Zone.Stack && move.cause?.api == "Counter" -> TransferCategory.Countered
             move.from == Zone.Battlefield &&
                 move.to == Zone.Exile &&
                 warpResolution -> TransferCategory.Warp
             move.to == Zone.Exile -> TransferCategory.Exile
-            move.from == Zone.Stack && resolved != null -> TransferCategory.Resolve
             events.any { it is GameEvent.LegendRuleDeath && it.cardId == cardId } &&
                 move.from == Zone.Battlefield &&
                 move.to == Zone.Graveyard -> TransferCategory.SbaLegendRule

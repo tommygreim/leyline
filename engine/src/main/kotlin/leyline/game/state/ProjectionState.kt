@@ -97,6 +97,8 @@ data class ViewerProjectionCursor(
     val pendingSubmittedTargets: PendingSubmittedTargets? = null,
     /** Last phase/step announcement actually emitted to this viewer. */
     val lastEmittedPhase: LastEmittedPhaseState? = null,
+    /** Native resolving source carried between GSMs until ResolutionComplete. */
+    val resolvingInstanceId: Int? = null,
 )
 
 /** Cross-frame phase cursor; turn distinguishes identical phase/step pairs in new turns. */

@@ -646,7 +646,7 @@ class StackTargetingInteractionTest :
         }
 
         session(
-            "cast triggers with an unresolved ability row target from a visible source",
+            "cast triggers with a refreshed ability row target from a visible ability",
             fullControl = true,
             puzzle = """
                 ActivePlayer=Human
@@ -672,7 +672,8 @@ class StackTargetingInteractionTest :
             withClue("target prompt source ${prompt.sourceId} is absent from the visible GSM") {
                 (source != null).shouldBeTrue()
             }
-            source?.type shouldBe GameObjectType.Card
+            source?.type shouldBe GameObjectType.Ability
+            source?.grpId shouldBe 188687
             val selecting =
                 allMessages
                     .gameStateMessages()

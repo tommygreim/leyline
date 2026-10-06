@@ -98,32 +98,53 @@ internal class CardSelectWindowMaterializer {
     private fun envelope(
         window: CardSelectWindowValue,
         request: SelectNReq,
-    ): SelectNEnvelope =
-        when (window.kind) {
-            CardSelectKind.LegendRule -> SelectNEnvelope.legendRule(request)
-            CardSelectKind.LibraryPutback -> SelectNEnvelope.libraryPutback(request)
-            CardSelectKind.ManifestDread -> SelectNEnvelope.manifestDread(request)
-            CardSelectKind.Resolution ->
-                SelectNEnvelope.resolution(request, stockUp = window.min == 2 && window.max == 2)
-            CardSelectKind.ResolutionMapped -> SelectNEnvelope.resolution(request)
-            CardSelectKind.Learn ->
-                SelectNEnvelope.learnLesson(
-                    request,
-                    if (window.candidates.any { it.originZone == CardSelectOriginZone.Hand }) {
-                        PromptIds.LEARN_LESSON_OR_DISCARD
-                    } else {
-                        PromptIds.LEARN_LESSON_ONLY
-                    },
-                )
-            CardSelectKind.Discard -> SelectNEnvelope.discard(request, discardPromptId(window), optional = window.min == 0)
-            CardSelectKind.DiscardEffect -> SelectNEnvelope.discard(request, discardPromptId(window), optional = window.min == 0)
-            CardSelectKind.DiscardCreatureOptional ->
-                SelectNEnvelope.discard(request, PromptIds.DISCARD_CREATURE_OPTIONAL, optional = true)
-            CardSelectKind.SacrificeEffect,
-            -> SelectNEnvelope.default(request)
-            CardSelectKind.Suspect -> SelectNEnvelope.suspectChoice(request)
-            CardSelectKind.MutateTopBottom -> SelectNEnvelope.mutateTopBottom(request)
-        }
+    ): SelectNEnvelope {
+        val envelope =
+            when (window.kind) {
+                CardSelectKind.LegendRule -> SelectNEnvelope.legendRule(request)
+                CardSelectKind.LibraryPutback -> SelectNEnvelope.libraryPutback(request)
+                CardSelectKind.ManifestDread -> SelectNEnvelope.manifestDread(request)
+                CardSelectKind.Resolution ->
+                    SelectNEnvelope.resolution(request, stockUp = window.min == 2 && window.max == 2)
+                CardSelectKind.ResolutionMapped -> SelectNEnvelope.resolution(request)
+                CardSelectKind.Learn ->
+                    SelectNEnvelope.learnLesson(
+                        request,
+                        if (window.candidates.any { it.originZone == CardSelectOriginZone.Hand }) {
+                            PromptIds.LEARN_LESSON_OR_DISCARD
+                        } else {
+                            PromptIds.LEARN_LESSON_ONLY
+                        },
+                    )
+                CardSelectKind.Discard -> SelectNEnvelope.discard(request, discardPromptId(window), optional = window.min == 0)
+                CardSelectKind.DiscardEffect -> SelectNEnvelope.discard(request, discardPromptId(window), optional = window.min == 0)
+                CardSelectKind.DiscardCreatureOptional ->
+                    SelectNEnvelope.discard(request, PromptIds.DISCARD_CREATURE_OPTIONAL, optional = true)
+                CardSelectKind.SacrificeEffect,
+                -> SelectNEnvelope.default(request)
+                CardSelectKind.Suspect -> SelectNEnvelope.suspectChoice(request)
+                CardSelectKind.MutateTopBottom -> SelectNEnvelope.mutateTopBottom(request)
+            }
+        val promptId = window.promptId ?: return envelope
+        val prompt =
+            Prompt
+                .newBuilder()
+                .setPromptId(promptId)
+                .apply {
+                    if (window.replacementAbilityGrpId != null) {
+                        addParameters(cardIdPromptParameter(request.sourceId))
+                    }
+                }.build()
+        return envelope.copy(
+            req =
+                envelope.req
+                    .toBuilder()
+                    .setPrompt(prompt)
+                    .build(),
+            prompt = prompt,
+            allowCancel = if (window.cancellable) AllowCancel.Continue else envelope.allowCancel,
+        )
+    }
 
     private fun requirePrivateCandidates(
         context: SettledPromptMaterializationContext,

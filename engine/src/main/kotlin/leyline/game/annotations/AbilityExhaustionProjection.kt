@@ -16,5 +16,6 @@ internal fun buildAbilityExhaustedAnnotations(
             abilityGrpId = GrpId(row.abilityGrpId),
             usesRemaining = row.usesRemaining,
             uniqueAbilityId = row.uniqueAbilityId,
+            exhaustedGrpIds = row.exhaustedGrpIds,
         )
     }

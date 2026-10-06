@@ -1,0 +1,16 @@
+[metadata]
+Name:Manual Mana Payment
+Goal:Survive
+Turns:6
+Difficulty:Tutorial
+Description:Cast Mind Stone by selecting mana sources, then undo a source before paying.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanhand=Mind Stone
+humanbattlefield=Island;Island
+humanlibrary=Plains;Plains;Plains;Plains
+ailibrary=Plains;Plains;Plains;Plains

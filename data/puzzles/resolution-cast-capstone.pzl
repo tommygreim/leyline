@@ -1,0 +1,17 @@
+[metadata]
+Name:Capstone sequential free-cast choices
+Goal:Survive
+Turns:5
+Difficulty:Easy
+Description:Cast Capstone, choose Sear and target Dreadmaw, then choose Overlord. Reset to decline either the first or the remaining choice. No generic confirmation should intervene.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanhand=Improvisation Capstone
+humanbattlefield=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+humanlibrary=Sear;Overlord of the Boilerbilges;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+aibattlefield=Colossal Dreadmaw
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

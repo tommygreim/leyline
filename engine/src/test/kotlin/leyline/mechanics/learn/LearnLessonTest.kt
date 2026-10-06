@@ -13,6 +13,7 @@ import io.kotest.matchers.shouldBe
 import leyline.bridge.types.SeatId
 import leyline.game.mapping.PromptIds
 import leyline.game.mapping.ZoneIds
+import leyline.testkit.MatchFlowHarness
 import leyline.testkit.SessionTest
 import leyline.testkit.after
 import leyline.testkit.beInGraveyardOf
@@ -22,10 +23,13 @@ import leyline.testkit.detailString
 import leyline.testkit.lastGsmMatching
 import wotc.mtgo.gre.external.messaging.Messages.AllowCancel
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
+import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
 import wotc.mtgo.gre.external.messaging.Messages.GREMessageType
 import wotc.mtgo.gre.external.messaging.Messages.IdType
+import wotc.mtgo.gre.external.messaging.Messages.ManaColor
 import wotc.mtgo.gre.external.messaging.Messages.OptionContext
 import wotc.mtgo.gre.external.messaging.Messages.ParameterType
+import wotc.mtgo.gre.external.messaging.Messages.SelectNReq
 import wotc.mtgo.gre.external.messaging.Messages.SelectionContext
 import wotc.mtgo.gre.external.messaging.Messages.SelectionListType
 import wotc.mtgo.gre.external.messaging.Messages.SelectionValidationType
@@ -35,8 +39,20 @@ class LearnLessonTest :
     SessionTest({
         val learnPuzzle = "data/puzzles/learn-cram-session.pzl"
 
+        fun MatchFlowHarness.castCramSessionUntilLearn(): SelectNReq {
+            val castingOptions = castSpellUntilCastingTimeOptionsReq("Cram Session")
+            val hybridMana =
+                castingOptions.castingTimeOptionReqList.single {
+                    it.castingTimeOptionType == CastingTimeOptionType.ManaType
+                }
+            hybridMana.selectManaTypeReq.manaColorsList shouldContain ManaColor.Black_afc9
+            respondToManaTypeChoices(listOf(hybridMana.ctoId to ManaColor.Black_afc9))
+            passUntil(maxPasses = 8) { allMessages.any { it.hasSelectNReq() } }.shouldBeTrue()
+            return lastSelectNReq()
+        }
+
         session("Learn emits SelectNReq with sideboard Lesson candidate", puzzleFile = learnPuzzle) {
-            val req = castSpellUntilSelectNReq("Cram Session")
+            val req = castCramSessionUntilLearn()
             val lessonId = instanceIdOf("Environmental Sciences", human, ZoneType.Sideboard)
             val handDiscardId = instanceIdOf("Forest", human, ZoneType.Hand)
             val selectNMsg = allMessages.last { it.hasSelectNReq() }
@@ -105,7 +121,7 @@ class LearnLessonTest :
                 ailibrary=Mountain;Mountain;Mountain
                 """.trimIndent(),
         ) {
-            val req = castSpellUntilSelectNReq("Cram Session")
+            val req = castCramSessionUntilLearn()
             val message = allMessages.last { it.hasSelectNReq() }
             val lessonId = instanceIdOf("Environmental Sciences", human, ZoneType.Sideboard)
 
@@ -121,7 +137,7 @@ class LearnLessonTest :
         }
 
         session("selecting sideboard Lesson reveals and moves it to hand", puzzleFile = learnPuzzle) {
-            val req = castSpellUntilSelectNReq("Cram Session")
+            val req = castCramSessionUntilLearn()
             val lessonId = instanceIdOf("Environmental Sciences", human, ZoneType.Sideboard)
             val resolution =
                 after {

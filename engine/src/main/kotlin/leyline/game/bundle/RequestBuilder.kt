@@ -142,7 +142,7 @@ object RequestBuilder {
                 if (!CombatUtil.canAttack(card, defender)) continue
                 when (defender) {
                     is Player -> add(playerDamageRecipient(seatId))
-                    is Card -> if (defender.isPlaneswalker) add(planeswalkerDamageRecipient(defender, bridge))
+                    is Card -> add(planeswalkerDamageRecipient(defender, bridge))
                 }
             }
         }
@@ -170,7 +170,7 @@ object RequestBuilder {
 
     /**
      * Build [DeclareAttackersReq] listing all creatures that can legally attack.
-     * Each attacker includes legal damage recipients (opponent player and planeswalkers).
+     * Each attacker includes legal player and permanent damage recipients.
      *
      * @param committedAttackerIds instanceIds of attackers already selected (echo-back).
      *   Committed attackers get [selectedDamageRecipient] set to their chosen recipient.

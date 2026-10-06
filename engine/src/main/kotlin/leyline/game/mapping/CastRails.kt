@@ -37,14 +37,14 @@ import wotc.mtgo.gre.external.messaging.Messages.ManaColor
  */
 
 /**
- * Identity of an alt-cost keyword. Each value carries the keyword's BaseId
- * chain root — the dedup key into [AltCostBinding.keywordBaseId] and the
- * `findAbilityInfo(...).baseId` returned by the card repository for any
- * per-printing alt-cost ability row.
+ * Identity of an alternative-cost family. Keyword values carry their BaseId
+ * chain root. [GENERIC] uses zero for script-defined costs without a keyword
+ * BaseId. The value keys [AltCostBinding.keywordBaseId].
  */
 enum class AltCostKind(
     val keywordBaseId: Int,
 ) {
+    GENERIC(0),
     PLOT(KeywordAbilityIds.PLOT),
     FORETELL(KeywordAbilityIds.FORETELL),
     FLASHBACK(KeywordAbilityIds.FLASHBACK),
@@ -296,6 +296,11 @@ object CastRails {
 
     val handWithAltCost: List<HandWithAltCost> =
         listOf(
+            HandWithAltCost(
+                kind = AltCostKind.GENERIC,
+                saPredicate = { it.isOptionalCostPaid(OptionalCost.AltCost) },
+                lookupMode = LookupMode.CostAgnostic,
+            ),
             HandWithAltCost(
                 kind = AltCostKind.WARP,
                 saPredicate = { it.alternativeCost == AlternativeCost.Warp },

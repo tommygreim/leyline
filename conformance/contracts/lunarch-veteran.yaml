@@ -1,0 +1,46 @@
+name: Lunarch Veteran disturb
+scenario: {suite: graveyard, id: disturb-lunarch}
+frames:
+  - id: death
+    events:
+      - id: died
+        type: ZoneTransfer
+        lane: transient
+        keys: [zone_src, zone_dest, category]
+        fields: {details.category: [SBA_Damage], details.zone_src: [28], details.zone_dest: [33]}
+  - id: disturb
+    events:
+      - id: back-face
+        type: Card
+        lane: object
+        op: create
+        fields: {raw.zoneId: 27, "raw.cardTypes[0]": Creature, raw.controllerSeatId: 1}
+      - id: reallocated
+        type: ObjectIdChanged
+        lane: transient
+        keys: [orig_id, new_id]
+        equals:
+          "details.orig_id[0]": "died.affectedIds[0]"
+          "details.new_id[0]": back-face.affectorId
+      - id: cast
+        type: ZoneTransfer
+        lane: transient
+        keys: [zone_src, zone_dest, category]
+        fields: {details.category: [CastSpell], details.zone_src: [33], details.zone_dest: [27]}
+        equals: {"affectedIds[0]": back-face.affectorId}
+  - id: resolution
+    events:
+      - id: resolved
+        type: ResolutionComplete
+        lane: transient
+        keys: [grpid]
+        equals: {affectorId: back-face.affectorId, "details.grpid[0]": back-face.raw.grpId}
+      - id: entered
+        type: ZoneTransfer
+        lane: transient
+        keys: [zone_src, zone_dest, category]
+        fields: {details.category: [Resolve], details.zone_src: [27], details.zone_dest: [28]}
+        equals: {"affectedIds[0]": back-face.affectorId}
+counts:
+  - match: {type: ResolutionComplete, lane: transient, equals: {affectorId: back-face.affectorId}}
+    exactly: 1

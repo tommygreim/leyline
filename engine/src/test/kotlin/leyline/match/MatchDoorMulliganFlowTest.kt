@@ -417,7 +417,7 @@ class MatchDoorMulliganFlowTest :
             }
         }
 
-        test("mulligan timeout still delivers the first action horizon") {
+        test("mulligan remains pending past publication timeout and explicit keep delivers the action horizon") {
             val registry = MatchRegistry()
             val matchId = "mulligan-flow-timeout"
             val (local, familiar) = connectPair(registry, matchId, drainInitial = false)
@@ -426,13 +426,26 @@ class MatchDoorMulliganFlowTest :
                 greOutbound(local)
                 greOutbound(familiar)
                 val bridge = registry.getMatch(matchId)!!.bridge
-                val deadline = System.nanoTime() + 8_000_000_000L
+                val deadline = System.nanoTime() + 3_000_000_000L
                 val postTimeout = mutableListOf<GREToClientMessage>()
                 while (System.nanoTime() < deadline && postTimeout.none { it.hasActionsAvailableReq() }) {
                     postTimeout += greOutbound(local)
                     bridge.cutCoordinator.deliverySignal.await(100)
                 }
 
+                checkNotNull(bridge.mulliganBridge(SeatId(1)).pendingPrompt())
+                postTimeout.none { it.hasActionsAvailableReq() } shouldBe true
+                local.writeInbound(
+                    greServiceMessage(
+                        mulliganDecision(MulliganOption.AcceptHand, bridge.committedSequence().lastPromptMsgId),
+                        6,
+                    ),
+                )
+                val keepDeadline = System.nanoTime() + 8_000_000_000L
+                while (System.nanoTime() < keepDeadline && postTimeout.none { it.hasActionsAvailableReq() }) {
+                    postTimeout += greOutbound(local)
+                    bridge.cutCoordinator.deliverySignal.await(100)
+                }
                 assertSoftly {
                     bridge.mulliganBridge(SeatId(1)).pendingPrompt() shouldBe null
                     postTimeout.map { it.type } shouldContain GREMessageType.ActionsAvailableReq_695e

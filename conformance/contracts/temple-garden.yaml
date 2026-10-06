@@ -1,0 +1,81 @@
+name: Temple Garden pay-life entry
+scenario: {suite: modal-warmup, id: shock-land-temple-garden}
+frames:
+  - id: replacement
+    events:
+      - id: incoming
+        type: Card
+        lane: object
+        op: create
+        # Native fixture includes the ETB row plus Forest/Plains mana rows.
+        fields: {raw.zoneId: 0, raw.visibility: Public, raw.controllerSeatId: 1, raw.uniqueAbilities.length: 3}
+      - id: replacement
+        type: ReplacementEffect
+        lane: persistent
+        op: create
+        keys: [grpid, ReplacementSourceZcid]
+        fields: {detailTypes.grpid: Int32, affectedIds.length: 1}
+        equals:
+          "affectedIds[0]": incoming.affectorId
+          "details.grpid[0]": "incoming.raw.uniqueAbilities[0].grpId"
+  - id: decision
+    events:
+      - id: decision
+        type: OptionalActionMessage
+        lane: prompt
+        fields:
+          raw.prompt.promptId: 2233
+          raw.prompt.parameters.length: 1
+          "raw.prompt.parameters[0].parameterName": CardId
+        equals:
+          raw.optionalActionMessage.sourceId: replacement.affectorId
+          "raw.prompt.parameters[0].numberValue": "replacement.affectedIds[0]"
+  - id: entry
+    events:
+      - id: reallocated
+        type: ObjectIdChanged
+        lane: transient
+        keys: [orig_id, new_id]
+        equals:
+          "details.orig_id[0]": "replacement.details.ReplacementSourceZcid[0]"
+          "details.new_id[0]": "replacement.affectedIds[0]"
+      - id: played
+        type: ZoneTransfer
+        lane: transient
+        keys: [zone_src, zone_dest, category]
+        fields: {details.zone_src: [31], details.zone_dest: [28], details.category: [PlayLand]}
+        equals: {"affectedIds[0]": "replacement.affectedIds[0]"}
+      - id: payment
+        type: SyntheticEvent
+        lane: transient
+        keys: [type]
+        fields: {details.type: [1]}
+        equals: {affectorId: replacement.affectorId}
+      - id: life-paid
+        type: ModifiedLife
+        lane: transient
+        keys: [life]
+        fields: {details.life: [-2], detailTypes.life: Int32}
+        equals: {affectorId: replacement.affectorId, affectedIds: payment.affectedIds}
+      - id: action
+        type: UserActionTaken
+        lane: transient
+        keys: [actionType, abilityGrpId]
+        fields: {details.actionType: [3], details.abilityGrpId: [0]}
+        equals: {"affectedIds[0]": "replacement.affectedIds[0]"}
+      - id: retired
+        type: ReplacementEffect
+        lane: persistent
+        op: delete
+        sameRow: replacement
+counts:
+  - match: {type: OptionalActionMessage, lane: prompt}
+    exactly: 1
+  - match: {type: ModifiedLife, lane: transient, equals: {affectorId: replacement.affectorId}}
+    exactly: 1
+  - match: {type: ReplacementEffect, lane: persistent, op: delete, sameRow: replacement}
+    exactly: 1
+  - match: {type: ReplacementEffect, lane: persistent, op: create, sameRow: replacement}
+    exactly: 1
+  - match: {type: ReplacementEffect, lane: persistent, op: update, sameRow: replacement}
+    exactly: 0

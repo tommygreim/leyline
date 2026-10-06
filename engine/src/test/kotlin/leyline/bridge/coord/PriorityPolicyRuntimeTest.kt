@@ -102,6 +102,23 @@ class PriorityPolicyRuntimeTest :
             }
         }
 
+        test("locked full control keeps own-stack priority across phases and turns") {
+            val policy = runtime()
+            policy.submit(
+                settingsMessage {
+                    autoPassOption = AutoPassOption.FullControl
+                    defaultAutoPassOption = AutoPassOption.FullControl
+                },
+            )
+            val copy = listOf(PriorityStackObject(42, 1))
+            policy.visible(observation(phase = PhaseType.MAIN1, turn = 1, stack = copy)).shouldBeTrue()
+            policy.visible(observation(phase = PhaseType.COMBAT_BEGIN, turn = 1, stack = copy)).shouldBeTrue()
+            policy.visible(observation(own = false, phase = PhaseType.MAIN1, turn = 2, stack = copy)).shouldBeTrue()
+            policy.visible(observation(phase = PhaseType.MAIN1, turn = 3, stack = copy)).shouldBeTrue()
+            policy.currentSettings().defaultAutoPassOption shouldBe AutoPassOption.FullControl
+            policy.currentSettings().autoPassOption shouldBe AutoPassOption.FullControl
+        }
+
         test("response No holds exactly one ensuing priority after successful action") {
             assertSoftly {
                 val policy = runtime()

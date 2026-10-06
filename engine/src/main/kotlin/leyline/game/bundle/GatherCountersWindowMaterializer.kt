@@ -50,7 +50,6 @@ internal class GatherCountersWindowMaterializer {
                     it.payCostsReq = payCosts
                     it.prompt = promptWithCardId(PromptIds.GATHER_COUNTERS, destinationId)
                     it.allowCancel = AllowCancel.Abort
-                    it.allowUndo = true
                 },
             )
         return context.prepared(messages, awaitedRequest = messages.last())

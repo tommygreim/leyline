@@ -1,6 +1,7 @@
 package leyline.bridge.handoff
 
 import leyline.bridge.types.ForgeCardId
+import wotc.mtgo.gre.external.messaging.Messages.AutoTapSolution
 import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
 import wotc.mtgo.gre.external.messaging.Messages.ManaColor
 import java.util.Collections
@@ -52,14 +53,17 @@ internal data class DeferredCastCostPlan private constructor(
     data class OptionalCostPlan private constructor(
         val entries: List<OptionalCostEntry>,
         val baseManaCost: List<Pair<ManaColor, Int>>,
+        val baseAutoTapSolution: AutoTapSolution?,
     ) {
         companion object {
             fun frozen(
                 entries: List<OptionalCostEntry>,
                 baseManaCost: List<Pair<ManaColor, Int>>,
+                baseAutoTapSolution: AutoTapSolution? = null,
             ) = OptionalCostPlan(
                 frozenList(entries.map { it.copy(manaCost = it.manaCost?.let(::frozenList)) }),
                 frozenList(baseManaCost),
+                baseAutoTapSolution,
             )
         }
     }
@@ -69,6 +73,8 @@ internal data class DeferredCastCostPlan private constructor(
         val abilityGrpId: Int,
         val keywordName: String?,
         val manaCost: List<Pair<ManaColor, Int>>? = null,
+        val isAffordable: Boolean = true,
+        val autoTapSolution: AutoTapSolution? = null,
     )
 
     @ConsistentCopyVisibility
@@ -110,7 +116,7 @@ internal data class DeferredCastCostPlan private constructor(
                         frozenNestedList(it.paymentColorOptions),
                     )
                 },
-                optional?.let { OptionalCostPlan.frozen(it.entries, it.baseManaCost) },
+                optional?.let { OptionalCostPlan.frozen(it.entries, it.baseManaCost, it.baseAutoTapSolution) },
                 alternate?.let { AlternateCostPlan.frozen(it.choices) },
             )
 
@@ -136,7 +142,8 @@ internal data class DeferredCastCostPlan private constructor(
         fun optional(
             entries: List<OptionalCostEntry>,
             baseManaCost: List<Pair<ManaColor, Int>>,
-        ): OptionalCostPlan = OptionalCostPlan.frozen(entries, baseManaCost)
+            baseAutoTapSolution: AutoTapSolution? = null,
+        ): OptionalCostPlan = OptionalCostPlan.frozen(entries, baseManaCost, baseAutoTapSolution)
 
         fun alternate(choices: List<AlternateCostChoice>): AlternateCostPlan = AlternateCostPlan.frozen(choices)
 

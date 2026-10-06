@@ -77,6 +77,13 @@ class PuzzleTrialTest :
             }
         }
 
+        test("completed trials hand the worker directly to the next caller") {
+            repeat(20) {
+                PuzzleTrial(fakeRuntime()).run(PuzzleDefinition("sequential-$it", boltPuzzle)).status shouldBe
+                    PuzzleTrialStatus.Unsupported
+            }
+        }
+
         test("an unsupported prompt reason keeps its distinct trial status") {
             val proposal = unavailableProposal.copy(reason = "advisor unavailable: UnsupportedPrompt: prompt has no forced choice")
 

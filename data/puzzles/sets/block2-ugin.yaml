@@ -1,6 +1,32 @@
 name: block2-ugin
-description: Ugin's cast and loyalty routes; the Capstone reproducer is not yet a passing acceptance scenario.
+description: Ugin's cast and loyalty routes, plus Capstone's recurring Paradigm copy.
 scenarios:
+  - id: block2-paradigm-ugin
+    puzzle: block2-paradigm-ugin
+    run: cast Improvisation Capstone normally, then exercise its recurring copy beneath Death's trigger
+    expect: Capstone reaches exile after the original cast and its recurring copy is cast next turn
+    steps:
+      - expect:
+          action: { type: cast, card: Improvisation Capstone }
+      - cast: Improvisation Capstone
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: exile, card: Improvisation Capstone }
+            - stack_empty: true
+      - pass_until:
+          annotation_seen:
+            type: UserActionTaken
+            details: { actionType: 1, alternativeGrpId: 149, abilityGrpId: 205572 }
+          max_passes: 30
+      - expect:
+          all:
+            - annotation_seen_in_phase: { type: AbilityInstanceCreated, phase: MAIN1 }
+            - annotation_seen:
+                type: UserActionTaken
+                details: { actionType: 1, alternativeGrpId: 149, abilityGrpId: 205572 }
+            - zone_contains: { side: ours, zone: exile, card: Improvisation Capstone }
+            - stack_empty: true
   - id: ugin-cast-and-plus-two
     puzzle: block2-ugin-ability-text
     run: cast Ugin, exile opposing Bears, then activate the draw-and-life loyalty ability

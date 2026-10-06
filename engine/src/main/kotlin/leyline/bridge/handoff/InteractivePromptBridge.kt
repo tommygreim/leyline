@@ -785,6 +785,7 @@ enum class PromptSemantic {
     GroupingSurveil,
     GroupingScry,
     ModalChoice,
+    VoteChoice,
     SelectNLegendRule,
     SelectNDiscard,
 
@@ -997,6 +998,8 @@ data class PromptRequest(
     /** Per-option static enum values frozen into coordinator-owned StaticChoice windows. */
     val staticOptionIds: List<Int> = emptyList(),
     val protocolPromptId: Int? = null,
+    /** Pending enter-as-copy replacement row, rendered by the native side indicator. */
+    val replacementAbilityGrpId: Int? = null,
     val promptParameterIds: List<Int> = emptyList(),
     /** Waterbend mana component carried into its PayCostsReq payment envelope. */
     val waterbendManaCost: List<Pair<wotc.mtgo.gre.external.messaging.Messages.ManaColor, Int>> = emptyList(),
@@ -1004,6 +1007,8 @@ data class PromptRequest(
     val waterbendCostString: String? = null,
     /** Frozen source/shape facts for the migrated library-search route. */
     val searchSource: SearchSourceValue? = null,
+    /** Forge's searched library and permitted view, retained even when no card matches. */
+    val searchLibrary: SearchLibraryValue? = null,
     /** Ordered, disjoint option-index partitions for SearchFromGroupsReq. */
     val searchGroupOptionIndices: List<List<Int>> = emptyList(),
     /** Frozen source identity for coordinator-owned Scry and Surveil grouping. */

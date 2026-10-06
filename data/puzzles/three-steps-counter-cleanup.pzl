@@ -1,0 +1,18 @@
+[metadata]
+Name:Three Steps Ahead stack cleanup
+Goal:Survive
+Turns:3
+Difficulty:Easy
+Description:Wait for the opponent to cast Tablet of Discovery, then respond with Three Steps Ahead's counter mode targeting Tablet. Both cards must leave the stack after resolution.
+
+[state]
+ActivePlayer=AI
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanbattlefield=Island;Island;Island
+humanhand=Three Steps Ahead
+humanlibrary=Mountain;Mountain;Mountain;Mountain;Mountain
+aihand=Tablet of Discovery
+aibattlefield=Mountain;Mountain;Island
+ailibrary=Plains;Plains;Plains;Plains;Plains

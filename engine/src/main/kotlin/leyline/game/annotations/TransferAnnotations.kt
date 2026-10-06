@@ -138,7 +138,7 @@ object TransferAnnotations {
         }
 
         // Persistent: EnteredZoneThisTurn for cards landing in any zone.
-        if (destZone != 0) {
+        if (destZone != 0 && transfer.destinationObjectPresent) {
             persistent.add(AnnotationBuilder.enteredZoneThisTurn(destZone, newId))
         }
 

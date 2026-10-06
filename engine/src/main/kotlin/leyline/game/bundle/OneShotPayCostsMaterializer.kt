@@ -27,7 +27,6 @@ internal class OneShotPayCostsMaterializer {
                     it.payCostsReq = payCostsRequest(window, context)
                     it.prompt = paymentPrompt(window, context)
                     it.allowCancel = AllowCancel.Abort
-                    it.allowUndo = true
                 },
             )
         return context.prepared(messages, awaitedRequest = messages.last())

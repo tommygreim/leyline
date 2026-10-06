@@ -8,6 +8,7 @@ import forge.game.card.CardView
 import forge.game.card.CounterEnumType
 import forge.game.event.*
 import forge.game.player.PlayerView
+import forge.game.spellability.SpellAbilityStackInstance
 import forge.game.spellability.SpellAbilityView
 import forge.game.zone.ZoneType
 import io.kotest.assertions.assertSoftly
@@ -142,6 +143,38 @@ class GameEventCollectorTest :
                     .filterIsInstance<GameEvent.SpellCast>()
                     .single()
             cast.manaPayments.map { it.sourceCardId to it.abilityGrpId } shouldBe sources.map { ForgeCardId(it.id) to 1005 }
+        }
+
+        test("ability cast identity comes from the emitted ability rather than the stack top") {
+            val (b, game, _) =
+                startWithBoard { _, human, _ ->
+                    addCard("Goblin Fireslinger", human, ZoneType.Battlefield)
+                    addCard("Goblin Cratermaker", human, ZoneType.Battlefield)
+                }
+            val source = game.humanPlayer.battlefield.card("Goblin Fireslinger")
+            val sourceAbility = source.getAllSpellAbilities().first { it.isAbility && !it.isManaAbility }
+            val unrelated = game.humanPlayer.battlefield.card("Goblin Cratermaker")
+            val unrelatedAbility = unrelated.getAllSpellAbilities().first { it.isAbility && !it.isManaAbility }
+            sourceAbility.activatingPlayer = game.humanPlayer
+            unrelatedAbility.activatingPlayer = game.humanPlayer
+            unrelatedAbility.targetRestrictions = null
+            game.stack.addAndUnfreeze(unrelatedAbility)
+            val collector = b.eventCollector!!
+            collector.closeFrame()
+
+            val expected = b.resolveAbilityIdentity(source, sourceAbility).shouldNotBeNull()
+            game.fireEvent(GameEventSpellAbilityCast(sourceAbility, SpellAbilityStackInstance(sourceAbility), 0))
+
+            val cast =
+                collector
+                    .closeFrame()
+                    .events
+                    .filterIsInstance<GameEvent.SpellCast>()
+                    .single()
+            assertSoftly {
+                cast.abilityIdentity shouldBe expected
+                cast.abilityGrpId shouldBe expected.abilityGrpId
+            }
         }
 
         // -- SpellResolved --

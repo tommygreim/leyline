@@ -68,6 +68,7 @@ class EnergyPaymentInteractionTest :
             fullControl = true,
         ) {
             val attacker = human.battlefield.iid("Glint-Sleeve Siphoner")
+            val entering = human.hand.card("Glint-Sleeve Siphoner")
             castSpellByName("Glint-Sleeve Siphoner") shouldBe true
             passUntil { human.getCounters(CounterEnumType.ENERGY) == 1 } shouldBe true
             human.getCounters(CounterEnumType.ENERGY) shouldBe 1
@@ -81,11 +82,14 @@ class EnergyPaymentInteractionTest :
                 .filter { it.type == GameObjectType.Ability }
                 .map { it.grpId }
                 .toSet() shouldBe setOf(900105)
-            states.flatMap { it.annotationsList }.count {
-                wotc.mtgo.gre.external.messaging.Messages.AnnotationType.CounterAdded in it.typeList &&
-                    it.affectedIdsList == listOf(1)
-            } shouldBe
-                2
+            val energyGains =
+                states.flatMap { it.annotationsList }.filter {
+                    wotc.mtgo.gre.external.messaging.Messages.AnnotationType.CounterAdded in it.typeList &&
+                        it.affectedIdsList == listOf(1)
+                }
+            energyGains.size shouldBe 2
+            cardByIid(energyGains[0].affectorId)?.id shouldBe entering.id
+            energyGains[1].affectorId shouldBe attacker
         }
 
         session(

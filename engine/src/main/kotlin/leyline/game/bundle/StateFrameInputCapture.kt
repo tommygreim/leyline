@@ -119,6 +119,7 @@ internal class StateFrameInputCapture(
                 is Events.Supplied -> events.log
             }
         bridge.invalidateAbilityRegistries(closedEvents.events)
+        bridge.prewarmAbilityRegistries(snapshot)
         val effectFacts = effectFactsOverride ?: bridge.materializeEffectProjectionFacts()
         val mechanicSourceFacts = MechanicSourceFactsCapture.capture(bridge, closedEvents.events)
         val abilityExhaustionFacts = AbilityExhaustionFactsCapture.capture(snapshot, bridge)

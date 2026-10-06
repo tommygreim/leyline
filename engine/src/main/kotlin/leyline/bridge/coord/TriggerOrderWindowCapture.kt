@@ -57,7 +57,7 @@ internal class TriggerOrderWindowCapture(
         val abilityGrpId =
             bridge.pendingTriggerCleanupAbilityGrpId(ability.trigger?.id ?: 0)
                 ?: bridge.resolveAbilityIdentity(host, ability)?.abilityGrpId?.takeIf { it != 0 }
-                ?: sourceCardGrpId
+                ?: return null
         return TriggerOrderOptionValue(
             originalOptionIndex = index,
             forgeAbilityId = ability.id,
@@ -66,6 +66,7 @@ internal class TriggerOrderWindowCapture(
             sourceCardGrpId = sourceCardGrpId,
             ownerSeatId = ownerSeat,
             controllerSeatId = controllerSeat,
+            abilityOriginalCardGrpId = SnapshotCapture.resolveAbilityOriginalCardGrpId(ability, bridge.cardRepository),
         )
     }
 }

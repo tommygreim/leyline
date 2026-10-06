@@ -70,7 +70,7 @@ class ReflexiveAbilityIdentityTest :
             GameBridge(cardRepository = repository).resolveAbilityIdentity(recipient, wrapped)?.abilityGrpId shouldBe 9101
         }
 
-        test("replacement-origin reflexive trigger resolves its own hidden child after copying") {
+        test("replacement-origin reflexive trigger keeps the printed copy paragraph after entry") {
             val source = Card(31, null as Game?).also { it.name = "Replacement Source" }
             val replacement =
                 forge.game.replacement.ReplacementHandler.parseReplacement(
@@ -117,7 +117,7 @@ class ReflexiveAbilityIdentityTest :
                     hiddenAbilityIds = listOf(9104),
                 ),
             )
-            GameBridge(cardRepository = repository).resolveAbilityIdentity(source, wrapped)?.abilityGrpId shouldBe 9104
+            GameBridge(cardRepository = repository).resolveAbilityIdentity(source, wrapped)?.abilityGrpId shouldBe 9103
         }
 
         test("detached immediate-trigger execute ability resolves to its hidden child row") {

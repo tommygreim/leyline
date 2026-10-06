@@ -1,18 +1,26 @@
 package leyline.bridge.coord
 
+import forge.card.mana.ManaCost
 import forge.game.Game
 import forge.game.GameEntity
 import forge.game.card.Card
 import forge.game.card.CardCollectionView
+import forge.game.spellability.SpellAbility
+import leyline.bridge.handoff.ActionResponseKey
 import leyline.bridge.handoff.BlockingInteraction
 import leyline.bridge.handoff.BlockingInteractionRuntime
 import leyline.bridge.handoff.DamageAssignmentCommand
+import leyline.bridge.handoff.GameActionBridge
+import leyline.bridge.handoff.ManaPaymentDecision
+import leyline.bridge.handoff.PlayerAction
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.opponent
 import leyline.game.PendingPromptCut
 import leyline.game.bundle.BlockingInteractionMaterializer
 import leyline.game.bundle.BundleBuilder
 import leyline.game.bundle.LogicalSequencePlanner
+import wotc.mtgo.gre.external.messaging.Messages.Action
+import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
@@ -33,8 +41,16 @@ internal class MatchBlockingInteractionRuntime(
 ) : BlockingInteractionRuntime,
     PromptTerminalCutOwner {
     private sealed interface Answer {
+        data class ManaPayment(
+            val decision: ManaPaymentDecision,
+        ) : Answer
+
         data class Optional(
             val accepted: Boolean,
+        ) : Answer
+
+        data class ResolutionCast(
+            val selectedId: ForgeCardId?,
         ) : Answer
 
         data class TopOrBottom(
@@ -75,6 +91,7 @@ internal class MatchBlockingInteractionRuntime(
         val future: CompletableFuture<Answer>,
         val damageCards: Map<ForgeCardId, Card> = emptyMap(),
         val damageAssigners: List<PublishedDamageAssigner> = emptyList(),
+        val manaOffers: List<GameActionBridge.ActionOffer> = emptyList(),
     )
 
     private var window: Window? = null
@@ -83,6 +100,71 @@ internal class MatchBlockingInteractionRuntime(
     internal var beforeInstall: (() -> Unit)? = null
     internal var afterMaterialization: (() -> Unit)? = null
     internal var beforeTimeoutClaim: (() -> Unit)? = null
+
+    override fun awaitManaPayment(
+        interaction: BlockingInteraction.ManaPayment,
+        manaCost: ManaCost,
+        ability: SpellAbility,
+    ): ManaPaymentDecision {
+        val pending =
+            publish(interaction, manaCost = manaCost, manaAbility = ability) { _, _, _ ->
+                error("Mana payment requires a state-bearing viewer cut")
+            }
+        return try {
+            (await(pending, null) as Answer.ManaPayment).decision
+        } finally {
+            clear(pending)
+        }
+    }
+
+    fun submitManaPayment(
+        interactionId: String,
+        gameStateId: Int,
+        solutionIndex: Int?,
+    ): Boolean =
+        synchronized(owner.feedLock) {
+            val pending = matching(interactionId, gameStateId) ?: return false
+            val payment = pending.published.interaction as? BlockingInteraction.ManaPayment ?: return false
+            if (solutionIndex != null && (solutionIndex != 0 || !payment.canAutoPay)) return false
+            pending.future.complete(
+                Answer.ManaPayment(if (solutionIndex == null) ManaPaymentDecision.Cancel else ManaPaymentDecision.AutoPay),
+            )
+        }
+
+    /** Admit Undo only for a payment source activated within this cast's payment transaction. */
+    fun submitManaUndo(
+        interactionId: String,
+        gameStateId: Int,
+    ): Boolean =
+        synchronized(owner.feedLock) {
+            val pending = matching(interactionId, gameStateId) ?: return false
+            val payment = pending.published.interaction as? BlockingInteraction.ManaPayment ?: return false
+            if (!payment.canUndo) return false
+            pending.future.complete(Answer.ManaPayment(ManaPaymentDecision.Undo))
+        }
+
+    fun submitManaSources(
+        interactionId: String,
+        gameStateId: Int,
+        actions: List<Action>,
+    ): Boolean =
+        synchronized(owner.feedLock) {
+            val pending = matching(interactionId, gameStateId) ?: return false
+            if (pending.published.interaction !is BlockingInteraction.ManaPayment || actions.isEmpty()) return false
+            val sources =
+                actions.map { action ->
+                    if (action.actionType != ActionType.ActivateMana) return false
+                    val offers =
+                        pending.manaOffers
+                            .mapIndexed { index, offer -> index.toLong() to offer }
+                            .groupBy { ActionResponseKey.from(it.second.action) }
+                    val offer = resolveActionOffer(offers, action)?.second ?: return false
+                    val source = offer.command as? PlayerAction.ActivateMana ?: return false
+                    source.copy(selectedColor = selectedManaColor(action))
+                }
+            if (sources.map { it.cardId }.distinct().size != sources.size) return false
+            pending.future.complete(Answer.ManaPayment(ManaPaymentDecision.Sources(sources)))
+        }
 
     override fun awaitOptional(
         interaction: BlockingInteraction.Optional,
@@ -128,6 +210,23 @@ internal class MatchBlockingInteractionRuntime(
             (await(pending, timeoutMs) as Answer.TopOrBottom).putOnTop
         } catch (_: TimeoutException) {
             defaultOnTimeout
+        } finally {
+            clear(pending)
+        }
+    }
+
+    override fun awaitResolutionCast(
+        interaction: BlockingInteraction.ResolutionCast,
+        timeoutMs: Long?,
+    ): ForgeCardId? {
+        val pending =
+            publish(interaction) { _, _, _ ->
+                error("Resolution cast requires a state-bearing viewer cut")
+            }
+        return try {
+            (await(pending, timeoutMs ?: 45_000L) as Answer.ResolutionCast).selectedId
+        } catch (_: TimeoutException) {
+            if (interaction.optional) null else interaction.candidateIds.firstOrNull()
         } finally {
             clear(pending)
         }
@@ -240,6 +339,19 @@ internal class MatchBlockingInteractionRuntime(
             pending.future.complete(Answer.Optional(accepted))
         }
 
+    fun submitResolutionCast(
+        interactionId: String,
+        gameStateId: Int,
+        selectedId: ForgeCardId?,
+    ): Boolean =
+        synchronized(owner.feedLock) {
+            val pending = matching(interactionId, gameStateId) ?: return false
+            val cast = pending.published.interaction as? BlockingInteraction.ResolutionCast ?: return false
+            if (selectedId == null && !cast.optional) return false
+            if (selectedId != null && selectedId !in cast.candidateIds) return false
+            pending.future.complete(Answer.ResolutionCast(selectedId))
+        }
+
     fun submitTopOrBottom(
         interactionId: String,
         gameStateId: Int,
@@ -331,10 +443,18 @@ internal class MatchBlockingInteractionRuntime(
                     if (published.slots.zip(amounts).any { (slot, amount) -> slot.maxDamage > 0 && amount > slot.maxDamage }) {
                         return false
                     }
-                    if (published.slots.indices.any { index ->
-                            amounts.drop(index + 1).any { it > 0 } && amounts[index] < published.slots[index].minDamage
+                    // Foundations removed combat-damage assignment order. A player may
+                    // divide damage among blockers freely; only trample still requires
+                    // lethal damage on every blocker before assigning any to the defender.
+                    val defenderDamage =
+                        published.slots.zip(amounts).sumOf { (slot, amount) ->
+                            if (slot.targetId == null) amount else 0
                         }
-                    ) {
+                    val belowTrampleLethal =
+                        published.slots.zip(amounts).any { (slot, amount) ->
+                            slot.targetId != null && amount < slot.minDamage
+                        }
+                    if (defenderDamage > 0 && belowTrampleLethal) {
                         return false
                     }
                     DamageAssignmentValue(
@@ -374,6 +494,8 @@ internal class MatchBlockingInteractionRuntime(
         interaction: BlockingInteraction,
         damageCards: Map<ForgeCardId, Card> = emptyMap(),
         sourceCard: Card? = null,
+        manaCost: ManaCost? = null,
+        manaAbility: SpellAbility? = null,
         build: (MatchCutCoordinator.ViewerFeed, Game, LogicalSequencePlanner) -> BlockingInteractionMaterializer.Prepared,
     ): Window {
         owner.beforePublicationLock?.invoke()
@@ -390,6 +512,15 @@ internal class MatchBlockingInteractionRuntime(
                     try {
                         viewerPrepared =
                             when (interaction) {
+                                is BlockingInteraction.ManaPayment ->
+                                    feed.builder.manaPaymentInteractionBundle(
+                                        game,
+                                        planner,
+                                        interaction,
+                                        checkNotNull(manaCost),
+                                        checkNotNull(manaAbility),
+                                        owner.viewerRoutes(runtimeSeat),
+                                    )
                                 is BlockingInteraction.Optional ->
                                     interaction
                                         .takeIf {
@@ -414,7 +545,16 @@ internal class MatchBlockingInteractionRuntime(
                                             owner.viewerRoutes(runtimeSeat),
                                         )
                                     }
-                                else -> null
+                                is BlockingInteraction.ResolutionCast ->
+                                    feed.builder.resolutionCastInteractionBundle(
+                                        game,
+                                        planner,
+                                        interaction,
+                                        owner.viewerRoutes(runtimeSeat),
+                                    )
+                                is BlockingInteraction.Damage,
+                                is BlockingInteraction.TopOrBottom,
+                                -> null
                             }
                         (viewerPrepared?.player ?: build(feed, game, planner)).also { afterMaterialization?.invoke() }
                     } catch (ex: Exception) {
@@ -467,6 +607,7 @@ internal class MatchBlockingInteractionRuntime(
                         CompletableFuture(),
                         damageCards,
                         damageAssigners,
+                        prepared.manaOffers,
                     )
                 val cut =
                     if (viewerPrepared == null) {

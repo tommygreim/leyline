@@ -45,13 +45,12 @@ object GroupedSearchClassifier {
         if (shape.changeType?.split(',')?.map(String::trim) != listOf("Instant", "Card.hasKeywordFlash")) return null
 
         val instant = candidates.indices.filter { candidates[it].isInstant }
-        check(candidates.none { it.isInstant && it.hasFlash }) {
-            "Grouped search candidate belongs to multiple groups"
-        }
+        // Legal searches can have an empty partition, or a card meeting both
+        // qualities. The flat SearchReq represents those choices faithfully;
+        // never duplicate a card into disjoint native groups or abort the search.
+        if (candidates.any { it.isInstant && it.hasFlash }) return null
         val flash = candidates.indices.filter { candidates[it].hasFlash }
-        check(instant.isNotEmpty() && flash.isNotEmpty() && (instant + flash).toSet() == candidates.indices.toSet()) {
-            "Grouped search candidates do not form the grounded partitions"
-        }
+        if (instant.isEmpty() || flash.isEmpty() || (instant + flash).toSet() != candidates.indices.toSet()) return null
         return listOf(instant, flash)
     }
 

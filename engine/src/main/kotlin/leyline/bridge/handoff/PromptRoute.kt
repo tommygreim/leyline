@@ -306,7 +306,7 @@ object PromptRouteResolver {
             PromptSemantic.TargetSelection -> ResolvedPromptRoute.Targeting(semantic)
             PromptSemantic.GroupingSurveil -> ResolvedPromptRoute.Grouping(semantic, GroupingContext.Surveil)
             PromptSemantic.GroupingScry -> ResolvedPromptRoute.Grouping(semantic, GroupingContext.Scry_a0f6)
-            PromptSemantic.ModalChoice -> ResolvedPromptRoute.ModalChoice(semantic)
+            PromptSemantic.ModalChoice, PromptSemantic.VoteChoice -> ResolvedPromptRoute.ModalChoice(semantic)
             PromptSemantic.Search -> ResolvedPromptRoute.Search(semantic)
             PromptSemantic.GroupedSearch -> ResolvedPromptRoute.Search(semantic)
             PromptSemantic.SelectReplacement -> ResolvedPromptRoute.SelectReplacement(semantic)

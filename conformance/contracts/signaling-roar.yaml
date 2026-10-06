@@ -1,0 +1,54 @@
+name: Signaling Roar Omen cast
+scenario: {suite: mechanics-warmup, id: omen-lifecycle}
+frames:
+  - id: cast
+    events:
+      - id: spell
+        type: Card
+        lane: object
+        op: create
+        fields: {raw.zoneId: 27, "raw.cardTypes[0]": Sorcery, raw.controllerSeatId: 1}
+      - id: cast-reallocated
+        type: ObjectIdChanged
+        lane: transient
+        keys: [orig_id, new_id]
+        equals: {"details.new_id[0]": spell.affectorId}
+      - id: cast
+        type: ZoneTransfer
+        lane: transient
+        keys: [zone_src, zone_dest, category]
+        fields: {details.category: [CastSpell], details.zone_src: [31], details.zone_dest: [27]}
+        equals: {"affectedIds[0]": spell.affectorId}
+  - id: resolution
+    events:
+      - id: started
+        type: ResolutionStart
+        lane: transient
+        keys: [grpid]
+        equals: {affectorId: spell.affectorId, "details.grpid[0]": spell.raw.grpId}
+      - id: token-created
+        type: TokenCreated
+        lane: transient
+        keys: []
+        equals: {affectorId: spell.affectorId}
+      - id: resolved
+        type: ResolutionComplete
+        lane: transient
+        keys: [grpid]
+        equals: {affectorId: spell.affectorId, "details.grpid[0]": spell.raw.grpId}
+      - id: library-reallocated
+        type: ObjectIdChanged
+        lane: transient
+        keys: [orig_id, new_id]
+        equals: {"details.orig_id[0]": spell.affectorId}
+      - id: to-library
+        type: ZoneTransfer
+        lane: transient
+        keys: [zone_src, zone_dest, category]
+        fields: {details.category: [Resolve], details.zone_src: [27], details.zone_dest: [32]}
+        equals: {"affectedIds[0]": "library-reallocated.details.new_id[0]"}
+counts:
+  - match: {type: TokenCreated, lane: transient, equals: {affectorId: spell.affectorId}}
+    exactly: 1
+  - match: {type: ResolutionComplete, lane: transient, equals: {affectorId: spell.affectorId}}
+    exactly: 1

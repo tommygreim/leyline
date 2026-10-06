@@ -175,7 +175,7 @@ data object AbilityWordActiveKind : PersistentAnnotationKind {
 
     override fun identityKey(ann: AnnotationInfo): Any {
         val name = stringDetail(ann, DetailKeys.ABILITY_WORD_NAME).orEmpty()
-        return if (name == "Opus" || name == "Void") {
+        return if (name == "Opus" || name == "Void" || name == "Ascend") {
             listOf(ann.affectorId, name)
         } else {
             listOf(
@@ -188,7 +188,7 @@ data object AbilityWordActiveKind : PersistentAnnotationKind {
     }
 
     override fun preserveIdOnChange(ann: AnnotationInfo): Boolean =
-        stringDetail(ann, DetailKeys.ABILITY_WORD_NAME) in setOf("Opus", "Void", "ToSolveCondition")
+        stringDetail(ann, DetailKeys.ABILITY_WORD_NAME) in setOf("Opus", "Void", "ToSolveCondition", "Ascend")
 }
 
 data object QualificationKind : PersistentAnnotationKind {
@@ -336,6 +336,18 @@ data object CommanderDesignationKind : PersistentAnnotationKind {
     }
 }
 
+data object BattleProtectorDesignationKind : PersistentAnnotationKind {
+    override val name = "BattleProtectorDesignation"
+    override val pruneStale = true
+    override val collisionStrategy = CollisionStrategy.REPLACE_IF_CHANGED
+
+    override fun matches(ann: AnnotationInfo): Boolean =
+        AnnotationType.Designation in ann.typeList &&
+            designationTypeOf(ann) == AnnotationConstants.DESIGNATION_TYPE_BATTLE_PROTECTOR
+
+    override fun identityKey(ann: AnnotationInfo): Any = ann.affectorId
+}
+
 data object SaddledDesignationKind : PersistentAnnotationKind {
     override val name = "SaddledDesignation"
     override val pruneStale = true
@@ -406,6 +418,19 @@ data object ManaCreatureDesignationKind : PersistentAnnotationKind {
             designationTypeOf(ann) == AnnotationConstants.DESIGNATION_TYPE_MANA_CREATURE
 
     override fun identityKey(ann: AnnotationInfo): Any = firstAffectedId(ann)
+}
+
+/** Persistent player blessing, independent of its source permanent. */
+data object CitysBlessingDesignationKind : PersistentAnnotationKind {
+    override val name = "CitysBlessingDesignation"
+    override val pruneStale = true
+    override val collisionStrategy = CollisionStrategy.REPLACE_IF_CHANGED
+
+    override fun matches(ann: AnnotationInfo): Boolean =
+        AnnotationType.Designation in ann.typeList &&
+            designationTypeOf(ann) == AnnotationConstants.DESIGNATION_TYPE_CITYS_BLESSING
+
+    override fun identityKey(ann: AnnotationInfo): Any = ann.affectorId
 }
 
 /** Persistent player-owned speed state. */
@@ -585,6 +610,35 @@ data object EtbReplacementEffectKind : PersistentAnnotationKind {
         ann: AnnotationInfo,
         frame: FrameContext,
     ): Boolean = ann.affectedIdsList.any { it in frame.battlefieldIids }
+}
+
+/** Command-side pending-effect cards exist only while their feed is present.
+ * They are player-scoped MiscContinuousEffect annotations, not replacement
+ * annotations (whose controller refuses Static ability rows).
+ */
+data object PendingEffectKind : PersistentAnnotationKind {
+    override val name = "PendingEffect"
+    override val pruneStale = true
+    override val collisionStrategy = CollisionStrategy.REPLACE_IF_CHANGED
+
+    override fun matches(ann: AnnotationInfo): Boolean =
+        AnnotationType.MiscContinuousEffect in ann.typeList &&
+            int32Detail(ann, DetailKeys.GRPID) != null
+
+    override fun identityKey(ann: AnnotationInfo): Any = Triple(ann.affectorId, ann.affectedIdsList, int32Detail(ann, DetailKeys.GRPID))
+}
+
+/** Non-token clone layer, rebuilt from the active Forge clone state. */
+data object CopiedPermanentKind : PersistentAnnotationKind {
+    override val name = "CopiedPermanent"
+    override val pruneStale = true
+    override val collisionStrategy = CollisionStrategy.REPLACE_IF_CHANGED
+
+    override fun matches(ann: AnnotationInfo): Boolean =
+        AnnotationType.CopiedObject in ann.typeList &&
+            ann.detailsList.any { it.key == DetailKeys.LAYERED_EFFECT_TYPE && it.valueStringList == listOf("CopyObject") }
+
+    override fun identityKey(ann: AnnotationInfo): Any? = ann.affectedIdsList.firstOrNull()
 }
 
 /**
@@ -800,6 +854,8 @@ object PersistentAnnotationKinds {
             InstanceRevealedToOpponentKind,
             TargetSpecKind,
             MutateLayeredEffectKind,
+            CopiedPermanentKind,
+            PendingEffectKind,
             ColorProductionKind,
             ClassLevelKind,
             DungeonStatusKind,
@@ -809,6 +865,7 @@ object PersistentAnnotationKinds {
             PreparedDesignationKind,
             PlottedDesignationKind,
             CommanderDesignationKind,
+            BattleProtectorDesignationKind,
             SaddledDesignationKind,
             SuspectedDesignationKind,
             SolvedDesignationKind,
@@ -816,6 +873,7 @@ object PersistentAnnotationKinds {
             RightUnlockedDesignationKind,
             ManaCreatureDesignationKind,
             PlayerSpeedDesignationKind,
+            CitysBlessingDesignationKind,
             DayNightDesignationKind,
             FaceDownForetellKind,
             FaceDownDisguiseKind,

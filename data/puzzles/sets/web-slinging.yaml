@@ -1,0 +1,35 @@
+name: web-slinging
+description: Web-slinging alternate cast and tapped-creature return choice.
+scenarios:
+  - id: spider-man-return-selected-creature
+    puzzle: web-slinging-spider-man
+    headless: { forge_catalog: true }
+    run: cast Spider-Man for Web-slinging and return the chosen tapped Grizzly Bears
+    expect: Spider-Man resolves, Grizzly Bears returns to hand, and Raging Goblin remains
+    steps:
+      - expect:
+          action: { type: cast, card: "Spider-Man, Web-Slinger", alt_cost: web_slinging }
+      - cast: { card: "Spider-Man, Web-Slinger", alt_cost: web_slinging }
+      - select_cost: { zone: battlefield, cards: [Grizzly Bears] }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: battlefield, card: "Spider-Man, Web-Slinger" }
+            - zone_contains: { side: ours, zone: battlefield, card: Raging Goblin }
+            - zone_contains: { side: ours, zone: hand, card: Grizzly Bears }
+            - zone_not_contains: { side: ours, zone: battlefield, card: Grizzly Bears }
+            - stack_empty: true
+  - id: spider-man-cancel-return-cost
+    puzzle: web-slinging-spider-man
+    headless: { forge_catalog: true }
+    run: cancel Web-slinging at the tapped-creature return choice
+    expect: Spider-Man remains in hand and both tapped creatures remain on the battlefield
+    steps:
+      - cast: { card: "Spider-Man, Web-Slinger", alt_cost: web_slinging }
+      - cancel_action: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: hand, card: "Spider-Man, Web-Slinger" }
+            - zone_contains: { side: ours, zone: battlefield, card: Raging Goblin }
+            - zone_contains: { side: ours, zone: battlefield, card: Grizzly Bears }
+            - stack_empty: true

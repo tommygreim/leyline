@@ -52,6 +52,7 @@ import leyline.game.data.CardData
 import leyline.game.data.CardProtoBuilder
 import leyline.game.data.CardRepository
 import leyline.game.data.KeywordAbilityIds
+import leyline.game.data.grantedKeywordAbilityGrpId
 import leyline.game.event.FrameEventLog
 import leyline.game.event.GameEvent
 import leyline.game.event.GameEventCollector
@@ -517,7 +518,6 @@ class GameBridge(
         mulliganBridges[seatId.value] =
             MulliganBridge(
                 autoKeep = engineSettings.skipMulligan && !humanVsHuman,
-                timeoutMs = engineSettings.mulliganWaitMs,
             )
     }
 
@@ -1516,7 +1516,8 @@ class GameBridge(
     ): AbilityRegistry? {
         if (cardData == null) return null
         return abilityRegistries.compute(card.id) { _, cached ->
-            cached?.takeIf { it.sourceCardGrpId == cardData.grpId } ?: AbilityRegistry.build(card, cardData)
+            cached?.takeIf { it.sourceCardGrpId == cardData.grpId }
+                ?: AbilityRegistry.build(card, cardData, cardRepository::grantedKeywordAbilityGrpId)
         }
     }
 
@@ -1545,8 +1546,12 @@ class GameBridge(
     ): ResolvedAbilityIdentity {
         val spawning = ability.trigger?.spawningAbility ?: return parentIdentity
         if (spawning.api != ApiType.ImmediateTrigger) return parentIdentity
+        // Native enter-as-copy reflexive exile displays the printed replacement
+        // paragraph after entry (the replacement itself was never on the stack).
+        if (spawning.rootAbility.let { it.api == ApiType.Clone && it.isReplacementAbility }) return parentIdentity
         val execute = spawning.getAdditionalAbility("Execute") ?: return parentIdentity
-        if (execute.definitionId != ability.definitionId) return parentIdentity
+        val effect = (ability as? WrappedAbility)?.wrappedAbility ?: ability
+        if (execute.definitionId != effect.definitionId) return parentIdentity
         val child =
             cardRepository
                 .findAbilityInfo(parentIdentity.abilityGrpId)
@@ -1588,6 +1593,7 @@ class GameBridge(
         val definition =
             ability.trigger?.let { AbilityDefinitionRef.Trigger(it.definitionId) }
                 ?: AbilityDefinitionRef.SpellAbility(ability.definitionId)
+        cardRepository.grantedKeywordAbilityGrpId(ability)?.let { return ResolvedAbilityIdentity(definition, it) }
         // Copy effects can keep the recipient's name (and artwork). The trait's
         // original host still identifies the rules definition being executed.
         val definitionHost = ability.trigger?.originalHost ?: ability.originalHost ?: card
@@ -1608,7 +1614,15 @@ class GameBridge(
             if (replacementRow != null) return ResolvedAbilityIdentity(definition, replacementRow)
         }
         val registry = abilityRegistryFor(definitionHost, cardData) ?: return null
-        if (ability.trigger != null) return registry.resolve(definition)
+        if (ability.trigger != null) {
+            registry.resolve(definition)?.let { return it }
+            val refreshed = AbilityRegistry.build(definitionHost, cardData, cardRepository::grantedKeywordAbilityGrpId)
+            abilityRegistries[definitionHost.id] = refreshed
+            return refreshed.resolve(definition)
+                ?: ability.trigger
+                    ?.takeIf { it.isIntrinsic && it.spawningAbility == null }
+                    ?.let { refreshed.resolveSoleIntrinsicTrigger(definition as AbilityDefinitionRef.Trigger) }
+        }
         val abilityGrpId = registry.forSpellAbility(ability) ?: return null
         return registry.resolve(definition)?.takeIf { it.abilityGrpId == abilityGrpId }
             ?: ResolvedAbilityIdentity(definition, abilityGrpId)
@@ -1645,7 +1659,12 @@ class GameBridge(
             cardRepository.findPresentationGrpIdByName(card.name)
                 ?: return null
         val cardData = cardRepository.findByGrpId(grpId) ?: return null
-        return abilityRegistryFor(card, cardData)?.resolve(definition)
+        val registry = abilityRegistryFor(card, cardData) ?: return null
+        return registry.resolve(definition)
+            ?: AbilityRegistry.build(card, cardData, cardRepository::grantedKeywordAbilityGrpId).let { refreshed ->
+                abilityRegistries[card.id] = refreshed
+                refreshed.resolve(definition)
+            }
     }
 
     /** Evict cached AbilityRegistry for a card (e.g. after DFC transform). */
@@ -1657,6 +1676,19 @@ class GameBridge(
     fun invalidateAbilityRegistries(events: List<GameEvent>) {
         events.filterIsInstance<GameEvent.CardTransformed>().forEach { evictAbilityRegistry(it.cardId.value) }
         events.filterIsInstance<GameEvent.ZoneChanged>().forEach { evictAbilityRegistry(it.cardId.value) }
+    }
+
+    /** Build identities that can execute before the next client action projection. */
+    internal fun prewarmAbilityRegistries(snapshot: GsmSnapshot) {
+        val sources =
+            listOf(ZoneIds.BATTLEFIELD, ZoneIds.P1_HAND, ZoneIds.P2_HAND)
+                .flatMap { snapshot.zones[it]?.contents.orEmpty() }
+                .toSet()
+        for (forgeCardId in sources) {
+            val bound = snapshot.boundCards[forgeCardId] ?: continue
+            val card = findCard(forgeCardId) ?: continue
+            abilityRegistryFor(card, bound.data)
+        }
     }
 
     /**
@@ -2394,6 +2426,20 @@ class GameBridge(
                 if (!keywordTable.isEmpty) {
                     for (cell in keywordTable.cellSet()) {
                         for (keyword in cell.value.keywords) {
+                            val exactRow = cardRepository.grantedKeywordAbilityGrpId(keyword)
+                            val uniqueId = AbilityRegistry.grantedKeywordUniqueAbilityId(keyword)
+                            if (exactRow != null && uniqueId != null) {
+                                grantedAbilities +=
+                                    EffectProjectionFacts.GrantedAbilityEntry(
+                                        forgeCardId = forgeCardId,
+                                        timestamp = cell.rowKey,
+                                        staticId = cell.columnKey,
+                                        abilityGrpId = exactRow,
+                                        uniqueAbilityId = uniqueId,
+                                        sourceForgeCardId = ForgeCardId((keyword.static?.hostCard ?: card).id),
+                                    )
+                                continue
+                            }
                             keywords +=
                                 EffectProjectionFacts.KeywordEntry(
                                     forgeCardId = forgeCardId,

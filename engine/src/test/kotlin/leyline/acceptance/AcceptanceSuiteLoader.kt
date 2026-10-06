@@ -61,6 +61,8 @@ object AcceptanceSuiteLoader {
             steps = map.optionalList("steps", context)?.mapIndexed { stepIndex, step -> parseStep(stepIndex, step) } ?: emptyList(),
             fullControl =
                 map["headless"]?.asMap("$context.headless")?.get("full_control")?.asBoolean("$context.headless.full_control") ?: false,
+            forgeCatalog =
+                map["headless"]?.asMap("$context.headless")?.get("forge_catalog")?.asBoolean("$context.headless.forge_catalog") ?: false,
         )
     }
 

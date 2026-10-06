@@ -86,6 +86,7 @@ sealed interface ProjectionSupplement {
         val isActivatedAbility: Boolean = true,
         /** See [leyline.game.snapshot.StackEntry.deferAnnouncement]. */
         val deferAnnouncement: Boolean = false,
+        val abilityOriginalCardGrpId: Int = 0,
     ) : ProjectionSupplement
 
     /** Copied spell visible on the client stack while Forge is choosing its new targets. */
@@ -103,6 +104,12 @@ sealed interface ProjectionSupplement {
         val sourceForgeId: ForgeCardId,
         val evenForgeIds: List<ForgeCardId>,
         val oddForgeIds: List<ForgeCardId>,
+    ) : ProjectionSupplement
+
+    /** A replacement is pending during resolution; it is not a stack ability. */
+    data class EnterAsCopyChoice(
+        val sourceForgeId: ForgeCardId,
+        val abilityGrpId: Int,
     ) : ProjectionSupplement
 }
 

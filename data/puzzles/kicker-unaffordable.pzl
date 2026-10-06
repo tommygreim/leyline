@@ -1,0 +1,16 @@
+[metadata]
+Name:Optional-cost affordability
+Goal:Survive
+Turns:3
+Difficulty:Easy
+Description:With only two Mountains, choose Burst Lightning's kicker and target the opponent. Pay {4}{R} must wait for mana or Cancel. Cancel returns the spell to hand without automatically tapping lands; retry normally for 2 damage.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanbattlefield=Mountain;Mountain
+humanhand=Burst Lightning;Burst Lightning
+humanlibrary=Mountain;Mountain;Mountain;Mountain
+ailibrary=Forest;Forest;Forest;Forest

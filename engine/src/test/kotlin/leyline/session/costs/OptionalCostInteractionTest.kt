@@ -5,7 +5,9 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
+import leyline.bridge.types.SeatId
 import leyline.game.data.KeywordAbilityIds
+import leyline.game.mapping.ZoneIds
 import leyline.testkit.MatchFlowHarness
 import leyline.testkit.SessionTest
 import leyline.testkit.after
@@ -69,6 +71,97 @@ class OptionalCostInteractionTest :
             // Locks the option count: block-form asserts Kicker + Done are present
             // and shaped correctly, but a third unexpected option would slip through.
             cto.castingTimeOptionReqList shouldHaveSize 2
+        }
+
+        val lowManaState =
+            burstState.replace(
+                "humanbattlefield=Mountain;Mountain;Mountain;Mountain;Mountain",
+                "humanbattlefield=Mountain;Mountain",
+            )
+
+        session("unaffordable chosen cost opens payment and cancel rolls back the cast", puzzle = lowManaState) {
+            castSpellByName("Burst Lightning").shouldBeTrue()
+            val options = lastCastingTimeOptionsReq().castingTimeOptionReqList
+            val kicker = options.single { it.castingTimeOptionType == CastingTimeOptionType.Kicker }
+            val normal = options.single { it.castingTimeOptionType == CastingTimeOptionType.Done }
+            assertSoftly {
+                normal.hasAutoTapSolution() shouldBe true
+                kicker.hasAutoTapSolution() shouldBe false
+                kicker.manaCostList.sumOf { it.count } shouldBe 5
+            }
+            // Choosing a cost is not a payment. Native Arena accepts even an
+            // unaffordable branch and gives the player a cancellable Pay window.
+            val chosen =
+                after {
+                    submitGameplayResponse(
+                        optionalCostResp(kicker.ctoId)
+                            .toBuilder()
+                            .setCastingTimeOptionsResp(
+                                CastingTimeOptionsResp.newBuilder().setCastingTimeOptionResp(
+                                    CastingTimeOptionResp
+                                        .newBuilder()
+                                        .setCtoId(kicker.ctoId)
+                                        .setCastingTimeOptionType(CastingTimeOptionType.Kicker),
+                                ),
+                            ).build(),
+                    ).shouldBeTrue()
+                }
+            chosen.expectOneSelectTargetsReq()
+            val payment = after { selectTargets(listOf(OPPONENT_SEAT)) }
+            val pay = payment.messages.single { it.hasPayCostsReq() }
+            assertSoftly {
+                pay.allowCancel shouldBe AllowCancel.Abort
+                pay.payCostsReq.manaCostList.sumOf { it.count } shouldBe 5
+                pay.payCostsReq.manaCostList.associate { it.colorList.single() to it.count } shouldBe
+                    mapOf(ManaColor.Generic to 4, ManaColor.Red_afc9 to 1)
+                pay.prompt.promptId shouldBe leyline.game.mapping.PromptIds.PAY_COSTS
+                pay.payCostsReq.autoTapActionsReq.autoTapSolutionsCount shouldBe 0
+                human.getZone(ForgeZoneType.Battlefield).cards.count { it.isTapped } shouldBe 0
+                // Forge has not committed a spell while waiting for payment.
+                game().stack.isEmpty shouldBe true
+            }
+            val cancelled =
+                after {
+                    submitGameplayResponse(
+                        ClientToGREMessage.newBuilder().setType(ClientMessageType.CancelActionReq_097b).build(),
+                    ).shouldBeTrue()
+                }
+            assertSoftly {
+                human.getZone(ForgeZoneType.Hand).cards.map { it.name } shouldContain "Burst Lightning"
+                cancelled.messages.any { it.hasActionsAvailableReq() } shouldBe true
+                bridge.cutCoordinator.deferredCast.hasPrompt() shouldBe false
+                bridge
+                    .projectionStateSnapshot()
+                    .viewerCursors
+                    .getValue(SeatId(1))
+                    .fullState!!
+                    .zonesList
+                    .single { it.zoneId == ZoneIds.STACK }
+                    .objectInstanceIdsList shouldBe emptyList()
+            }
+            castSpellByName("Burst Lightning").shouldBeTrue()
+            after { declineKicker() }.expectOneSelectTargetsReq()
+            selectTargets(listOf(OPPONENT_SEAT))
+            passUntilResolved()
+            ai.life shouldBe 18
+        }
+
+        session("affordable kicker carries its own full-cost payment solution", puzzle = burstState) {
+            castSpellByName("Burst Lightning").shouldBeTrue()
+            val options = lastCastingTimeOptionsReq().castingTimeOptionReqList
+            val kicker = options.single { it.castingTimeOptionType == CastingTimeOptionType.Kicker }
+            val normal = options.single { it.castingTimeOptionType == CastingTimeOptionType.Done }
+            assertSoftly {
+                kicker.hasAutoTapSolution() shouldBe true
+                normal.hasAutoTapSolution() shouldBe true
+                kicker.autoTapSolution.autoTapActionsCount shouldBe 5
+                normal.autoTapSolution.autoTapActionsCount shouldBe 1
+                human.getZone(ForgeZoneType.Battlefield).cards.count { it.isTapped } shouldBe 0
+            }
+            acceptKicker()
+            selectTargets(listOf(OPPONENT_SEAT))
+            passUntilResolved()
+            ai.life shouldBe 16
         }
 
         session("kicked Burst Lightning deals 4 damage", puzzle = burstState) {

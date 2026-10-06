@@ -4,14 +4,17 @@ import forge.game.card.Card
 import forge.game.player.Player
 import forge.game.zone.ZoneType
 import leyline.bridge.coord.GameLoopPoller
+import leyline.bridge.handoff.BlockingInteraction
 import leyline.bridge.handoff.PendingActionKind
 import leyline.bridge.handoff.PromptCallStatus
 import leyline.bridge.handoff.ResolvedPromptRoute
 import leyline.bridge.handoff.StaticChoiceKind
 import leyline.bridge.types.InstanceId
 import leyline.bridge.types.SeatId
+import leyline.game.data.ForgeCardRepository
 import leyline.game.mapping.PromptIds
 import leyline.testkit.MatchFlowHarness
+import leyline.tooling.headless.dumpDiagnostics
 import wotc.mtgo.gre.external.messaging.Messages.Action
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
@@ -37,6 +40,7 @@ class MatchdoorAcceptanceExecutor(
                 deckList = scenario.deckList,
                 opponentDeckList = scenario.opponentDeckList,
                 fullControl = scenario.fullControl,
+                cardRepositoryOverride = if (scenario.forgeCatalog) ForgeCardRepository.open() else null,
             )
         try {
             scenario.puzzle?.let { harness.connectAndKeepPuzzleText(readPuzzleText(it)) } ?: harness.connectAndKeep()
@@ -54,6 +58,9 @@ class MatchdoorAcceptanceExecutor(
             }
             onComplete(harness.allMessages.toList())
             return scenario.steps.size
+        } catch (failure: Throwable) {
+            harness.dumpDiagnostics(scenario.id)
+            throw failure
         } finally {
             harness.shutdown()
         }
@@ -333,29 +340,16 @@ private class ScenarioRun(
         require(prompt?.let { it.hasSearchReq() || it.hasSearchFromGroupsReq() } == true) {
             "$context expected latest prompt SearchReq or SearchFromGroupsReq"
         }
-        val selectedIds =
+        val libraryIds = cardsInZone(step.side, AcceptanceZone.Library).map { harness.bridge.instanceId(it) }.toSet()
+        val candidates =
             if (prompt.hasSearchFromGroupsReq()) {
-                val candidates = prompt.searchFromGroupsReq.groupsList.flatMap { it.idsList }
-                step.cards.map { card ->
-                    candidates.firstOrNull { iid -> cardNameByInstanceId(iid).equals(card, ignoreCase = true) }
-                        ?: error("$context could not find $card in grouped-search candidates ${promptCardNames(candidates)}")
-                }
+                prompt.searchFromGroupsReq.groupsList
+                    .flatMap { it.idsList }
+                    .distinct()
             } else {
-                step.cards.map { resolveCardInZone(step.side, AcceptanceZone.Library, it) }
-            }
-        selectedIds.zip(step.cards).forEach { (selectedId, card) ->
-            val candidates =
-                if (prompt.hasSearchFromGroupsReq()) {
-                    prompt.searchFromGroupsReq.groupsList.flatMap {
-                        it.idsList
-                    }
-                } else {
-                    prompt.searchReq.itemsSoughtList
-                }
-            require(selectedId in candidates) {
-                "$context selected $card iid=$selectedId is not in search candidates $candidates"
-            }
-        }
+                prompt.searchReq.itemsSoughtList
+            }.filter { it in libraryIds }
+        val selectedIds = resolvePromptCardSelection(candidates, step.cards, "search")
         if (prompt.hasSearchFromGroupsReq()) {
             if (selectedIds.isEmpty()) {
                 harness.respondToGroupedSearchFail()
@@ -573,6 +567,26 @@ private class ScenarioRun(
         postActionMessageStart = null
         repeat(12) { index ->
             if (harness.isGameOver()) return
+            // `resolve_stack` has no cast-choice instruction. Decline an optional
+            // resolution browser so the source can complete without silently
+            // choosing a spell for the scenario.
+            val blocking =
+                harness.bridge.cutCoordinator
+                    .currentBlockingInteraction()
+            val resolutionCast = blocking?.interaction as? BlockingInteraction.ResolutionCast
+            if (resolutionCast != null) {
+                require(resolutionCast.optional) { "$context cannot auto-decline a mandatory resolution cast" }
+                val picker =
+                    requireNotNull(
+                        harness.allMessages.lastOrNull {
+                            it.hasActionsAvailableReq() &&
+                                it.prompt.promptId == resolutionCast.promptId &&
+                                it.gameStateId == blocking.gameStateId
+                        },
+                    ) { "$context resolution-cast picker was not published" }
+                harness.submitAction(picker.actionsAvailableReq.actionsList.single { it.actionType == ActionType.Pass })
+                return@repeat
+            }
             val pending =
                 harness.bridge
                     .actionBridge(OUR_SEAT)
@@ -1029,11 +1043,19 @@ private class ScenarioRun(
         require(candidateIds.size == cards.size) {
             "$context ordered ${cards.size} cards but OrderReq has ${candidateIds.size} candidates ${promptCardNames(candidateIds)}"
         }
+        return resolvePromptCardSelection(candidateIds, cards, "OrderReq")
+    }
+
+    private fun resolvePromptCardSelection(
+        candidateIds: List<Int>,
+        cards: List<String>,
+        promptName: String,
+    ): List<Int> {
         val remaining = candidateIds.toMutableList()
         return cards.map { card ->
             val id =
                 remaining.firstOrNull { iid -> cardNameByInstanceId(iid).equals(card, ignoreCase = true) }
-                    ?: error("$context could not find $card in OrderReq candidates ${promptCardNames(candidateIds)}")
+                    ?: error("$context could not find an unselected $card in $promptName candidates ${promptCardNames(candidateIds)}")
             remaining.remove(id)
             id
         }

@@ -192,6 +192,8 @@ internal class DeferredCastCostInteractionHandler(
                 playerIdToPrompt = counters.seatId.value,
                 baseManaCost = optional.baseManaCost,
                 optionManaCosts = optional.entries.map { it.manaCost },
+                baseAutoTapSolution = optional.baseAutoTapSolution,
+                optionAutoTapSolutions = optional.entries.map { it.autoTapSolution },
             )
         return OptionalCostPrompt(ctoReq, costCtoIds)
     }

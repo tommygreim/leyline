@@ -148,7 +148,7 @@ private fun MatchFlowHarness.castMutateAndSelectTarget(): MutatePromptState {
     val promptParameter = targetGroup.prompt.parametersList.single()
     assertSoftly {
         selectTargetsMsg.allowCancel shouldBe AllowCancel.Abort
-        selectTargetsMsg.allowUndo.shouldBeTrue()
+        selectTargetsMsg.allowUndo shouldBe false
         req.abilityGrpId shouldBe KeywordAbilityIds.MUTATE
         targetGroup.prompt.promptId shouldBe PromptIds.MUTATE_TARGET
         promptParameter.numberValue shouldBe stackIid

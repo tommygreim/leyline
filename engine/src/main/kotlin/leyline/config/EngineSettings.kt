@@ -20,7 +20,7 @@ data class EngineSettings(
     /** How long the engine waits for the AI turn before suppressing action prompts (ms). */
     @SerialName("ai_turn_wait_ms")
     val aiTurnWaitMs: Long = 30_000L,
-    /** How long the engine waits for a mulligan decision (ms). */
+    /** Deadline for publishing the initial mulligan horizon; player decisions do not auto-timeout (ms). */
     @SerialName("mulligan_wait_ms")
     val mulliganWaitMs: Long = 45_000L,
     /** RNG seed for deterministic shuffles. Null = random each game. */

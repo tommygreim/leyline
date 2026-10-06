@@ -3,9 +3,11 @@ package leyline.game.bundle
 import leyline.bridge.handoff.BlockingInteraction
 import leyline.bridge.handoff.CommanderReturnPromptContext
 import leyline.bridge.handoff.CommanderZone
+import leyline.bridge.handoff.GameActionBridge
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.GrpId
 import leyline.bridge.types.InstanceId
+import leyline.bridge.types.ManaCostText
 import leyline.bridge.types.SeatId
 import leyline.bridge.types.opponent
 import leyline.game.annotations.AnnotationBuilder
@@ -33,7 +35,58 @@ internal class BlockingInteractionMaterializer(
         val bundle: BundleBuilder.BundleResult,
         val transition: ProjectionTransition?,
         val closesPlaybackFrame: Boolean = false,
+        val manaOffers: List<GameActionBridge.ActionOffer> = emptyList(),
     )
+
+    fun manaPayment(
+        stateMessages: List<GREToClientMessage>,
+        counter: LogicalSequencePlanner,
+        interaction: BlockingInteraction.ManaPayment,
+        transition: ProjectionTransition,
+        solution: AutoTapSolution?,
+        paymentActions: ActionsAvailableReq,
+    ): Prepared {
+        val gsId = stateMessages.last().gameStateId
+        val sourceId = checkNotNull(transition.nextState.identities.forgeIdToInstanceId[interaction.sourceId]).value
+        val prompt =
+            Prompt
+                .newBuilder()
+                .setPromptId(PromptIds.PAY_COSTS)
+                .addParameters(costPromptParameter(ManaCostText.clientText(interaction.manaCost)))
+                .build()
+        val pay =
+            PayCostsReq
+                .newBuilder()
+                .addAllManaCost(
+                    interaction.manaCost.map { (color, count) ->
+                        ManaRequirement
+                            .newBuilder()
+                            .addColor(color)
+                            .setCount(count)
+                            .setObjectId(sourceId)
+                            .build()
+                    },
+                ).setPaymentActions(paymentActions)
+                .setAutoTapActionsReq(
+                    AutoTapActionsAvailableReq.newBuilder().apply {
+                        if (interaction.canAutoPay) addAutoTapSolutions(solution ?: AutoTapSolution.getDefaultInstance())
+                    },
+                ).build()
+        return Prepared(
+            BundleBuilder.BundleResult(
+                stateMessages +
+                    makeGRE(GREMessageType.PayCostsReq_695e, gsId, counter.nextMsgId()) {
+                        it.payCostsReq = pay
+                        it.prompt = prompt
+                        it.allowCancel = AllowCancel.Abort
+                        it.allowUndo = interaction.canUndo
+                    },
+                actionGameStateId = gsId,
+            ),
+            transition,
+            closesPlaybackFrame = true,
+        )
+    }
 
     fun generalOptional(
         prior: ProjectionState,
@@ -305,6 +358,71 @@ internal class BlockingInteractionMaterializer(
                 actionGameStateId = link.gsId,
             ),
             transition,
+            closesPlaybackFrame = true,
+        )
+    }
+
+    /** Arena selects ResolutionCastWorkflow only when every cast action names
+     * the current resolving object. Keep that source alive across repeated
+     * pickers without replaying its resolution-start animation. */
+    fun resolutionCast(
+        stateMessages: List<GREToClientMessage>,
+        counter: LogicalSequencePlanner,
+        interaction: BlockingInteraction.ResolutionCast,
+        transition: ProjectionTransition,
+    ): Prepared {
+        val editor = transition.nextState.copy(revision = transition.expectedRevision).editor()
+        val cursor = checkNotNull(editor.viewerCursors[SeatId(seatId)])
+        val objects = checkNotNull(cursor.fullState).gameObjectsList.associateBy { it.instanceId }
+
+        fun instanceId(id: ForgeCardId): Int = checkNotNull(transition.nextState.identities.forgeIdToInstanceId[id]).value
+        val sourceId =
+            instanceId(interaction.sourceAbilityForgeId?.let(FrameIdResolver::triggerStackAbilityForgeId) ?: interaction.sourceId)
+        val source = checkNotNull(objects[sourceId]) { "Resolution-cast source must be visible" }
+        val actions = ActionsAvailableReq.newBuilder()
+        interaction.candidateIds.forEach { id ->
+            val candidate = checkNotNull(objects[instanceId(id)]) { "Resolution-cast candidate must be visible" }
+            actions.addActions(
+                Action
+                    .newBuilder()
+                    .setActionType(ActionType.Cast)
+                    .setInstanceId(candidate.instanceId)
+                    .setGrpId(candidate.grpId)
+                    .setSourceId(sourceId)
+                    .apply {
+                        if (interaction.withoutManaCost) setAlternativeGrpId(149)
+                    },
+            )
+        }
+        if (interaction.optional) actions.addActions(Action.newBuilder().setActionType(ActionType.Pass))
+        val link = counter.nextGameStateLink()
+        val pending = pendingMessage(link, presentationActions(stateMessages)).toBuilder()
+        if (cursor.resolvingInstanceId != sourceId) {
+            pending.addAnnotations(
+                AnnotationBuilder
+                    .resolutionStart(InstanceId(sourceId), GrpId(source.grpId))
+                    .toBuilder()
+                    .setId(nextAnnotationId(editor)),
+            )
+            editor.viewerCursors[SeatId(seatId)] = cursor.copy(resolvingInstanceId = sourceId)
+        }
+        return Prepared(
+            BundleBuilder.BundleResult(
+                stateMessages +
+                    listOf(
+                        makeGRE(GREMessageType.GameStateMessage_695e, link.gsId, counter.nextMsgId()) {
+                            it.gameStateMessage =
+                                pending.build()
+                        },
+                        makeGRE(GREMessageType.ActionsAvailableReq_695e, link.gsId, counter.nextMsgId()) {
+                            it.actionsAvailableReq = actions.build()
+                            it.prompt = Prompt.newBuilder().setPromptId(interaction.promptId).build()
+                            it.allowCancel = AllowCancel.No_a526
+                        },
+                    ),
+                actionGameStateId = link.gsId,
+            ),
+            transition.copy(nextState = editor.freeze()),
             closesPlaybackFrame = true,
         )
     }
@@ -641,7 +759,11 @@ internal class BlockingInteractionMaterializer(
                     DamageAssignment
                         .newBuilder()
                         .setInstanceId(editor.identities.getOrAlloc(blockerId).value)
-                        .setMinDamage(lethal)
+                        // Without trample, Foundations lets the attacker divide
+                        // damage among blockers without assigning lethal to any
+                        // particular one. Keep lethal minima only when excess
+                        // damage could be assigned to the defending player.
+                        .setMinDamage(if (interaction.hasTrample) lethal else 0)
                         .setAssignedDamage(assigned)
                         .build()
             }

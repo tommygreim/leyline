@@ -31,8 +31,8 @@ class KeywordGrantAnnotationTest :
                     created =
                         listOf(
                             trackedKeyword(7010, 389, 1L, 5L, "Flanking", affector = 435),
-                            trackedKeyword(7010, 425, 1L, 5L, "Flanking", affector = 435),
-                            trackedKeyword(7010, 432, 1L, 5L, "Flanking", affector = 435),
+                            trackedKeyword(7011, 425, 1L, 5L, "Flanking", affector = 435),
+                            trackedKeyword(7012, 432, 1L, 5L, "Flanking", affector = 435),
                         ),
                     destroyed = emptyList(),
                 )
@@ -45,15 +45,15 @@ class KeywordGrantAnnotationTest :
                     uniqueAbilityIdAllocator = { uniqueId++ },
                 )
 
-            // One LayeredEffectCreated for the keyword effect
-            transient.filter { it.typeList.contains(AnnotationType.LayeredEffectCreated) } shouldHaveSize 1
-
-            // One AddAbility+LayeredEffect pAnn
-            val pAnn = persistent.first { it.typeList.contains(AnnotationType.AddAbility_af5a) }
-            assertSoftly {
-                pAnn.affectedIdsList shouldHaveSize 3
-                pAnn.detailsList.filter { it.key == "UniqueAbilityId" } shouldHaveSize 3
-                pAnn.detailUint("grpid") shouldBe 26
+            transient.filter { it.typeList.contains(AnnotationType.LayeredEffectCreated) } shouldHaveSize 3
+            persistent shouldHaveSize 3
+            persistent.forEachIndexed { index, pAnn ->
+                assertSoftly {
+                    pAnn.affectedIdsList shouldBe listOf(listOf(389, 425, 432)[index])
+                    pAnn.detailsList.filter { it.key == "UniqueAbilityId" } shouldHaveSize 1
+                    pAnn.detailUint("grpid") shouldBe 26
+                    pAnn.detailInt("effect_id") shouldBe 7010 + index
+                }
             }
         }
 
@@ -129,14 +129,14 @@ class KeywordGrantAnnotationTest :
             persistent.shouldBeEmpty()
         }
 
-        test("effectAnnotations groups same keyword from same static ability into one pAnn") {
+        test("same-source keyword recipients retain independent effect lifetimes") {
             val kwDiff =
                 EffectTracker.KeywordDiffResult(
                     created =
                         listOf(
                             // Two creatures get Flying from the same static ability (ts=2, staticId=10)
                             trackedKeyword(7020, 100, 2L, 10L, "Flying", affector = 500),
-                            trackedKeyword(7020, 200, 2L, 10L, "Flying", affector = 500),
+                            trackedKeyword(7021, 200, 2L, 10L, "Flying", affector = 500),
                         ),
                     destroyed = emptyList(),
                 )
@@ -149,16 +149,12 @@ class KeywordGrantAnnotationTest :
                     uniqueAbilityIdAllocator = { uniqueId++ },
                 )
 
-            // One transient (LayeredEffectCreated) for the group
-            transient.filter { it.typeList.contains(AnnotationType.LayeredEffectCreated) } shouldHaveSize 1
-
-            // One persistent pAnn covering both creatures
-            persistent shouldHaveSize 1
-            val pAnn = persistent[0]
             assertSoftly {
-                pAnn.affectedIdsList shouldHaveSize 2
-                pAnn.detailUint("grpid") shouldBe 8 // Flying
-                pAnn.detailInt("effect_id") shouldBe 7020
+                transient.filter { it.typeList.contains(AnnotationType.LayeredEffectCreated) } shouldHaveSize 2
+                persistent shouldHaveSize 2
+                persistent.map { it.affectedIdsList.single() } shouldBe listOf(100, 200)
+                persistent.map { it.detailInt("effect_id") } shouldBe listOf(7020, 7021)
+                persistent.map { it.detailUint("grpid") } shouldBe listOf(8, 8)
             }
         }
 

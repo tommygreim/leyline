@@ -188,7 +188,7 @@ internal class TargetingWindowMaterializer(
             it.selectTargetsReq = request
             it.prompt = Prompt.newBuilder().setPromptId(PromptIds.SELECT_TARGETS).build()
             it.allowCancel = AllowCancel.Abort
-            it.allowUndo = true
+            it.allowUndo = request.targetsList.any { target -> target.selectedTargets > 0 }
         }
 
     companion object {

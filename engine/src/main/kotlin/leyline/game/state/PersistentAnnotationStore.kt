@@ -134,6 +134,7 @@ object PersistentAnnotationStore {
         activeStealForgeCardIds: Set<ForgeCardId> = emptySet(),
         resolveInstanceId: (ForgeCardId) -> InstanceId,
         resolveForgeCardId: (InstanceId) -> ForgeCardId? = { null },
+        destroyedEffectIds: List<Int> = emptyList(),
     ): BatchResult {
         val active = currentActive.toMutableMap()
         val deletions = mutableListOf<Int>()
@@ -165,8 +166,8 @@ object PersistentAnnotationStore {
             val numbered = ann.toBuilder().setId(nextId++).build()
             active[numbered.id] = numbered
         }
-        for (effect in effectDiff.destroyed) {
-            val annId = findByEffectId(active, effect.syntheticId)
+        for (effectId in effectDiff.destroyed.map { it.syntheticId } + destroyedEffectIds) {
+            val annId = findByEffectId(active, effectId)
             if (annId != null) {
                 active.remove(annId)
                 deletions.add(annId)

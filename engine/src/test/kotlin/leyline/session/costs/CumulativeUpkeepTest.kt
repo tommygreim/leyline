@@ -8,6 +8,7 @@ import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.shouldBe
 import leyline.testkit.SessionTest
+import wotc.mtgo.gre.external.messaging.Messages.*
 
 class CumulativeUpkeepTest :
     SessionTest({
@@ -39,6 +40,19 @@ class CumulativeUpkeepTest :
             }.shouldBeTrue()
         }
 
+        fun leyline.tooling.headless.MatchFlowHarness.autoPayUpkeep() {
+            allMessages
+                .last { it.hasPayCostsReq() }
+                .payCostsReq.manaCostCount shouldBe 1
+            submitGameplayResponse(
+                ClientToGREMessage
+                    .newBuilder()
+                    .setType(ClientMessageType.PerformAutoTapActionsResp_097b)
+                    .setPerformAutoTapActionsResp(PerformAutoTapActionsResp.newBuilder().setIndex(0))
+                    .build(),
+            ).shouldBeTrue()
+        }
+
         session("decline sacrifices Mystic Remora without spending mana", puzzle = puzzle()) {
             reachUpkeepPayment()
             respondToOptionalAction(accept = false)
@@ -56,6 +70,7 @@ class CumulativeUpkeepTest :
         session("accept pays each increasing upkeep cost once", puzzle = puzzle()) {
             reachUpkeepPayment()
             respondToOptionalAction(accept = true)
+            autoPayUpkeep()
 
             val remora = human.getZone(ZoneType.Battlefield).cards.single { it.name == "Mystic Remora" }
             assertSoftly {
@@ -65,6 +80,7 @@ class CumulativeUpkeepTest :
 
             reachUpkeepPayment()
             respondToOptionalAction(accept = true)
+            autoPayUpkeep()
             passUntil(maxPasses = 4) {
                 remora.getCounters(CounterEnumType.AGE) == 2
             }.shouldBeTrue()

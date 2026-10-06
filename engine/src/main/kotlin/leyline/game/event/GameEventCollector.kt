@@ -25,6 +25,7 @@ import leyline.bridge.types.ResolvedAbilityIdentity
 import leyline.bridge.types.SeatId
 import leyline.bridge.types.WubrgColorMapping
 import leyline.game.data.KeywordAbilityIds
+import leyline.game.data.grantedKeywordAbilityGrpId
 import leyline.game.mapping.PlayerMapper
 import leyline.game.mapping.ZoneIds
 import leyline.game.state.GameBridge
@@ -218,11 +219,11 @@ class GameEventCollector(
     override fun visit(ev: GameEventSpellAbilityCast) {
         val card = ev.sa().hostCard ?: return
         val seat = seatOf(card.controller) ?: return
-        val topSa =
+        val eventSa =
             bridge
                 .getGame()
                 ?.stack
-                ?.peek()
+                ?.firstOrNull { it.spellAbility.id == ev.sa().id }
                 ?.spellAbility
         val payments =
             ev.manaPayments().map { mp ->
@@ -248,28 +249,28 @@ class GameEventCollector(
                     abilityGrpId = abilityGrpId,
                 )
             }
-        val realCard = bridge.findCard(ForgeCardId(card.id))
+        val realCard = eventSa?.hostCard ?: bridge.findCard(ForgeCardId(card.id))
         val isAdventure =
             realCard != null &&
                 realCard.isAdventureCard &&
                 realCard.currentStateName == CardStateName.Secondary
-        val isOmen = topSa?.isOmen == true
-        val isMdfc = topSa?.hostCard?.isModal == true && topSa.cardStateName == CardStateName.Backside
+        val isOmen = eventSa?.isOmen == true
+        val isMdfc = eventSa?.hostCard?.isModal == true && eventSa.cardStateName == CardStateName.Backside
         // Alt-cost detection. Most keywords surface as a Forge AlternativeCost;
         // Cleave is script-level (`PrecostDesc$ Cleave`) on a non-basic spell SA.
         // ev.sa() is a SpellAbilityView snapshot which doesn't expose alt-cost.
-        // Peek the live stack instead — the just-cast spell sits on top — then
-        // resolve to the client ability grpId via the keyword→grpId lookup
+        // Resolve the exact event ability, not an unrelated new stack top, then
+        // map its client ability grpId via the keyword→grpId lookup
         // (same path ActionMapper uses when offering the alt-cost cast action).
         val saAltCost =
-            if (topSa != null && topSa.hostCard?.id == card.id) {
-                topSa.getAlternativeCost()
+            if (eventSa != null && eventSa.hostCard?.id == card.id) {
+                eventSa.getAlternativeCost()
             } else {
                 null
             }
         val grpId = bridge.consumeSelectedSpellGrpId(ForgeCardId(card.id)) ?: bridge.cardRepository.findGrpIdByName(card.name) ?: 0
-        val keywordId = castThroughAbilityKeywordId(topSa, saAltCost)
-        val isParadigmCopyCast = isParadigmCopyCast(topSa)
+        val keywordId = castThroughAbilityKeywordId(eventSa, saAltCost)
+        val isParadigmCopyCast = isParadigmCopyCast(eventSa)
         val castingPermission =
             bridge.allSeatIds().firstNotNullOfOrNull { seat ->
                 bridge
@@ -282,7 +283,7 @@ class GameEventCollector(
                 149
             } else if (castingPermission != null) {
                 149
-            } else if (topSa?.isCastFaceDown == true) {
+            } else if (eventSa?.isCastFaceDown == true) {
                 // Disguise / Morph face-down hand-cast SAs have no
                 // AlternativeCost enum entry — they're plain Forge `Spell`s
                 // with `setCastFaceDown(true)`. The CastingTimeOption pAnn
@@ -291,8 +292,11 @@ class GameEventCollector(
                 // ability row. Disguise is the only mechanic in v1; Morph
                 // arrives later via the same path.
                 KeywordAbilityIds.DISGUISE
+            } else if (grpId != 0 && eventSa?.isOptionalCostPaid(OptionalCost.AltCost) == true) {
+                bridge.cardRepository.findGenericAlternativeCostAbilityGrpId(grpId) ?: 0
             } else if (grpId != 0 && keywordId != null) {
-                bridge.cardRepository.findKeywordAbilityGrpId(grpId, keywordId) ?: 0
+                eventSa?.let { bridge.cardRepository.grantedKeywordAbilityGrpId(it) }
+                    ?: bridge.cardRepository.findKeywordAbilityGrpId(grpId, keywordId) ?: 0
             } else {
                 0
             }
@@ -330,7 +334,7 @@ class GameEventCollector(
         val cardId = ForgeCardId(card.id)
         val spellAbilityId = ev.cause()?.abilityId() ?: ev.sa()?.id ?: 0
         val rootAbilityForgeId =
-            topSa
+            eventSa
                 ?.rootAbility
                 ?.let { it.originalAbility ?: it }
                 ?.id
@@ -344,22 +348,22 @@ class GameEventCollector(
             when {
                 !isTrigger && !isAbility -> null
                 isTrigger ->
-                    topSa?.trigger?.definitionId?.let { AbilityDefinitionRef.Trigger(it) }
+                    eventSa?.trigger?.definitionId?.let { AbilityDefinitionRef.Trigger(it) }
                         ?: ev
                             .sa()
                             .sourceTriggerDefinitionId
                             .takeIf { it > 0 }
                             ?.let { AbilityDefinitionRef.Trigger(it) }
-                else -> AbilityDefinitionRef.SpellAbility(topSa?.definitionId ?: ev.sa().definitionId)
+                else -> AbilityDefinitionRef.SpellAbility(eventSa?.definitionId ?: ev.sa().definitionId)
             }
         val abilityIdentity =
             if (realCard != null && abilityDefinition != null) {
-                abilityIdentityFor(realCard, topSa, abilityDefinition, isTrigger)
+                abilityIdentityFor(realCard, eventSa, abilityDefinition, isTrigger)
             } else {
                 null
-            } ?: pendingTriggerAbilityIdentity(topSa, abilityDefinition, isTrigger)
+            } ?: pendingTriggerAbilityIdentity(eventSa, abilityDefinition, isTrigger)
         val abilityGrpId = abilityIdentity?.abilityGrpId ?: 0
-        topSa?.let { liveAbility ->
+        eventSa?.let { liveAbility ->
             bridge.recordStackTargetSpecs(liveAbility, isSpell = !isTrigger && !isAbility)
         }
         val paradigmSourceCardId =
@@ -375,16 +379,16 @@ class GameEventCollector(
                 abilityDefinition,
             )
         }
-        val forgeTriggeringCard = topSa?.getTriggeringObject(AbilityKey.Card) as? Card
+        val forgeTriggeringCard = eventSa?.getTriggeringObject(AbilityKey.Card) as? Card
         val opusTrigger =
-            isTrigger && topSa?.trigger?.getParam("TriggerDescription")?.startsWith("Opus —") == true
+            isTrigger && eventSa?.trigger?.getParam("TriggerDescription")?.startsWith("Opus —") == true
         val opusActive = opusTrigger && (forgeTriggeringCard?.castSA?.totalManaSpent ?: 0) >= 5
         val voidTrigger =
-            isTrigger && topSa?.trigger?.getParam("TriggerDescription")?.startsWith("Void —") == true
+            isTrigger && eventSa?.trigger?.getParam("TriggerDescription")?.startsWith("Void —") == true
         val triggeringObjectCardId =
             when {
                 !isTrigger -> null
-                abilityGrpId == KeywordAbilityIds.ENLIST -> enlistTriggerObjectFor(ForgeCardId(card.id), topSa)
+                abilityGrpId == KeywordAbilityIds.ENLIST -> enlistTriggerObjectFor(ForgeCardId(card.id), eventSa)
                 else -> forgeTriggeringCard?.let { ForgeCardId(it.id) }
             }
         val triggeringObjectInstanceId =
@@ -414,13 +418,13 @@ class GameEventCollector(
         // zone" is wherever the source card lives, computed elsewhere.
         val activationZoneId =
             when {
-                isTrigger && realCard != null && isParadigmDelayedTrigger(topSa, realCard) -> ZoneIds.STACK
-                isAbility && !isTrigger -> resolveActivationZoneId(topSa, card.id, seat, evSaId = ev.sa()?.id ?: 0)
+                isTrigger && realCard != null && isParadigmDelayedTrigger(eventSa, realCard) -> ZoneIds.STACK
+                isAbility && !isTrigger -> resolveActivationZoneId(eventSa, card.id, seat, evSaId = ev.sa()?.id ?: 0)
                 else -> 0
             }
         val castingTimeOptionState =
             readCastingTimeOptionState(
-                topSa,
+                eventSa,
                 ev.si()?.optionalCostString,
                 bridge.consumeSelectedAdditionalCostGrpId(ForgeCardId(card.id)),
                 bridge.consumeSelectedChosenCostPromptId(ForgeCardId(card.id)),
@@ -451,7 +455,7 @@ class GameEventCollector(
                 abilityForgeId = abilityForgeId,
                 abilityGrpId = abilityGrpId,
                 abilityIdentity = abilityIdentity,
-                isActivatedDiscover = isAbility && !isTrigger && topSa?.api == ApiType.Discover,
+                isActivatedDiscover = isAbility && !isTrigger && eventSa?.api == ApiType.Discover,
                 paradigmSourceCardId = paradigmSourceCardId,
                 triggeringObjectCardId = triggeringObjectCardId,
                 triggeringObjectInstanceId = triggeringObjectInstanceId,
@@ -482,14 +486,14 @@ class GameEventCollector(
     }
 
     private fun castThroughAbilityKeywordId(
-        topSa: SpellAbility?,
+        eventSa: SpellAbility?,
         saAltCost: AlternativeCost?,
     ): Int? =
         when {
             saAltCost != null -> KeywordAbilityIds.fromForgeAltCostName(saAltCost.name)
-            topSa?.isJumpstart == true -> KeywordAbilityIds.JUMP_START
-            topSa?.isOptionalCostPaid(OptionalCost.Retrace) == true -> KeywordAbilityIds.RETRACE
-            topSa?.hasParam("PrecostDesc") == true && topSa.getParam("PrecostDesc") == "Cleave" -> KeywordAbilityIds.CLEAVE
+            eventSa?.isJumpstart == true -> KeywordAbilityIds.JUMP_START
+            eventSa?.isOptionalCostPaid(OptionalCost.Retrace) == true -> KeywordAbilityIds.RETRACE
+            eventSa?.hasParam("PrecostDesc") == true && eventSa.getParam("PrecostDesc") == "Cleave" -> KeywordAbilityIds.CLEAVE
             else -> null
         }
 
@@ -527,7 +531,7 @@ class GameEventCollector(
         when {
             isParadigmDelayedTrigger(sa, card) -> KeywordAbilityIds.PARADIGM_DELAYED_TRIGGER
             sa.api == ApiType.Sacrifice && sa.trigger?.getParam("ValidCard") == "Card.Self+evoked" ->
-                bridge.cardRepository
+                bridge.cardRepository.grantedKeywordAbilityGrpId(sa) ?: bridge.cardRepository
                     .findGrpIdByName(card.name)
                     ?.let { bridge.cardRepository.findKeywordAbilityGrpId(it, KeywordAbilityIds.EVOKE) }
             sa.isKeyword(Keyword.STATION) -> KeywordAbilityIds.STATION
@@ -611,7 +615,7 @@ class GameEventCollector(
      *      of the activation), its `from` zone is the activation zone. Most
      *      reliable for cycling/channel/unearth — the discard or graveyard-exit
      *      event always fires before `SpellAbilityCast`.
-     *   2. **Stack peek (`topSa`)** — populated for normal activate flows where
+     *   2. **Stack peek (`eventSa`)** — populated for normal activate flows where
      *      the AB still lives on the stack at event time.
      *   3. **Live SA on the host card matched by id** — recovers the restriction
      *      when stack.peek() has already cleared (compressed cycling resolution).
@@ -621,7 +625,7 @@ class GameEventCollector(
      * Returns 0 when nothing pins down the zone.
      */
     private fun resolveActivationZoneId(
-        topSa: forge.game.spellability.SpellAbility?,
+        eventSa: forge.game.spellability.SpellAbility?,
         cardId: Int,
         seat: SeatId,
         evSaId: Int,
@@ -643,8 +647,8 @@ class GameEventCollector(
         }
         // 2-3. SA-driven resolution.
         val candidate =
-            if (topSa != null && topSa.hostCard?.id == cardId) {
-                topSa
+            if (eventSa != null && eventSa.hostCard?.id == cardId) {
+                eventSa
             } else {
                 findLiveSaOnCard(cardId, evSaId)
             }
@@ -714,13 +718,13 @@ class GameEventCollector(
 
     /** CastingTimeOption state read from the live SA on top of the stack. */
     private fun readCastingTimeOptionState(
-        topSa: forge.game.spellability.SpellAbility?,
+        eventSa: forge.game.spellability.SpellAbility?,
         stackOptionalCosts: String?,
         selectedAdditionalCostGrpId: Int?,
         selectedChosenCostPromptId: Int?,
         card: forge.game.card.CardView,
     ): CastingTimeOptionState {
-        val sourceSa = topSa?.takeIf { it.hostCard?.id == card.id }
+        val sourceSa = eventSa?.takeIf { it.hostCard?.id == card.id }
         val grpId = bridge.cardRepository.findGrpIdByName(card.name) ?: 0
         val kicker =
             if (sourceSa?.isKicked == true) {
@@ -1268,7 +1272,23 @@ class GameEventCollector(
         newCount: Int,
     ) {
         if (oldCount == newCount) return
-        frame.add(GameEvent.PlayerCountersChanged(seat, name, oldCount, newCount))
+        val resolving =
+            bridge
+                .getGame()
+                ?.stack
+                ?.takeIf { it.isResolving }
+                ?.peek()
+                ?.spellAbility
+        frame.add(
+            GameEvent.PlayerCountersChanged(
+                seat,
+                name,
+                oldCount,
+                newCount,
+                sourceCardId = resolving?.hostCard?.let { ForgeCardId(it.id) },
+                sourceAbilityForgeId = resolving?.id ?: 0,
+            ),
+        )
         log.debug("event: PlayerCountersChanged seat={} {} {}→{}", seat, name, oldCount, newCount)
     }
 

@@ -104,6 +104,7 @@ class EffectTracker {
         val staticId: Long,
         val abilityGrpId: Int,
         val sourceForgeCardId: ForgeCardId?,
+        val uniqueAbilityId: Int,
     )
 
     data class TrackedGrantedAbility(
@@ -253,6 +254,7 @@ class EffectTracker {
                         entry.staticId,
                         entry.abilityGrpId,
                         entry.sourceForgeCardId,
+                        entry.uniqueAbilityId,
                     )
                 },
                 createTracked = { fp, entry ->

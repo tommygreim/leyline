@@ -25,6 +25,8 @@ internal class ModalChoicePromptAdapter(
             record(request, PromptCallStatus.DEFAULTED_POLICY, indices)
             prioritySignal?.markPromptResolved()
         }?.let { indices -> return indices.mapNotNull(possible::getOrNull) }
+        val fallback =
+            if (request.route.semantic == PromptSemantic.VoteChoice && request.min == 0) emptyList() else listOf(request.defaultIndex)
         val scope = NonInteractiveScope.active
         if (scope != null && strict) {
             refuseStrictPrompt(
@@ -38,17 +40,14 @@ internal class ModalChoicePromptAdapter(
             )
         }
         if (scope != null) {
-            val fallback = listOf(request.defaultIndex)
             record(request, PromptCallStatus.NON_INTERACTIVE_SCOPE, fallback)
             return fallback.mapNotNull(possible::getOrNull)
         }
         if (!isGameLoopThread()) {
-            val fallback = listOf(request.defaultIndex)
             record(request, PromptCallStatus.NON_GAME_THREAD, fallback)
             return fallback.mapNotNull(possible::getOrNull)
         }
         if (timeoutMs == 0L) {
-            val fallback = listOf(request.defaultIndex)
             return fallback.mapNotNull(possible::getOrNull)
         }
         val modalRuntime = checkNotNull(runtime()) { "ModalChoice runtime is not registered" }

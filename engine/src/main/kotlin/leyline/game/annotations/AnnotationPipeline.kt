@@ -12,6 +12,7 @@ import leyline.game.mapping.FrameIdResolver
 import leyline.game.mapping.PersistentFeedSet
 import leyline.game.mapping.StateZoneProjection
 import leyline.game.mapping.ZoneIds
+import leyline.game.snapshot.GsmSnapshot
 import leyline.game.state.AbilityExhaustedKind
 import leyline.game.state.AbilityWireIdentity
 import leyline.game.state.AnnotationProjectionState
@@ -118,6 +119,7 @@ object AnnotationPipeline {
         transferResult: TransferResult,
         actingSeat: Int,
         annotationJournal: AnnotationProjectionState.Planner = ctx.editor.annotations,
+        previousSnapshot: GsmSnapshot? = null,
     ): AnnotationPipelineResult {
         val events = ctx.events
         val combatTransferredIds =
@@ -151,7 +153,33 @@ object AnnotationPipeline {
                 annotationJournal = annotationJournal,
                 paradigmSourceStackIidLookup = paradigmSourceStackIidLookup,
             )
+        annotations.addAll(phasingAnnotations(previousSnapshot, ctx.snap, ctx.frameIds))
         return AnnotationPipelineResult(annotations, transferPersistent, combatResult)
+    }
+
+    /** Forge retains phased permanents on the battlefield; project the explicit client phase transition. */
+    private fun phasingAnnotations(
+        prev: GsmSnapshot?,
+        snap: GsmSnapshot,
+        frameIds: FrameIdResolver,
+    ): List<AnnotationInfo> {
+        if (prev == null) return emptyList()
+        val previousPhased =
+            prev.zones[ZoneIds.PHASED_OUT]
+                ?.contents
+                .orEmpty()
+                .toSet()
+        val currentPhased =
+            snap.zones[ZoneIds.PHASED_OUT]
+                ?.contents
+                .orEmpty()
+                .toSet()
+        val phasedOut = (currentPhased - previousPhased).map(frameIds::cardIid)
+        val phasedIn = (previousPhased - currentPhased).map(frameIds::cardIid)
+        return buildList {
+            if (phasedOut.isNotEmpty()) add(AnnotationBuilder.phasedOut(phasedOut))
+            if (phasedIn.isNotEmpty()) add(AnnotationBuilder.phasedIn(phasedIn))
+        }
     }
 
     /**
@@ -969,6 +997,7 @@ object AnnotationPipeline {
                 frame = frameContext,
                 effectPersistent = effectPersistent + earthbend.effectPersistent,
                 effectDiff = storeEffectDiff.copy(destroyed = storeEffectDiff.destroyed + grantedDestroyedEffects),
+                destroyedEffectIds = keywordDiff.destroyed.map { it.syntheticId },
                 transferPersistent = transferPersistent,
                 mechanicResult = enrichedMechanicResult,
                 combatResult = combatResult,

@@ -8,6 +8,7 @@ import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.shouldBe
 import leyline.testkit.MatchFlowHarness
 import leyline.testkit.SessionTest
+import wotc.mtgo.gre.external.messaging.Messages.*
 
 /**
  * Ward {N} mana tax — opponent's spell targets a permanent with `Ward {<mana>}`,
@@ -43,6 +44,17 @@ class WardTaxTest :
             // ComputerUtilMana taps lands for the {2} tax. The Counter SA's
             // effect is suppressed via Forge's `handleUnlessCost`.
             selectTargets(listOf(targetIid))
+            allMessages
+                .last { it.hasPayCostsReq() }
+                .payCostsReq.manaCostList
+                .sumOf { it.count } shouldBe 2
+            submitGameplayResponse(
+                ClientToGREMessage
+                    .newBuilder()
+                    .setType(ClientMessageType.PerformAutoTapActionsResp_097b)
+                    .setPerformAutoTapActionsResp(PerformAutoTapActionsResp.newBuilder().setIndex(0))
+                    .build(),
+            ).shouldBeTrue()
 
             // Both Forests tapped for the {2} Ward tax + Mountain tapped for
             // Bolt's {R} = 3 lands tapped total. The decline test below pins

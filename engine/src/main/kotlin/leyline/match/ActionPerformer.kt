@@ -67,6 +67,43 @@ internal class ActionPerformer(
                     .promptRuntimes(counters.seatId)
                     .blocking
                     .current()
+            val resolutionCast = blocking?.interaction as? leyline.bridge.handoff.BlockingInteraction.ResolutionCast
+            if (blocking != null && resolutionCast != null) {
+                val action = greMsg.performActionResp.actionsList.singleOrNull() ?: return
+                val selectedId =
+                    when (action.actionType) {
+                        ActionType.Pass -> {
+                            if (!resolutionCast.optional) return
+                            null
+                        }
+                        ActionType.Cast -> {
+                            val sourceIid =
+                                resolutionCast.sourceAbilityForgeId?.let {
+                                    bridge.promptBridge(counters.seatId).resolveTriggerStackAbilityInstanceId(it)
+                                } ?: bridge.peekInstanceId(resolutionCast.sourceId)?.value ?: return
+                            if (action.sourceId != sourceIid ||
+                                action.alternativeGrpId != (if (resolutionCast.withoutManaCost) 149 else 0)
+                            ) {
+                                return
+                            }
+                            resolutionCast.candidateIds.firstOrNull {
+                                bridge.peekInstanceId(it)?.value == action.instanceId
+                            } ?: return
+                        }
+                        else -> return
+                    }
+                if (!bridge.cutCoordinator.promptRuntimes(counters.seatId).blocking.submitResolutionCast(
+                        blocking.interactionId,
+                        clientGsId,
+                        selectedId,
+                    )
+                ) {
+                    return
+                }
+                bridge.prioritySignal.markPromptResolved()
+                continuation.awaitHorizon(completedActionId)
+                return
+            }
             val optional = blocking?.interaction as? leyline.bridge.handoff.BlockingInteraction.Optional
             val freeCast = optional?.freeCast
             if (blocking != null && freeCast != null) {

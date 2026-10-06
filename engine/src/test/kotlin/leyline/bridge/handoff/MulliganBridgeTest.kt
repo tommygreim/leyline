@@ -27,6 +27,37 @@ class MulliganBridgeTest :
 
         tags(UnitTag)
 
+        test("default keep decision remains pending until explicitly cancelled") {
+            val bridge = MulliganBridge()
+            val finished = CountDownLatch(1)
+            val thread =
+                Thread {
+                    try {
+                        bridge.awaitKeepDecision(playerId = 1, mulliganCount = 0)
+                    } catch (_: java.util.concurrent.CancellationException) {
+                        // Disconnect cancels the blocking engine callback.
+                    } finally {
+                        finished.countDown()
+                    }
+                }.apply {
+                    isDaemon = true
+                    start()
+                }
+            try {
+                pollForPrompt(bridge).shouldNotBeNull()
+                finished.await(50, TimeUnit.MILLISECONDS) shouldBe false
+                bridge.cancelPending()
+                assertSoftly {
+                    finished.await(2, TimeUnit.SECONDS) shouldBe true
+                    bridge.pendingPrompt().shouldBeNull()
+                    bridge.submitKeep() shouldBe false
+                }
+            } finally {
+                bridge.cancelPending()
+                thread.join(2_000)
+            }
+        }
+
         test("keep prompt publishes one coherent snapshot and clears after response") {
             val bridge = MulliganBridge(timeoutMs = 5_000)
             val ready = CountDownLatch(1)

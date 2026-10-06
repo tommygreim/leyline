@@ -36,6 +36,7 @@ object CastingTimeOptionsBuilder {
         ctoId: Int = 2,
         playerIdToPrompt: Int? = null,
         excludedOptions: List<ModalOptionSpec> = emptyList(),
+        allowRepeat: Boolean = false,
     ): CastingTimeOptionsReq {
         val modalReq =
             ModalReq
@@ -43,6 +44,7 @@ object CastingTimeOptionsBuilder {
                 .setAbilityGrpId(parentGrpId)
                 .setMinSel(minSel)
                 .setMaxSel(maxSel)
+                .setRepeatedSelectAllowed(allowRepeat)
         var modeCostId = 1
         for (option in modalOptions) {
             val opt = ModalOption.newBuilder().setGrpId(option.grpId)
@@ -106,6 +108,8 @@ object CastingTimeOptionsBuilder {
         playerIdToPrompt: Int,
         baseManaCost: List<Pair<ManaColor, Int>>,
         optionManaCosts: List<List<Pair<ManaColor, Int>>?> = emptyList(),
+        baseAutoTapSolution: AutoTapSolution? = null,
+        optionAutoTapSolutions: List<AutoTapSolution?> = emptyList(),
     ): Pair<CastingTimeOptionsReq, List<Int>> {
         val manaRequirements =
             baseManaCost.map { (color, count) ->
@@ -139,7 +143,7 @@ object CastingTimeOptionsBuilder {
                                 .setObjectId(instanceId)
                                 .build()
                         } ?: manaRequirements,
-                    ),
+                    ).apply { optionAutoTapSolutions.getOrNull(i)?.let(::setAutoTapSolution) },
             )
         }
         ctoReqBuilder.addCastingTimeOptionReq(
@@ -149,7 +153,8 @@ object CastingTimeOptionsBuilder {
                 .setCastingTimeOptionType(CastingTimeOptionType.Done)
                 .setIsRequired(true)
                 .setPlayerIdToPrompt(playerIdToPrompt)
-                .addAllManaCost(manaRequirements),
+                .addAllManaCost(manaRequirements)
+                .apply { baseAutoTapSolution?.let(::setAutoTapSolution) },
         )
         return Pair(ctoReqBuilder.build(), costCtoIds)
     }

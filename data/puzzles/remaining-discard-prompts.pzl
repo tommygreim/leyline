@@ -1,0 +1,17 @@
+[metadata]
+Name:Remaining opponent-hand discard wording
+Goal:Survive
+Turns:4
+Difficulty:Easy
+Description:Duress and hardcast Deceit are discard-wording controls. For the Evoke retest, evoke Deceit using black mana and inspect the ordering overlay: black discard plus Evoke sacrifice, never the blue bounce ability. Choose a nonland card to discard and let the sacrifice resolve.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanbattlefield=Swamp;Swamp;Swamp;Swamp;Swamp;Swamp;Swamp
+humanhand=Duress;Deceit
+humanlibrary=Swamp;Swamp;Swamp;Swamp;Swamp;Swamp;Swamp;Swamp
+aihand=Winternight Stories;Grizzly Bears;Mountain
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

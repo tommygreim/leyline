@@ -1,8 +1,6 @@
 package leyline.game.mapping
 
-import forge.ai.ComputerUtilMana
 import forge.card.mana.ManaCost
-import forge.game.mana.ManaCostBeingPaid
 import forge.game.spellability.SpellAbility
 import leyline.bridge.ActionManaCosts
 import leyline.bridge.getPlayableManaAbilities
@@ -65,9 +63,8 @@ internal object ActionAutoTapSupport {
         // The engine's dry run understands production amounts, floating mana,
         // and restrictions tied to the spell being paid for. It never taps or
         // sacrifices the selected sources.
-        val plan =
-            ComputerUtilMana.getManaPaymentPlan(ManaCostBeingPaid(manaCost), ability, context.player, false)
-                ?: return null
+        val preview = ActionManaCosts.predictManaPayment(manaCost, ability, context.player) ?: return null
+        val plan = preview.sources
         // Forge's dry-run API returns source abilities, not the chosen color
         // for a flexible source. Preserve the color-aware predictor there
         // rather than claiming that its first available color was selected.
@@ -76,7 +73,7 @@ internal object ActionAutoTapSupport {
                 colors.size != 1 || ManaColor.AnyColor in colors
             }
         ) {
-            return build(ActionManaCosts.forgeManaCostToPairs(manaCost), context, plan.toSet())
+            return build(ActionManaCosts.forgeManaCostToPairs(preview.cost), context, plan.toSet())
         }
         val sources =
             plan.mapNotNull { manaAbility ->

@@ -66,7 +66,6 @@ internal class DistributionWindowMaterializer {
                             ),
                         )
                     it.allowCancel = AllowCancel.Abort
-                    it.allowUndo = true
                 },
             )
         return context.prepared(messages, awaitedRequest = messages.last())

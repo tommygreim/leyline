@@ -70,18 +70,12 @@ class CreatureManaTest :
             assertSoftly {
                 a.hasAutoTapSolution().shouldBeTrue()
                 a.autoTapSolution.autoTapActionsCount shouldBeGreaterThan 0
-                // The solution echoes each SOURCE's own color (AnyColor for
-                // Birds, Green for the Forest), not the requirement each
-                // satisfies — the client resolves that, same as the
-                // interactive picker. The solver picks Birds (untapped
-                // first) for the colored G requirement and Forest for the
-                // generic 1 — confirms canPayColor/canPayRequirement now
-                // recognize AnyColor as a wildcard instead of only Generic
-                // (see ManaColorMapping.kt's "ANY" fix and the four call
-                // sites updated alongside it).
+                // A manual Birds action advertises AnyColor (tested above),
+                // but auto-tap commits a concrete color for a colored slot.
+                // Birds supplies G and Forest supplies the generic 1.
                 a.autoTapSolution.autoTapActionsList
                     .flatMap { it.manaPaymentOption.manaList }
-                    .map { it.color } shouldBe listOf(ManaColor.AnyColor, ManaColor.Green_afc9)
+                    .map { it.color } shouldBe listOf(ManaColor.Green_afc9, ManaColor.Green_afc9)
             }
         }
 

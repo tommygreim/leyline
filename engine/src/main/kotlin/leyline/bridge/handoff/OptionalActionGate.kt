@@ -1,6 +1,8 @@
 package leyline.bridge.handoff
 
+import forge.card.mana.ManaCost
 import forge.game.card.Card
+import forge.game.spellability.SpellAbility
 import leyline.bridge.types.ForgeCardId
 import wotc.mtgo.gre.external.messaging.Messages.CardMechanicType
 
@@ -38,6 +40,12 @@ class OptionalActionGate(
     private val actionBridge: GameActionBridge?,
     private val interactionRuntime: BlockingInteractionRuntime,
 ) {
+    fun awaitManaPayment(
+        interaction: BlockingInteraction.ManaPayment,
+        manaCost: ManaCost,
+        ability: SpellAbility,
+    ): ManaPaymentDecision = interactionRuntime.awaitManaPayment(interaction, manaCost, ability)
+
     /**
      * Post a pending optional-action prompt, block the engine thread until the
      * client responds or the action timeout elapses, and return the accept/decline

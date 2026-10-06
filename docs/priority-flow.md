@@ -22,9 +22,14 @@ Plain mana production does not force a stop, but manually activating mana
 retains a visible window to spend it.
 
 A meaningful response to an opponent-controlled stack object stops on either
-turn, regardless of ordinary phase preferences. Normal play passes priority
-on one's own stack objects. Full control, a bounded action hold or an explicit
-stop allows responding to one's own spell or triggered ability.
+turn, regardless of ordinary phase preferences. With smart stops enabled, an
+own-stack object targeting one's own battlefield permanent also offers legal
+responses: for example, Slip Out the Back in response to one's own Aether Gust.
+Ordinary own-stack objects otherwise auto-resolve. Full control, a bounded
+action hold or an explicit stop can request additional own-stack windows.
+AutoPassPriority.Yes alone is not evidence of the official server's smart-stop
+heuristics; this is the bridge's supported policy, not a reconstruction of all
+Arena automatic-priority cases.
 
 On an empty stack, own-turn baseline preferences enable main phases,
 beginning combat, declarations and first-strike damage. Opponent-turn

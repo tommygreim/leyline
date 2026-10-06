@@ -38,7 +38,10 @@ internal object StackAbilityGrpIdResolver {
         sourceCardGrpId: Int,
         bridge: GameBridge,
     ): Int =
-        resolveChapterGrpId(entry, sourceCardGrpId, bridge)
+        SpeedEffectIdentity.ABILITY_GRP_ID.takeIf {
+            entry.isTrigger && entry.spellAbility?.api == ApiType.ChangeSpeed && SpeedEffectIdentity.matches(sourceCard)
+        }
+            ?: resolveChapterGrpId(entry, sourceCardGrpId, bridge)
             ?: resolveParadigmDelayedGrpId(entry, sourceCard)
             ?: pendingIdentityGrpId(entry, bridge)
             ?: resolveStructuredIdentityGrpId(entry, sourceCard, bridge)

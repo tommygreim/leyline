@@ -79,6 +79,29 @@ class GrpIdResolverTest :
             GrpIdResolver.resolve(clone, repo) shouldBe GameBridge.FALLBACK_GRPID
         }
 
+        test("active clone layer retains donor artwork after remembered cleanup and a name exception") {
+            val repo = InMemoryCardRepository()
+            repo.register(12001, "Copy Source")
+            repo.register(12002, "Retained Name")
+            val donor = Card(11, null, null).also { it.name = "Copy Source" }
+            val clone = Card(12, null, null).also { it.name = "Retained Name" }
+            clone.cloneStates[1L] = CardCloneStates(donor, null)
+            clone.clearRemembered()
+            GrpIdResolver.resolve(clone, repo) shouldBe 12001
+        }
+
+        test("latest clone layer supplies the artwork rather than an older donor") {
+            val repo = InMemoryCardRepository()
+            repo.register(12011, "Earlier Donor")
+            repo.register(12012, "Later Donor")
+            val first = Card(21, null, null).also { it.name = "Earlier Donor" }
+            val last = Card(22, null, null).also { it.name = "Later Donor" }
+            val clone = Card(23, null, null).also { it.name = "Retained Name" }
+            clone.cloneStates[1L] = CardCloneStates(first, null)
+            clone.cloneStates[2L] = CardCloneStates(last, null)
+            GrpIdResolver.resolve(clone, repo) shouldBe 12012
+        }
+
         test("falls back for unmapped face-down original names") {
             val repo = InMemoryCardRepository()
             val card = Card(1, null, null)

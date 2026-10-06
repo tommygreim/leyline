@@ -213,17 +213,19 @@ class TargetSpecConformanceTest :
 
         session(
             "AI-cast targeted spell emits TargetSpec from the live stack",
+            fullControl = true,
             puzzle = """
                 ActivePlayer=AI
                 ActivePhase=Main1
                 HumanLife=2
                 AILife=20
 
-                humanbattlefield=Forest
-                humanlibrary=Forest
+                humanhand=Negate
+                humanbattlefield=Island;Island
+                humanlibrary=Island;Island;Island
                 aihand=Burst Lightning
                 aibattlefield=Mountain
-                ailibrary=Mountain
+                ailibrary=Mountain;Mountain;Mountain
                 """,
         ) {
             val targetSpec =

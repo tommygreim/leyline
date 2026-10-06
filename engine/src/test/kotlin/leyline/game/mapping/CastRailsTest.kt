@@ -249,8 +249,10 @@ class CastRailsTest :
                     )
                 CastRails.handWithAltCost.map { it.kind } shouldContainExactly
                     listOf(
+                        AltCostKind.GENERIC,
                         AltCostKind.WARP,
                         AltCostKind.SNEAK,
+                        AltCostKind.WEB_SLINGING,
                         AltCostKind.MUTATE,
                         AltCostKind.PLOT,
                         AltCostKind.FORETELL,

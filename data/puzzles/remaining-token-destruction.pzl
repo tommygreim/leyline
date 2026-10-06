@@ -1,0 +1,17 @@
+[metadata]
+Name:Remaining token destruction animation
+Goal:Survive
+Turns:4
+Difficulty:Easy
+Description:Create two Treasures normally, then replicate Shattering Spree once to destroy Mind Stone and one Treasure. Keep the other Treasure as a control.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanbattlefield=Mind Stone;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+humanhand=Strike It Rich;Strike It Rich;Shattering Spree;Abrade
+humanlibrary=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+aibattlefield=Grizzly Bears
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

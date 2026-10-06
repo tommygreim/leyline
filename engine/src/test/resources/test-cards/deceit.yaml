@@ -9,6 +9,8 @@ abilities:
     textId: 1079226
     category: 2
   - id: 194051
+    baseId: 75
+    mana: "o(u/b)o(u/b)"
     textId: 1079228
     category: 8
 expansionCode: "ECL"

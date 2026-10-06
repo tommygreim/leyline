@@ -3,10 +3,19 @@ package leyline.bridge.handoff
 import leyline.bridge.types.ForgeCardId
 import wotc.mtgo.gre.external.messaging.Messages.CardMechanicType
 import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
+import wotc.mtgo.gre.external.messaging.Messages.ManaColor
 import kotlin.ConsistentCopyVisibility
 
 /** Immutable engine-thread request presented before a blocking interaction waits. */
 sealed interface BlockingInteraction {
+    /** The adjusted, chosen cost, after optional costs, modes and X have been decided. */
+    data class ManaPayment(
+        val sourceId: ForgeCardId,
+        val manaCost: List<Pair<ManaColor, Int>>,
+        val canAutoPay: Boolean,
+        val canUndo: Boolean = false,
+    ) : BlockingInteraction
+
     data class Optional(
         val sourceId: ForgeCardId?,
         val forceSnapshotBeforePrompt: Boolean,
@@ -45,6 +54,16 @@ sealed interface BlockingInteraction {
         val sourceAbilityForgeId: Int,
         val alternativeSourceForgeCardId: ForgeCardId,
     )
+
+    /** A Play effect's exact remaining castable cards during resolution. */
+    data class ResolutionCast(
+        val sourceId: ForgeCardId,
+        val sourceAbilityForgeId: Int?,
+        val candidateIds: List<ForgeCardId>,
+        val optional: Boolean,
+        val withoutManaCost: Boolean,
+        val promptId: Int,
+    ) : BlockingInteraction
 
     data class Numeric(
         val sourceId: ForgeCardId?,
@@ -100,6 +119,19 @@ sealed interface BlockingInteraction {
                 )
         }
     }
+}
+
+/** A payment window returns a command, not a partially mutated Forge payment. */
+sealed interface ManaPaymentDecision {
+    data class Sources(
+        val actions: List<PlayerAction.ActivateMana>,
+    ) : ManaPaymentDecision
+
+    data object AutoPay : ManaPaymentDecision
+
+    data object Undo : ManaPaymentDecision
+
+    data object Cancel : ManaPaymentDecision
 }
 
 /** Immutable declaration response values; the coordinator resolves engine actions. */

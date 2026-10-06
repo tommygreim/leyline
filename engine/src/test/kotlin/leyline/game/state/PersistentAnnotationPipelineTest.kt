@@ -31,7 +31,149 @@ class PersistentAnnotationPipelineTest :
         /** Identity resolver for unit tests — forgeCardId maps to forgeCardId + 1000. */
         fun testResolver(forgeCardId: ForgeCardId): InstanceId = InstanceId(forgeCardId.value + 1000)
 
+        test("copy choice rectangle retires without pruning an unrelated life payment rectangle") {
+            val copy =
+                AnnotationBuilder.pendingEffect(
+                    InstanceId(101),
+                    SeatId(1),
+                    leyline.bridge.types.GrpId(701),
+                )
+            val life =
+                AnnotationBuilder
+                    .replacementEffect(
+                        leyline.bridge.types.EffectId(900),
+                        InstanceId(202),
+                        leyline.bridge.types.GrpId(702),
+                        InstanceId(200),
+                    ).toBuilder()
+                    .setId(10)
+                    .build()
+            val opened =
+                PersistentAnnotationStore.computeBatch(
+                    currentActive = mapOf(10 to life),
+                    startPersistentId = 11,
+                    effectPersistent = emptyList(),
+                    effectDiff = EffectTracker.DiffResult(emptyList(), emptyList()),
+                    transferPersistent = emptyList(),
+                    mechanicResult = MechanicAnnotationResult(emptyList(), emptyList(), mapOf(PendingEffectKind to listOf(copy))),
+                    resolveInstanceId = ::testResolver,
+                )
+            opened.allAnnotations.size shouldBe 2
+            val closed =
+                PersistentAnnotationStore.computeBatch(
+                    currentActive = opened.allAnnotations.associateBy { it.id },
+                    startPersistentId = opened.nextPersistentId,
+                    effectPersistent = emptyList(),
+                    effectDiff = EffectTracker.DiffResult(emptyList(), emptyList()),
+                    transferPersistent = emptyList(),
+                    mechanicResult = MechanicAnnotationResult(emptyList(), emptyList()),
+                    resolveInstanceId = ::testResolver,
+                )
+            closed.allAnnotations shouldBe listOf(life)
+            closed.deletedIds shouldBe listOf(11)
+        }
+
+        test("pending effects from one source retain independent ability identities across refresh") {
+            val first = AnnotationBuilder.pendingEffect(InstanceId(101), SeatId(1), leyline.bridge.types.GrpId(701))
+            val second = AnnotationBuilder.pendingEffect(InstanceId(101), SeatId(1), leyline.bridge.types.GrpId(702))
+
+            fun batch(
+                active: Map<Int, wotc.mtgo.gre.external.messaging.Messages.AnnotationInfo>,
+                next: Int,
+                effects: List<wotc.mtgo.gre.external.messaging.Messages.AnnotationInfo>,
+            ) = PersistentAnnotationStore.computeBatch(
+                currentActive = active,
+                startPersistentId = next,
+                effectPersistent = emptyList(),
+                effectDiff = EffectTracker.DiffResult(emptyList(), emptyList()),
+                transferPersistent = emptyList(),
+                mechanicResult = MechanicAnnotationResult(emptyList(), emptyList(), mapOf(PendingEffectKind to effects)),
+                resolveInstanceId = ::testResolver,
+            )
+            val opened = batch(emptyMap(), 1, listOf(first, second))
+            opened.allAnnotations.size shouldBe 2
+            val refresh = batch(opened.allAnnotations.associateBy { it.id }, opened.nextPersistentId, listOf(first, second))
+            refresh.allAnnotations shouldBe opened.allAnnotations
+            refresh.deletedIds.shouldBeEmpty()
+            val closedFirst = batch(refresh.allAnnotations.associateBy { it.id }, refresh.nextPersistentId, listOf(second))
+            closedFirst.allAnnotations shouldBe listOf(opened.allAnnotations.last())
+            closedFirst.deletedIds shouldBe listOf(opened.allAnnotations.first().id)
+        }
+
+        test("copy layer annotation persists across refresh and retires when the layer is removed") {
+            val copy = AnnotationBuilder.copiedPermanent(InstanceId(301), leyline.bridge.types.GrpId(801))
+
+            fun batch(
+                active: Map<Int, wotc.mtgo.gre.external.messaging.Messages.AnnotationInfo>,
+                next: Int,
+                copies: List<wotc.mtgo.gre.external.messaging.Messages.AnnotationInfo>,
+            ) = PersistentAnnotationStore.computeBatch(
+                currentActive = active,
+                startPersistentId = next,
+                effectPersistent = emptyList(),
+                effectDiff = EffectTracker.DiffResult(emptyList(), emptyList()),
+                transferPersistent = emptyList(),
+                mechanicResult = MechanicAnnotationResult(emptyList(), emptyList(), mapOf(CopiedPermanentKind to copies)),
+                resolveInstanceId = ::testResolver,
+            )
+            val first = batch(emptyMap(), 1, listOf(copy))
+            val refresh = batch(first.allAnnotations.associateBy { it.id }, first.nextPersistentId, listOf(copy))
+            refresh.allAnnotations shouldBe first.allAnnotations
+            refresh.deletedIds.shouldBeEmpty()
+            val removed = batch(refresh.allAnnotations.associateBy { it.id }, refresh.nextPersistentId, emptyList())
+            removed.allAnnotations.shouldBeEmpty()
+            removed.deletedIds shouldBe listOf(1)
+        }
+
         // -- DisplayCardUnderCard --
+
+        test("retiring one keyword recipient preserves the other and does not resurrect on full state") {
+            val grants =
+                listOf(7010 to 100, 7011 to 200).map { (effectId, recipient) ->
+                    AnnotationBuilder.addAbilityPacked(
+                        affectedId = InstanceId(recipient),
+                        grpIds = listOf(leyline.bridge.types.GrpId(8)),
+                        effectId = leyline.bridge.types.EffectId(effectId),
+                        uniqueAbilityIds = listOf(recipient),
+                        originalAbilityObjectZcids = listOf(500),
+                        affectorId = InstanceId(500),
+                    )
+                }
+            val initial =
+                PersistentAnnotationStore.computeBatch(
+                    currentActive = emptyMap(),
+                    startPersistentId = 1,
+                    effectPersistent = grants,
+                    effectDiff = EffectTracker.DiffResult(emptyList(), emptyList()),
+                    transferPersistent = emptyList(),
+                    mechanicResult = MechanicAnnotationResult(emptyList(), emptyList()),
+                    resolveInstanceId = ::testResolver,
+                )
+            val retired =
+                PersistentAnnotationStore.computeBatch(
+                    currentActive = initial.allAnnotations.associateBy { it.id },
+                    startPersistentId = initial.nextPersistentId,
+                    effectPersistent = emptyList(),
+                    effectDiff = EffectTracker.DiffResult(emptyList(), emptyList()),
+                    destroyedEffectIds = listOf(7010),
+                    transferPersistent = emptyList(),
+                    mechanicResult = MechanicAnnotationResult(emptyList(), emptyList()),
+                    resolveInstanceId = ::testResolver,
+                )
+            retired.deletedIds shouldBe listOf(initial.allAnnotations[0].id)
+            retired.allAnnotations.map { it.affectedIdsList } shouldBe listOf(listOf(200))
+            val full =
+                PersistentAnnotationStore.computeBatch(
+                    currentActive = retired.allAnnotations.associateBy { it.id },
+                    startPersistentId = retired.nextPersistentId,
+                    effectPersistent = emptyList(),
+                    effectDiff = EffectTracker.DiffResult(emptyList(), emptyList()),
+                    transferPersistent = emptyList(),
+                    mechanicResult = MechanicAnnotationResult(emptyList(), emptyList()),
+                    resolveInstanceId = ::testResolver,
+                )
+            full.allAnnotations shouldBe retired.allAnnotations
+        }
 
         test("cardExiledWithSourceEmitsDisplayCardUnderCard") {
             val events =

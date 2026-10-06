@@ -7,12 +7,18 @@ object PromptIds {
     const val REMOVE_COUNTER = 1204
     const val CHOOSE_NONCREATURE_NONLAND_CARD = 1243
     const val CHOOSE_NONLAND_CARD = 1032
+    const val CHOOSE_OBJECT_TO_COPY = 78
 
     /** Protocol error envelope; this ID has no player-visible localization. */
     const val ILLEGAL_REQUEST = 3
 
     /** Cast a revealed card without paying its mana cost. */
     const val FREE_CAST_FROM_REVEAL = 1134
+
+    /** Native resolution-cast browser prompts (client protocol-map). */
+    const val RESOLUTION_CAST_ANY_FREE = 15600
+    const val RESOLUTION_CAST_COPIES = 13322
+    const val RESOLUTION_CAST_PAID = 1148
     const val PASS_PRIORITY = 2
     const val DECLARE_ATTACKERS = 6
     const val ORDER_BLOCKERS = 7
@@ -64,16 +70,37 @@ object PromptIds {
     /** Generic library search — "Search for a card." */
     const val SEARCH = 1030
     const val SEARCH_FROM_GROUPS = SEARCH
+    const val SEARCH_BASIC_LAND = 1065
+    const val SEARCH_CREATURE = 1305
+    const val SEARCH_ARTIFACT = 1571
+    const val SEARCH_PLANESWALKER = 1684
+    const val SEARCH_LAND = 2197
+    const val SEARCH_FOREST = 2513
+    const val SEARCH_ENCHANTMENT = 2599
+    const val SEARCH_INSTANT_OR_SORCERY = 3329
+    const val SEARCH_CREATURE_OR_LAND = 1114
+    const val SEARCH_ARTIFACT_OR_CREATURE = 2202
+    const val SEARCH_ARTIFACT_OR_ENCHANTMENT = 3332
+    const val SEARCH_FARSEEK_TYPES = 3589
+    const val SEARCH_INSTANT_OR_FLASH = 3713
+    const val SEARCH_PLAINS = 3725
+    const val SEARCH_SWAMP = 3926
+    const val SEARCH_MOUNTAIN = 5595
+    const val SEARCH_ISLAND = 11626
+    const val SEARCH_BASIC_FOREST = 1346
+    const val SEARCH_BASIC_MOUNTAIN = 11261
+    const val SEARCH_UP_TO_TWO_LANDS = 1052
+    const val SEARCH_UP_TO_TWO_BASIC_LANDS = 1111
+    const val SEARCH_UP_TO_TWO_CREATURES = 3402
     const val SELECT_REPLACEMENT = 74
 
     /** Static SelectN color choice — "Choose a color." */
     const val CHOOSE_COLOR = 118
 
     /**
-     * Typecycling-shaped searches currently use the truthful generic search
-     * text. Arena prompt 11626 says "Search for an Island card," so it cannot
-     * serve as a fallback for Forestcycling, basic landcycling, or arbitrary
-     * creature-type cycling.
+     * Legacy generic fallback for typecycling-shaped searches. Exact supported
+     * filters use SearchPromptResolver; Island wording must not be a fallback
+     * for Forestcycling, basic landcycling, or arbitrary creature types.
      */
     const val SEARCH_TYPECYCLING = SEARCH
 

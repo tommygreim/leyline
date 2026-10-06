@@ -24,6 +24,7 @@ import leyline.bridge.types.SeatId
 import leyline.game.data.CardData
 import leyline.game.data.CardRepository
 import leyline.game.data.KeywordAbilityIds
+import leyline.game.data.grantedKeywordAbilityGrpId
 import leyline.game.snapshot.AltCostBinding
 import leyline.game.snapshot.BoundCard
 import leyline.game.snapshot.GsmSnapshot
@@ -279,7 +280,7 @@ object ActionMapper {
                     forgeCard,
                     instanceId,
                     cardSnap.grpId,
-                    { _ -> snap.boundCards[fid]?.data },
+                    { c -> snap.boundCards[ForgeCardId(c.id)]?.data },
                     { c, d -> bridge.abilityRegistryFor(c, d) },
                 ),
             )
@@ -480,14 +481,13 @@ object ActionMapper {
 
             if (!card.tapped && card.hasManaAbilities) {
                 val forgeCard = bridge.findCard(fid) ?: continue
-                val boundData = snap.boundCards[fid]?.data
                 for (
                 manaAction in
                 ActivatedActionEmitter.buildActivateManaActions(
                     forgeCard,
                     instanceId,
                     grpId,
-                    { boundData },
+                    { c -> snap.boundCards[ForgeCardId(c.id)]?.data },
                     { c, d -> bridge.abilityRegistryFor(c, d) },
                     candidates?.forCard(forgeCard)?.manaAbilities ?: emptyList(),
                 )
@@ -499,14 +499,13 @@ object ActionMapper {
                 }
             } else if (card.tapped && card.hasManaAbilities) {
                 val forgeCard = bridge.findCard(fid) ?: continue
-                val boundData = snap.boundCards[fid]?.data
                 for (
                 manaAction in
                 ActivatedActionEmitter.buildActivateManaActions(
                     forgeCard,
                     instanceId,
                     grpId,
-                    { boundData },
+                    { c -> snap.boundCards[ForgeCardId(c.id)]?.data },
                     { c, d -> bridge.abilityRegistryFor(c, d) },
                     candidates?.forCard(forgeCard)?.manaAbilities ?: emptyList(),
                 )
@@ -521,7 +520,7 @@ object ActionMapper {
                         forgeCard,
                         instanceId,
                         grpId,
-                        { boundData },
+                        { c -> snap.boundCards[ForgeCardId(c.id)]?.data },
                         { c, d -> bridge.abilityRegistryFor(c, d) },
                     ),
                 )
@@ -746,6 +745,7 @@ object ActionMapper {
                 // face-down option first so the modal commit submits the
                 // `alternativeGrpId=307` action instead of the printed spell.
                 addHandAltCostCastActions(
+                    bridge = bridge,
                     card = forgeCard,
                     player = player,
                     instanceId = instanceId,
@@ -753,6 +753,7 @@ object ActionMapper {
                     altCosts = snap.boundCards[fid]?.altCosts ?: emptyList(),
                     builder = builder,
                     castable = castable,
+                    autoTapSolution = { cost, ability -> autoTapForCost(player, cost, ability) },
                     onActive = { action, index, ability ->
                         bindOffer(action, PlayerAction.CastSpell(fid, index, ability = ability))
                     },
@@ -769,6 +770,7 @@ object ActionMapper {
                 builder.addInactiveActions(inactiveBuilder)
                 if (!preferAltCostFirst) {
                     addHandAltCostCastActions(
+                        bridge = bridge,
                         card = forgeCard,
                         player = player,
                         instanceId = instanceId,
@@ -776,6 +778,7 @@ object ActionMapper {
                         altCosts = snap.boundCards[fid]?.altCosts ?: emptyList(),
                         builder = builder,
                         castable = castable,
+                        autoTapSolution = { cost, ability -> autoTapForCost(player, cost, ability) },
                         onActive = { action, index, ability ->
                             bindOffer(action, PlayerAction.CastSpell(fid, index, ability = ability))
                         },
@@ -818,6 +821,7 @@ object ActionMapper {
 
             if (!preferAltCostFirst) {
                 addHandAltCostCastActions(
+                    bridge = bridge,
                     card = forgeCard,
                     player = player,
                     instanceId = instanceId,
@@ -825,6 +829,7 @@ object ActionMapper {
                     altCosts = snap.boundCards[fid]?.altCosts ?: emptyList(),
                     builder = builder,
                     castable = castable,
+                    autoTapSolution = { cost, ability -> autoTapForCost(player, cost, ability) },
                     onActive = { action, index, ability ->
                         bindOffer(action, PlayerAction.CastSpell(fid, index, ability = ability))
                     },
@@ -2060,6 +2065,7 @@ object ActionMapper {
      * Madness, zone-cast for Flashback).
      */
     private fun addHandAltCostCastActions(
+        bridge: GameBridge,
         card: Card,
         player: Player,
         instanceId: Int,
@@ -2067,6 +2073,7 @@ object ActionMapper {
         altCosts: List<AltCostBinding>,
         builder: ActionsAvailableReq.Builder,
         castable: List<SpellAbility> = getAllCastableAbilities(card, player),
+        autoTapSolution: (ManaCost, SpellAbility) -> AutoTapSolution?,
         onActive: (Action, Int, SpellAbility) -> Unit = { _, _, _ -> },
     ) {
         val emitted = mutableSetOf<Pair<Int, List<Pair<ManaColor, Int>>>>()
@@ -2075,7 +2082,7 @@ object ActionMapper {
             if (!ActionAvailability.hasLegalTargetsAndModes(sa)) continue
             val effectiveCost = computeEffectiveCostForOffer(rail, sa, player, altCosts)
             val payCostPairs = effectiveCost.first
-            val alternativeGrpId = effectiveCost.second
+            val alternativeGrpId = bridge.cardRepository.grantedKeywordAbilityGrpId(sa) ?: effectiveCost.second
             if (rail.kind == AltCostKind.EMERGE && alternativeGrpId <= 0) continue
             val canPay = canExecute(sa, player)
             if (!canPay) continue
@@ -2100,6 +2107,11 @@ object ActionMapper {
                             .setAbilityGrpId(alternativeGrpId),
                     )
                 }
+            }
+            // Native hand, hover and modal highlights require a payment plan
+            // even when the alternate Cast action is already marked active.
+            CastDisplayCost.of(sa, player)?.takeUnless { it.isNoCost }?.let { cost ->
+                autoTapSolution(cost, sa)?.let(actionBuilder::setAutoTapSolution)
             }
             val action = actionBuilder.build()
             builder.addActions(action)

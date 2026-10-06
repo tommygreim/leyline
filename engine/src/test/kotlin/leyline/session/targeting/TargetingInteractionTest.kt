@@ -112,6 +112,32 @@ class TargetingInteractionTest :
             takeConsumedPromptMsgIds() shouldHaveSize 1
         }
 
+        session("Undo removes the most recent target and republishes the targeting window", puzzleFile = "test-puzzles/pump-spell.pzl") {
+            val creatureIid = human.battlefield.iid("Grizzly Bears")
+            castSpellByName("Giant Growth").shouldBeTrue()
+            allMessages.last { it.hasSelectTargetsReq() }.allowUndo.shouldBeFalse()
+
+            selectTargetsIterative(listOf(creatureIid))
+            val chosen = allMessages.last { it.hasSelectTargetsReq() }
+            chosen.allowUndo.shouldBeTrue()
+            chosen.selectTargetsReq.targetsList
+                .single()
+                .selectedTargets shouldBe 1
+
+            send(submitWithGsId(clientMessage(ClientMessageType.UndoReq) {}))
+            drainSink()
+            val undone = allMessages.last { it.hasSelectTargetsReq() }
+            assertSoftly {
+                undone.gameStateId shouldBeGreaterThan chosen.gameStateId
+                undone.allowUndo.shouldBeFalse()
+                undone.selectTargetsReq.targetsList
+                    .single()
+                    .selectedTargets shouldBe 0
+            }
+            selectTargets(listOf(creatureIid))
+            passUntil(maxPasses = 6) { (cardByIid(creatureIid)?.netPower ?: 0) >= 4 }
+        }
+
         session("target selection requires the projected target group index", puzzleFile = "test-puzzles/pump-spell.pzl") {
             val creatureIid = humanBattlefieldCreatures().first().first
             castSpellByName("Giant Growth").shouldBeTrue()
@@ -355,7 +381,7 @@ class TargetingInteractionTest :
 
                 // Wrapper flags
                 stMsg.allowCancel shouldBe AllowCancel.Abort
-                stMsg.allowUndo.shouldBeTrue()
+                stMsg.allowUndo.shouldBeFalse()
 
                 // sourceId = stack iid
                 req.sourceId shouldBe stackInstanceId

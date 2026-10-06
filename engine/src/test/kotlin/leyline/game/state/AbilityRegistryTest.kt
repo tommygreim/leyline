@@ -26,6 +26,7 @@ import leyline.game.InMemoryCardRepository
 import leyline.game.codes.SlotKind
 import leyline.game.data.BasicLandAbilities
 import leyline.game.data.CardData
+import leyline.game.data.ForgeCardRepository
 import leyline.game.event.GameEvent
 import leyline.game.event.Zone
 import leyline.testkit.BoardTest
@@ -35,6 +36,56 @@ import leyline.tooling.headless.FixtureCardLoader
 
 class AbilityRegistryTest :
     BoardTest({
+        beforeSpec { leyline.testkit.registerUpstreamCatalogCards("Lithoform Blight") }
+
+        test("a static granting two abilities resolves each catalog row") {
+            val (_, game, _) =
+                startWithBoard { _, human, _ ->
+                    val land = addCard("Mountain", human, ZoneType.Battlefield)
+                    addCard("Lithoform Blight", human, ZoneType.Battlefield).attachToEntity(land, null, true)
+                    human.game.action.checkStaticAbilities(false)
+                }
+            val source =
+                game.players[0]
+                    .getZone(ZoneType.Battlefield)
+                    .cards
+                    .single { it.name == "Lithoform Blight" }
+            val land =
+                game.players[0]
+                    .getZone(ZoneType.Battlefield)
+                    .cards
+                    .single { it.name == "Mountain" }
+            val repository = ForgeCardRepository.open()
+            val data = checkNotNull(repository.findByGrpId(checkNotNull(repository.findGrpIdByName(source.name))))
+            val registry = AbilityRegistry.build(source, data)
+            val grants = land.manaAbilities.filter { it.grantorStatic != null }
+            assertSoftly {
+                grants.shouldHaveSize(2)
+                data.hiddenAbilityIds.shouldHaveSize(2)
+                grants.map { registry.forSpellAbility(it) } shouldBe data.hiddenAbilityIds.map { it.first }
+                grants.map { registry.forSpellAbility(it.copy()) } shouldBe data.hiddenAbilityIds.map { it.first }
+            }
+        }
+
+        test("sole intrinsic trigger fallback refuses ambiguous source definitions") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Trufflesnout", human, ZoneType.Hand)
+                    addCard("Ugin, Eye of the Storms", human, ZoneType.Hand)
+                }
+            val sole = board.human.hand.card("Trufflesnout")
+            val ambiguous = board.human.hand.card("Ugin, Eye of the Storms")
+            val soleData =
+                checkNotNull(board.bridge.cardRepository.findByGrpId(checkNotNull(board.bridge.cardRepository.findGrpIdByName(sole.name))))
+            val ambiguousData = checkNotNull(board.bridge.cardRepository.findByGrpId(95516))
+            val definition = AbilityDefinitionRef.Trigger(Int.MAX_VALUE)
+            assertSoftly {
+                AbilityRegistry.build(sole, soleData).resolveSoleIntrinsicTrigger(definition)?.abilityGrpId shouldBe
+                    soleData.abilityIds.first().first
+                AbilityRegistry.build(ambiguous, ambiguousData).resolveSoleIntrinsicTrigger(definition).shouldBeNull()
+                AbilityRegistry.EMPTY.resolveSoleIntrinsicTrigger(definition).shouldBeNull()
+            }
+        }
 
         test("Equipment keyword activation keeps its identity separate from an explicit hand activation") {
             val board =
@@ -53,6 +104,40 @@ class AbilityRegistryTest :
                 registry.forSpellAbility(equip.copy()) shouldBe 206227
                 registry.forSpellAbility(discard) shouldBe 206228
                 registry.forSpellAbility(discard.copy()) shouldBe 206228
+            }
+        }
+
+        test("a keyword printed after triggers binds by BaseId rather than taking their first row") {
+            val board = startWithBoard { _, human, _ -> addCard("Deceit", human, ZoneType.Hand) }
+            val card = board.human.hand.card("Deceit")
+            val data = checkNotNull(board.bridge.cardRepository.findByGrpId(98534))
+            val registry = AbilityRegistry.build(card, data)
+            val evoke = card.keywords.single { it.keyword == Keyword.EVOKE }
+            assertSoftly {
+                evoke.triggers.forEach { registry.forTrigger(it.definitionId) shouldBe 194051 }
+                card.triggers.filter { it !in evoke.triggers }.map { registry.forTrigger(it.definitionId) } shouldBe
+                    listOf(194049, 194050)
+            }
+        }
+
+        test("interleaved keyword metadata survives row reordering without changing explicit trigger identity") {
+            val board = startWithBoard { _, human, _ -> addCard("Deceit", human, ZoneType.Hand) }
+            val card = board.human.hand.card("Deceit")
+            val original = checkNotNull(board.bridge.cardRepository.findByGrpId(98534))
+            val order = listOf(0, 2, 1)
+            val data =
+                original.copy(
+                    abilityIds = order.map { original.abilityIds[it] },
+                    abilityBaseIds = order.map { original.abilityBaseIds[it] },
+                    abilityKinds = order.map { original.abilityKinds[it] },
+                    abilityCategories = order.map { original.abilityCategories[it] },
+                )
+            val registry = AbilityRegistry.build(card, data)
+            val evoke = card.keywords.single { it.keyword == Keyword.EVOKE }
+            assertSoftly {
+                evoke.triggers.forEach { registry.forTrigger(it.definitionId) shouldBe 194051 }
+                card.triggers.filter { it !in evoke.triggers }.map { registry.forTrigger(it.definitionId) } shouldBe
+                    listOf(194049, 194050)
             }
         }
 

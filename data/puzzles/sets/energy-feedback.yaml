@@ -1,0 +1,16 @@
+name: energy-feedback
+description: A resolving permanent grants a visible player energy counter.
+scenarios:
+  - id: siphoner-entry-energy
+    puzzle: energy-feedback
+    headless: { forge_catalog: true }
+    run: cast Glint-Sleeve Siphoner and resolve its entry trigger
+    expect: the entry trigger adds energy while Siphoner stays on the battlefield
+    steps:
+      - cast: Glint-Sleeve Siphoner
+      - resolve_stack: {}
+      - expect:
+          all:
+            - annotation_seen: { type: CounterAdded }
+            - zone_contains: { side: ours, zone: battlefield, card: Glint-Sleeve Siphoner }
+            - stack_empty: true

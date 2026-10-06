@@ -1,0 +1,17 @@
+[metadata]
+Name:Irencrag granted Equip cost
+Goal:Survive
+Turns:3
+Difficulty:Easy
+Description:Cast Thor and accept The Irencrag's transformation into Everflame. Inspect Equip 3, then equip Thor. Thor retains flying; it is Everflame that loses its other abilities.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanbattlefield=The Irencrag;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+humanhand=Thor, God of Thunder;Lightning Bolt;Abrade
+humanlibrary=Mountain;Mountain;Mountain;Mountain
+aibattlefield=Grizzly Bears;Forest;Forest
+ailibrary=Forest;Forest;Forest;Forest

@@ -4,7 +4,6 @@ import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.InstanceId
 import leyline.bridge.types.SeatId
 import leyline.bridge.types.opponent
-import leyline.game.annotations.AnnotationBuilder
 import leyline.game.annotations.AnnotationContext
 import leyline.game.annotations.AnnotationPipeline
 import leyline.game.annotations.CombatAnnotationResult
@@ -157,6 +156,7 @@ object StateMapper {
         mechanicSourceFacts: MechanicSourceFacts,
         abilityExhaustionFacts: AbilityExhaustionFacts,
         editor: ProjectionState.Editor,
+        replacementChoices: List<ProjectionSupplement.EnterAsCopyChoice> = emptyList(),
     ): Draft {
         val annotationJournal = editor.annotations
         val effectPlanner = editor.effects
@@ -459,8 +459,8 @@ object StateMapper {
                 transferResult = transferResult,
                 actingSeat = actingSeat,
                 annotationJournal = annotationJournal,
+                previousSnapshot = prev,
             )
-        annotations.addAll(phasingAnnotations(prev, snap, frameIds))
 
         val convokePaymentsBySource = annotationContext.activeConvokePaymentsBySource()
         val convokePlan = ConvokeContributor.plan(annotationContext)
@@ -486,6 +486,7 @@ object StateMapper {
                 promptFacts = promptFacts,
                 persistentFeedFacts = persistentFeedFacts,
                 references = environment.cardReferences,
+                replacementChoices = replacementChoices,
             )
         val activeHolderRecords = editor.delayedTriggerHolders.toMap()
         val carriedHolders =
@@ -560,6 +561,7 @@ object StateMapper {
                 },
             )
             insertDayNightDesignationTransients(annotations, prev.dayTime, snap.dayTime)
+            insertCitysBlessingDesignationTransients(annotations, prev.seats, snap.seats)
         }
 
         // Stages 4-5 + persistent computation
@@ -694,36 +696,6 @@ object StateMapper {
         )
     }
 
-    /**
-     * Forge keeps phased permanents in its battlefield collection.  Their
-     * projection changes between Arena's Battlefield and PhasedOut zones, so
-     * emit the explicit client phase-state event that carries the visual/state
-     * transition and avoids treating phasing as a zone-transfer/recast.
-     */
-    private fun phasingAnnotations(
-        prev: GsmSnapshot?,
-        snap: GsmSnapshot,
-        frameIds: FrameIdResolver,
-    ): List<AnnotationInfo> {
-        if (prev == null) return emptyList()
-        val previousPhased =
-            prev.zones[ZoneIds.PHASED_OUT]
-                ?.contents
-                .orEmpty()
-                .toSet()
-        val currentPhased =
-            snap.zones[ZoneIds.PHASED_OUT]
-                ?.contents
-                .orEmpty()
-                .toSet()
-        val phasedOut = (currentPhased - previousPhased).map(frameIds::cardIid)
-        val phasedIn = (previousPhased - currentPhased).map(frameIds::cardIid)
-        return buildList {
-            if (phasedOut.isNotEmpty()) add(AnnotationBuilder.phasedOut(phasedOut))
-            if (phasedIn.isNotEmpty()) add(AnnotationBuilder.phasedIn(phasedIn))
-        }
-    }
-
     private fun recordParadigmSourceStackIids(
         transferResult: TransferResult,
         snap: GsmSnapshot,
@@ -807,7 +779,14 @@ object StateMapper {
             val iid = FrameIdResolver.speedTriggerHolderIid(seat)
             limboIids.add(iid.value)
             if (gameObjects.none { it.instanceId == iid.value }) {
-                gameObjects += ObjectMapper.buildTriggerHolderObject(iid.value, seat.value)
+                gameObjects +=
+                    ObjectMapper.buildTriggerHolderObject(
+                        iid.value,
+                        seat.value,
+                        objectSourceGrpId = leyline.game.snapshot.SpeedEffectIdentity.CARD_GRP_ID,
+                        uniqueAbilityGrpId = leyline.game.snapshot.SpeedEffectIdentity.ABILITY_GRP_ID,
+                        uniqueAbilityId = 50,
+                    )
             }
         }
         zones.removeIf { it.zoneId == ZoneIds.LIMBO }
@@ -956,6 +935,7 @@ object StateMapper {
         input: StateFrameInput,
         environment: StateProjectionEnvironment,
         editor: ProjectionState.Editor,
+        replacementChoices: List<ProjectionSupplement.EnterAsCopyChoice> = emptyList(),
     ): Draft =
         buildFromSnapshotInternal(
             rawSnap = input.snapshot,
@@ -973,6 +953,7 @@ object StateMapper {
             mechanicSourceFacts = input.mechanicSourceFacts,
             abilityExhaustionFacts = input.abilityExhaustionFacts,
             editor = editor,
+            replacementChoices = replacementChoices,
         )
 
     /** Renders one viewer from an already planned shared lifecycle draft. */

@@ -1,0 +1,16 @@
+[metadata]
+Name:Targeting Undo
+Goal:Survive
+Turns:6
+Difficulty:Tutorial
+Description:Select a creature for Giant Growth, undo the target, then select it again.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanhand=Giant Growth
+humanbattlefield=Forest;Grizzly Bears
+humanlibrary=Plains;Plains;Plains;Plains
+ailibrary=Plains;Plains;Plains;Plains

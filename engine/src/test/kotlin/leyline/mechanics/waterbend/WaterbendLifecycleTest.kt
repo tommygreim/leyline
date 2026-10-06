@@ -26,7 +26,6 @@ import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
 import wotc.mtgo.gre.external.messaging.Messages.ManaColor
 import wotc.mtgo.gre.external.messaging.Messages.ManaCostSpecType
 import wotc.mtgo.gre.external.messaging.Messages.ManaSpecType
-import wotc.mtgo.gre.external.messaging.Messages.OrderingType
 import wotc.mtgo.gre.external.messaging.Messages.PayCostsReq
 
 class WaterbendLifecycleTest :
@@ -141,9 +140,9 @@ class WaterbendLifecycleTest :
 
             respondToEffectCost(listOf(merfolkIid, bearIid, solRingIid, manalithIid))
             passUntilResolved(maxPasses = 8)
-            // The creatures die together, so their "gain 1 life" triggers ask for a stack order.
-            respondToSelectN(lastSelectNReq().idsList, OrderingType.OrderAsIndicated)
-            passUntil { game().stack.isEmpty }
+            // Both death triggers resolve through the ordinary stack flow.
+            human.life shouldBe 22
+            game().stack.isEmpty shouldBe true
 
             val additionalCostAnnotations =
                 allMessages
@@ -209,8 +208,7 @@ class WaterbendLifecycleTest :
             respondToWaterbendMakePayment(manalithIid)
             respondToWaterbendPaymentDone()
             passUntilResolved(maxPasses = 8)
-            respondToSelectN(lastSelectNReq().idsList, OrderingType.OrderAsIndicated)
-            passUntil { game().stack.isEmpty }
+            game().stack.isEmpty shouldBe true
 
             assertSoftly {
                 human.graveyard.iid("Ruinous Waterbending") shouldBeGreaterThan 0

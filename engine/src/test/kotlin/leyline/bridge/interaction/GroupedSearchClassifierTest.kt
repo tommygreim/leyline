@@ -4,7 +4,6 @@ import forge.game.ability.ApiType
 import forge.game.card.Card
 import forge.game.zone.ZoneType
 import io.kotest.assertions.assertSoftly
-import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.nulls.shouldBeNull
 import leyline.testkit.BoardTest
@@ -36,16 +35,14 @@ class GroupedSearchClassifierTest :
             }
         }
 
-        test("refuses overlap, incomplete partitions, and missing or unsupported shape fields") {
+        test("overlap and incomplete partitions use the flat search rather than invalid native groups") {
             val fixture = groupedSearchFixture()
             fixture.instant.addIntrinsicKeyword("Flash")
-            shouldThrow<IllegalStateException> {
-                GroupedSearchClassifier.classify(fixture.ability, listOf(fixture.instant, fixture.flash))
-            }
+            GroupedSearchClassifier.classify(fixture.ability, listOf(fixture.instant, fixture.flash)).shouldBeNull()
             val incomplete = groupedSearchFixture()
-            shouldThrow<IllegalStateException> {
-                GroupedSearchClassifier.classify(incomplete.ability, listOf(incomplete.instant, incomplete.other))
-            }
+            GroupedSearchClassifier.classify(incomplete.ability, listOf(incomplete.instant, incomplete.other)).shouldBeNull()
+            GroupedSearchClassifier.classify(incomplete.ability, listOf(incomplete.instant)).shouldBeNull()
+            GroupedSearchClassifier.classify(incomplete.ability, emptyList()).shouldBeNull()
         }
     })
 

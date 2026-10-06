@@ -25,6 +25,45 @@ import forge.game.zone.ZoneType as ForgeZoneType
  * those fields before returning.
  */
 internal object ActionManaCosts {
+    data class ManaPaymentPreview(
+        val cost: ManaCost,
+        val sources: List<SpellAbility>,
+    )
+
+    /**
+     * Predict a payment without choosing or consuming the player's resources.
+     * Emerge and Offering require a hypothetical sacrifice before Forge can
+     * plan the residual mana payment. Keep that choice inside the same
+     * probe and restore it afterwards; the displayed cost stays pre-choice.
+     */
+    fun predictManaPayment(
+        displayedCost: ManaCost,
+        sa: SpellAbility,
+        player: Player,
+    ): ManaPaymentPreview? =
+        affordabilityProbe(
+            probe = {
+                preservingPaymentProbeState(sa, player) {
+                    NonInteractiveScope.bestEffort {
+                        val needsSacrifice =
+                            (sa.isEmerge && sa.sacrificedAsEmerge == null) ||
+                                (sa.isOffering && sa.sacrificedAsOffering == null)
+                        val toPay =
+                            if (needsSacrifice) {
+                                ComputerUtilMana.calculateManaCost(sa.payCosts, sa, player, true, 0, false)
+                            } else {
+                                ManaCostBeingPaid(displayedCost)
+                            }
+                        val cost = toPay.toManaCost()
+                        ComputerUtilMana
+                            .getManaPaymentPlan(toPay, sa, player, false)
+                            ?.let { ManaPaymentPreview(cost, it.toList()) }
+                    }
+                }
+            },
+            fallback = { null },
+        )
+
     fun canPayManaCost(
         sa: SpellAbility,
         player: Player,
@@ -43,10 +82,10 @@ internal object ActionManaCosts {
             fallback = { canPayOrTwoGenericManaCost(sa, player) },
         )
 
-    internal fun affordabilityProbe(
-        probe: () -> Boolean,
-        fallback: () -> Boolean,
-    ): Boolean =
+    internal fun <T> affordabilityProbe(
+        probe: () -> T,
+        fallback: () -> T,
+    ): T =
         try {
             probe()
         } catch (refusal: StrictPromptRefusalException) {
@@ -355,6 +394,7 @@ internal object ActionManaCosts {
         val tappedForConvoke = CardCollection(sa.tappedForConvoke)
         val host = sa.hostCard
         val delved = host?.let { CardCollection(it.delved) }
+        val castFrom = host?.castFrom
         val usedToPay =
             player.game
                 .getCardsIn(ForgeZoneType.Battlefield)
@@ -370,6 +410,7 @@ internal object ActionManaCosts {
             if (host != null && delved != null) {
                 host.clearDelved()
                 delved.forEach(host::addDelved)
+                host.setCastFrom(castFrom)
             }
             usedToPay.forEach { (card, wasUsed) -> card.setUsedToPay(wasUsed) }
         }

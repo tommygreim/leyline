@@ -13,13 +13,15 @@ import wotc.mtgo.gre.external.messaging.Messages.ClientToMatchServiceMessage
 import wotc.mtgo.gre.external.messaging.Messages.ClientToMatchServiceMessageType
 import wotc.mtgo.gre.external.messaging.Messages.ConnectReq
 import java.util.HexFormat
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.FutureTask
 import java.util.concurrent.RejectedExecutionException
-import java.util.concurrent.SynchronousQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.LockSupport
@@ -115,18 +117,25 @@ class PuzzleTrial(
             )
         }
 
+        if (!trialRunning.compareAndSet(false, true)) {
+            return result(PuzzleTrialStatus.EngineFailure, "puzzle trial worker is busy")
+        }
+
         val future =
-            try {
-                trialExecutor.submit<PuzzleTrialResult> {
-                    try {
-                        runOwned(definition, limits, startedAt, deadline, progress)
-                    } finally {
-                        cleanupDone.countDown()
-                    }
+            FutureTask {
+                try {
+                    runOwned(definition, limits, startedAt, deadline, progress)
+                } finally {
+                    cleanupDone.countDown()
+                    trialRunning.set(false)
                 }
-            } catch (_: RejectedExecutionException) {
-                return result(PuzzleTrialStatus.EngineFailure, "puzzle trial worker is busy")
             }
+        try {
+            trialExecutor.execute(future)
+        } catch (_: RejectedExecutionException) {
+            trialRunning.set(false)
+            return result(PuzzleTrialStatus.EngineFailure, "puzzle trial worker is busy")
+        }
 
         return try {
             future.get((deadline - System.nanoTime()).coerceAtLeast(0), TimeUnit.NANOSECONDS)
@@ -311,15 +320,17 @@ class PuzzleTrial(
 
     private companion object {
         val nextTrialId = AtomicLong()
+        val trialRunning = AtomicBoolean()
 
-        // A shared no-queue worker caps abandoned runtime work at one trial.
+        // Ownership rejects concurrent trials; one queue slot bridges a completed
+        // callable to the worker becoming ready for its next submission.
         val trialExecutor =
             ThreadPoolExecutor(
                 1,
                 1,
                 1,
                 TimeUnit.SECONDS,
-                SynchronousQueue(),
+                ArrayBlockingQueue(1),
                 { task -> Thread(task, "puzzle-trial").apply { isDaemon = true } },
                 ThreadPoolExecutor.AbortPolicy(),
             ).apply { allowCoreThreadTimeOut(true) }

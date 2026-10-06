@@ -10,6 +10,9 @@ object IntegrationTag : Tag()
 
 object ForgeCatalogTag : Tag()
 
+/** Authored protocol scenario contracts, isolated from routine integration runs. */
+object ConformanceTag : Tag()
+
 /** Puzzle-backed scripted acceptance suites. Run via `just test-acceptance`. */
 object AcceptanceTag : Tag()
 

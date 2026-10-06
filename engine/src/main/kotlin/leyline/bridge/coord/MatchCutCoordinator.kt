@@ -256,6 +256,12 @@ internal class MatchCutCoordinator(
         assignments: List<DamageAssignmentCommand>,
     ): Boolean = interactions.submitDamageCommand(interactionId, gameStateId, assignments)
 
+    override fun awaitManaPayment(
+        interaction: BlockingInteraction.ManaPayment,
+        manaCost: forge.card.mana.ManaCost,
+        ability: forge.game.spellability.SpellAbility,
+    ): leyline.bridge.handoff.ManaPaymentDecision = interactions.awaitManaPayment(interaction, manaCost, ability)
+
     override fun awaitOptional(
         interaction: BlockingInteraction.Optional,
         timeoutMs: Long?,
@@ -280,6 +286,11 @@ internal class MatchCutCoordinator(
         timeoutMs: Long?,
         defaultOnTimeout: Boolean,
     ): Boolean = interactions.awaitTopOrBottom(interaction, timeoutMs, defaultOnTimeout)
+
+    override fun awaitResolutionCast(
+        interaction: BlockingInteraction.ResolutionCast,
+        timeoutMs: Long?,
+    ): leyline.bridge.types.ForgeCardId? = interactions.awaitResolutionCast(interaction, timeoutMs)
 
     override fun awaitNumeric(
         interaction: BlockingInteraction.Numeric,

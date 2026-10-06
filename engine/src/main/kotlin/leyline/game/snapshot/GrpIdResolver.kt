@@ -262,6 +262,7 @@ object GrpIdResolver {
         cards: CardRepository,
     ): Int? {
         val candidates = mutableListOf<Card>()
+        activeCloneSource(card)?.let { candidates += it }
         card.cloneOrigin?.let { candidates += it }
         if (card.isCloned) {
             candidates += card.remembered.filterIsInstance<Card>()
@@ -274,6 +275,14 @@ object GrpIdResolver {
             }
         }
     }
+
+    /** Remembered cards are temporary; the clone layer's origin survives their cleanup. */
+    internal fun activeCloneSource(card: Card): Card? =
+        card.cloneStates.entries
+            .maxByOrNull { it.key }
+            ?.value
+            ?.origin
+            ?.takeIf { it.id != card.id }
 
     private fun resolveCopiedPermanentGrpId(
         copiedPermanent: Card,

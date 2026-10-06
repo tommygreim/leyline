@@ -284,10 +284,10 @@ private fun createdPersistentShapes(): List<EffectAnnotationShape> =
             listOf(100),
             listOf(AnnotationType.AddAbility_af5a, AnnotationType.LayeredEffect),
             listOf(
-                "grpid" to 8,
                 "effect_id" to 7006,
-                "originalAbilityObjectZcid" to 101,
+                "grpid" to 8,
                 "UniqueAbilityId" to 7007,
+                "originalAbilityObjectZcid" to 101,
             ),
         ),
     )

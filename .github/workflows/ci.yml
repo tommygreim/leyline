@@ -218,6 +218,11 @@ jobs:
         run: just test-acceptance
         continue-on-error: true
 
+      - name: Test (protocol contracts)
+        id: conformance
+        run: ./gradlew :engine:testConformance
+        continue-on-error: true
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -241,7 +246,8 @@ jobs:
           always() &&
           (steps.integration.outcome == 'failure' ||
            steps.simclient.outcome == 'failure' ||
-           steps.acceptance.outcome == 'failure')
+           steps.acceptance.outcome == 'failure' ||
+           steps.conformance.outcome == 'failure')
         run: exit 1
 
   report:

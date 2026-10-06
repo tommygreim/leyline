@@ -1,6 +1,7 @@
 package leyline.game.mapping
 
 import leyline.bridge.types.ForgeCardId
+import leyline.bridge.types.GrpId
 import leyline.bridge.types.InstanceId
 import leyline.bridge.types.SeatId
 import leyline.game.annotations.AnnotationBuilder
@@ -93,7 +94,13 @@ object StateProjectionCompiler {
             } ?: viewers.first()
         val stagedCanonical = stagePreStackAbilities(canonical.input, canonical.intent.supplements)
         aliasAdmittedStackAbilities(stagedCanonical, editor)
-        val planned = StateMapper.planSharedDraft(stagedCanonical, environment, editor)
+        val planned =
+            StateMapper.planSharedDraft(
+                stagedCanonical,
+                environment,
+                editor,
+                canonical.intent.supplements.filterIsInstance<ProjectionSupplement.EnterAsCopyChoice>(),
+            )
         projectPrivateCardPrompt(
             planned.gsm,
             stagedCanonical.snapshot,
@@ -112,14 +119,21 @@ object StateProjectionCompiler {
                 editor,
             )
         val supplementAnnotations = projectSupplements(canonical.input, prior, canonical.intent.supplements, planned, editor)
+        val lifecycleAnnotations =
+            reconcileResolutionLifecycle(
+                stagedCanonical,
+                prior,
+                canonical.input.viewingSeatId,
+                plannedOrder.gsm.annotationsList + supplementAnnotations,
+            )
         val phaseReconciliation =
             reconcilePhaseTransition(
                 stagedCanonical,
-                plannedOrder.gsm.annotationsList + supplementAnnotations,
+                lifecycleAnnotations,
             )
         val finalized =
             AnnotationFrameFinalizer.finalize(
-                plannedOrder.gsm.annotationsList + supplementAnnotations + listOfNotNull(phaseReconciliation),
+                lifecycleAnnotations + listOfNotNull(phaseReconciliation),
                 planned.firstAnnotationId,
             )
         var shared =
@@ -262,6 +276,83 @@ object StateProjectionCompiler {
         detailsList
             .firstOrNull { it.key == key && it.valueInt32Count > 0 }
             ?.getValueInt32(0)
+
+    /** A resolution choice already announced its source; close that lifecycle only after Forge resolves it. */
+    internal fun reconcileResolutionLifecycle(
+        input: StateFrameInput,
+        prior: ProjectionState,
+        viewingSeatId: Int,
+        annotations: List<AnnotationInfo>,
+    ): List<AnnotationInfo> {
+        val activeId = prior.viewerCursors[SeatId(viewingSeatId)]?.resolvingInstanceId ?: return annotations
+        val sourceId = prior.identities.instanceIdToForgeId[InstanceId(activeId)] ?: return annotations
+        val resolutions = input.events.events.filterIsInstance<GameEvent.SpellResolved>()
+        val stackEntry =
+            if (FrameIdResolver.isStackAbilityForgeId(sourceId)) {
+                (
+                    input.previousSnapshot
+                        ?.stack
+                        ?.entries
+                        .orEmpty() + input.snapshot.stack.entries
+                ).firstOrNull { entry ->
+                    val key =
+                        if (entry.forgeAbilityId != 0) {
+                            FrameIdResolver.triggerStackAbilityForgeId(entry.forgeAbilityId)
+                        } else {
+                            FrameIdResolver.stackAbilityForgeId(entry.forgeCardId)
+                        }
+                    prior.identities.forgeIdToInstanceId[key]?.value == activeId
+                }
+            } else {
+                null
+            }
+        val resolution =
+            if (FrameIdResolver.isStackAbilityForgeId(sourceId)) {
+                stackEntry?.let { entry ->
+                    resolutions
+                        .filter { event ->
+                            (event.isTrigger || event.isAbility) &&
+                                event.cardId == entry.forgeCardId &&
+                                (
+                                    entry.forgeAbilityId == 0 ||
+                                        entry.forgeAbilityId in
+                                        setOf(event.abilityForgeId, event.rootAbilityForgeId, event.stackAbilityForgeId)
+                                )
+                        }.singleOrNull()
+                }
+            } else {
+                resolutions.singleOrNull { !it.isTrigger && !it.isAbility && it.cardId == sourceId }
+            }
+        val adjusted =
+            annotations.filterNot { annotation ->
+                annotation.affectorId == activeId &&
+                    (
+                        AnnotationType.ResolutionStart in annotation.typeList ||
+                            resolution == null &&
+                            AnnotationType.ResolutionComplete in annotation.typeList
+                    )
+            }
+        if (resolution == null || adjusted.any { it.affectorId == activeId && AnnotationType.ResolutionComplete in it.typeList }) {
+            return adjusted
+        }
+        val grpId =
+            if (stackEntry != null) {
+                resolution.abilityGrpId.takeIf { it != 0 } ?: stackEntry.grpId
+            } else {
+                resolution.spellGrpId.takeIf { it != 0 }
+                    ?: input.previousSnapshot
+                        ?.objects
+                        ?.get(resolution.cardId)
+                        ?.grpId
+                    ?: input.snapshot.objects[resolution.cardId]?.grpId
+                    ?: annotations
+                        .firstOrNull {
+                            it.affectorId == activeId && AnnotationType.ResolutionStart in it.typeList
+                        }?.intDetail(DetailKeys.GRPID)
+                    ?: 0
+            }
+        return adjusted + AnnotationBuilder.resolutionComplete(InstanceId(activeId), GrpId(grpId))
+    }
 
     @Suppress("LongParameterList")
     private fun renderViewer(
@@ -439,6 +530,14 @@ object StateProjectionCompiler {
                 previousSnapshot = draft.projectionSnapshot,
                 fullState = fullState,
                 lastEmittedPhase = lastEmittedPhase,
+                resolvingInstanceId =
+                    draft.gsm.annotationsList.fold(priorCursor.resolvingInstanceId) { current, annotation ->
+                        when {
+                            AnnotationType.ResolutionStart in annotation.typeList -> annotation.affectorId
+                            AnnotationType.ResolutionComplete in annotation.typeList -> null
+                            else -> current
+                        }
+                    },
                 pendingSubmittedTargets =
                     if (
                         submittedTargetsConsumed &&
@@ -565,6 +664,7 @@ object StateProjectionCompiler {
 
                 is ProjectionSupplement.PreStackAbility,
                 is ProjectionSupplement.PreStackSpell,
+                is ProjectionSupplement.EnterAsCopyChoice,
                 -> Unit
 
                 is ProjectionSupplement.SubmitPendingTargets -> {
@@ -685,6 +785,7 @@ object StateProjectionCompiler {
                             targets = ability.targetForgeCardIds,
                             forgeAbilityId = ability.forgeAbilityId,
                             deferAnnouncement = ability.deferAnnouncement,
+                            abilityOriginalCardGrpId = ability.abilityOriginalCardGrpId,
                         ),
                     ) + stack.entries,
                 )

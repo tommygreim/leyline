@@ -32,6 +32,12 @@ internal sealed interface TargetingCommand {
         override val reply: CompletableFuture<TargetingCommandReceipt> = CompletableFuture(),
     ) : TargetingCommand
 
+    data class Undo(
+        val interactionId: String,
+        val gameStateId: Int,
+        override val reply: CompletableFuture<TargetingCommandReceipt> = CompletableFuture(),
+    ) : TargetingCommand
+
     data class Terminal(
         val cause: Throwable,
         override val reply: CompletableFuture<TargetingCommandReceipt> = CompletableFuture(),

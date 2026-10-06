@@ -1,5 +1,6 @@
 package leyline.bridge.forge
 
+import com.google.common.collect.ListMultimap
 import forge.LobbyPlayer
 import forge.ai.ComputerUtilCost
 import forge.ai.LobbyPlayerAi
@@ -65,6 +66,7 @@ import leyline.bridge.NonInteractiveScope
 import leyline.bridge.coord.CostPaymentCoordinator
 import leyline.bridge.coord.PriorityLoopCoordinator
 import leyline.bridge.coord.PriorityPolicyRuntime
+import leyline.bridge.coord.ResolutionCastCoordinator
 import leyline.bridge.coord.SpellExecutor
 import leyline.bridge.coord.StaticChoiceCoordinator
 import leyline.bridge.coord.TargetingCoordinator
@@ -84,6 +86,7 @@ import leyline.bridge.handoff.PromptRouteResolver
 import leyline.bridge.handoff.PromptSemantic
 import leyline.bridge.handoff.PromptSideEffect
 import leyline.bridge.handoff.RuntimeHorizonMode
+import leyline.bridge.handoff.SearchLibraryValue
 import leyline.bridge.handoff.TargetingCandidateValue
 import leyline.bridge.handoff.TargetingZone
 import leyline.bridge.types.ForgeCardId
@@ -221,6 +224,7 @@ class PlayerController(
 ) : PlayerControllerHuman(game, player, lobbyPlayer),
     OwnerContext {
     private val optionalActionGate = OptionalActionGate(actionBridge, interactionRuntime)
+    private val resolutionCastCoordinator = ResolutionCastCoordinator(game, interactionRuntime) { actionBridge?.getTimeoutMs() }
     private val numericInputGate = NumericInputGate(actionBridge, interactionRuntime)
     private val spellExecutor = SpellExecutor(game, player, bridge)
     private val targetingCoordinator =
@@ -238,7 +242,10 @@ class PlayerController(
                     ?.id
             },
         )
-    private val costPaymentCoordinator = CostPaymentCoordinator(bridge, player, optionalActionGate)
+    private val costPaymentCoordinator =
+        CostPaymentCoordinator(bridge, player, optionalActionGate) {
+            priorityPolicy.currentSettings().manaSelectionType == wotc.mtgo.gre.external.messaging.Messages.ManaSelectionType.Manual_a88a
+        }
     private val staticChoiceCoordinator = StaticChoiceCoordinator(bridge)
     private var activeSpellSourceId: Int? = null
     private var activeSourceIsSpell: Boolean = false
@@ -463,12 +470,20 @@ class PlayerController(
                 return (if (putOnTop) source else recipient) as T
             }
         }
+        when (val selection = resolutionCastCoordinator.select(optionList, sa)) {
+            is ResolutionCastCoordinator.Selection.Answered -> {
+                @Suppress("UNCHECKED_CAST")
+                return selection.card as T?
+            }
+            ResolutionCastCoordinator.Selection.NotApplicable -> Unit
+        }
         return targetingCoordinator.chooseSingleEntity(
             optionList,
             sa,
             title,
             isOptional,
             hasDelayedReveal = delayedReveal != null,
+            searchLibrary = delayedReveal?.searchLibraryValue(),
         )
     }
 
@@ -489,7 +504,17 @@ class PlayerController(
         params: MutableMap<String, Any>?,
     ): List<T> {
         if (delayedReveal != null) reveal(delayedReveal)
-        return targetingCoordinator.chooseEntities(optionList, min, max, title, sa)
+        return targetingCoordinator.chooseEntities(optionList, min, max, title, sa, delayedReveal?.searchLibraryValue())
+    }
+
+    /** Preserve Forge's actual search owner and permitted view before candidates are filtered. */
+    private fun DelayedReveal.searchLibraryValue(): SearchLibraryValue? {
+        if (zone != setOf(ZoneType.Library)) return null
+        val libraryOwner = game.players.firstOrNull { it.id == owner.id } ?: return null
+        return SearchLibraryValue(
+            seating.seatOf(libraryOwner.id, libraryOwner.lobbyPlayer is LobbyPlayerAi),
+            cards.map { ForgeCardId(it.id) },
+        )
     }
 
     // -- Targeting ---------------------------------------------------------
@@ -511,6 +536,7 @@ class PlayerController(
         params: MutableMap<String, Any>?,
     ): Boolean {
         if (isParadigmCopyCast(sa) || isParadigmCopyCard(cardToShow)) return true
+        if (resolutionCastCoordinator.alreadyConfirmed(sa, cardToShow)) return true
 
         val hostCard = cardToShow ?: sa?.hostCard
         if (mode == PlayerActionConfirmMode.ChangeZoneToAltDestination && hostCard?.isRealCommander == true) {
@@ -668,6 +694,10 @@ class PlayerController(
     override fun playSaFromPlayEffect(tgtSA: SpellAbility): Boolean {
         if (isParadigmCopyCast(tgtSA)) return super.playSaFromPlayEffect(tgtSA)
 
+        if (resolutionCastCoordinator.consumeCast(tgtSA)) {
+            return super.playSaFromPlayEffect(tgtSA)
+        }
+
         val hostCard = tgtSA.hostCard
         val castingPermission = castingPermission(hostCard)
         castingPermission?.let(bridge.journal::record)
@@ -748,14 +778,7 @@ class PlayerController(
         sa: SpellAbility,
     ): Boolean {
         if (costPart is forge.game.cost.CostPayEnergy) {
-            val amount = costPart.getAbilityAmount(sa)
-            return optionalActionGate.await(
-                hostCard = sa.hostCard,
-                defaultOnTimeout = false,
-                logContext = "confirmPayment:Energy",
-                customPromptId = PromptIds.OPTIONAL_PAY_ENERGY[amount],
-                costText = if (amount in PromptIds.OPTIONAL_PAY_ENERGY) null else "$amount {oE}",
-            )
+            return costPaymentCoordinator.confirmEnergyPayment(sa, costPart.getAbilityAmount(sa))
         }
         val activeCost =
             sa.hostCard
@@ -809,20 +832,21 @@ class PlayerController(
             return awaitCommanderReturn(hostCard, sa, "confirmReplacementEffect:Commander")
         }
 
-        // The bare PromptRequest below (no semantic/route) used to go straight to
-        // bridge.requestChoice, which resolves an unclassified Generic semantic to
-        // ResolvedPromptRoute.AutoResolve — a synchronous default with no prompt
-        // ever reaching the client (see PromptRequest.policyDefault). That silently
-        // declined every optional replacement, e.g. Superior Spider-Man's "you may
-        // have it enter as a copy of a creature card in a graveyard": reported live,
-        // no prompt shown, no copy made. OptionalActionGate is this override's
-        // documented real interactive route (see its KDoc's consumer list).
+        // Arena puts decline in the donor picker, not in a separate yes/no prompt.
+        // Keep Forge's replacement confirmation semantics (false = NotReplaced).
+        if (sa?.api == ApiType.Clone && sa.isReplacementAbility && sa.hasParam("Choices")) {
+            return targetingCoordinator.confirmEnterAsCopy(sa)
+        }
         val message = prompt ?: replacementEffect.toString()
         return optionalActionGate.await(
             hostCard = replacementEffect.hostCard ?: sa?.hostCard,
             defaultOnTimeout = !isEnterAsCopyReplacement(message),
             logContext = "confirmReplacementEffect",
-            customPromptId = if (isDredgeReplacement(replacementEffect)) PromptIds.DREDGE_THIS_CARD else PromptIds.OPTIONAL_ACTION,
+            customPromptId =
+                when {
+                    isDredgeReplacement(replacementEffect) -> PromptIds.DREDGE_THIS_CARD
+                    else -> PromptIds.OPTIONAL_ACTION
+                },
         )
     }
 
@@ -1943,6 +1967,28 @@ class PlayerController(
 
     override fun chooseSaToActivateFromOpeningHand(usableFromOpeningHand: List<SpellAbility>): List<SpellAbility> =
         usableFromOpeningHand.filter(SpellAbility::isOpeningHandBattlefieldPut)
+
+    override fun vote(
+        sa: SpellAbility,
+        prompt: String,
+        options: List<Any>,
+        votes: ListMultimap<Any, Player>,
+        forPlayer: Player,
+        optional: Boolean,
+    ): Any? =
+        if (!sa.hasParam("Choices")) {
+            super.vote(sa, prompt, options, votes, forPlayer, optional)
+        } else {
+            staticChoiceCoordinator.vote(sa, prompt, options, optional)
+        }
+
+    override fun chooseSpellAbilitiesForEffect(
+        spells: MutableList<SpellAbility>,
+        sa: SpellAbility,
+        title: String,
+        num: Int,
+        params: MutableMap<String, Any>?,
+    ): List<SpellAbility> = chooseModeForAbility(sa, spells.map { it as AbilitySub }.toMutableList(), num, num, false)
 
     override fun chooseModeForAbility(
         sa: SpellAbility,

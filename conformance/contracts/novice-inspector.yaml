@@ -1,0 +1,66 @@
+name: Novice Inspector investigate trigger
+scenario: {suite: mechanics-protocol, id: investigate-novice-inspector}
+frames:
+  - id: trigger
+    events:
+      - id: ability
+        type: Ability
+        lane: object
+        op: create
+        fields: {raw.zoneId: 27}
+      - id: created
+        type: AbilityInstanceCreated
+        lane: transient
+        keys: [source_zone]
+        fields: {details.source_zone: [28], affectedIds.length: 1}
+        equals: {"affectedIds[0]": ability.affectorId}
+      - id: source
+        type: TriggeringObject
+        lane: persistent
+        op: create
+        keys: [source_zone]
+        fields: {details.source_zone: [28]}
+        equals: {affectorId: ability.affectorId, "affectedIds[0]": created.affectorId}
+  - id: resolution
+    events:
+      - id: clue
+        type: Token
+        lane: object
+        op: create
+        fields: {raw.zoneId: 28, raw.controllerSeatId: 1}
+        equals: {raw.parentId: ability.affectorId, raw.objectSourceGrpId: ability.raw.objectSourceGrpId}
+      - id: started
+        type: ResolutionStart
+        lane: transient
+        keys: [grpid]
+        equals: {affectorId: ability.affectorId, "details.grpid[0]": ability.raw.grpId}
+      - id: token-created
+        type: TokenCreated
+        lane: transient
+        keys: []
+        fields: {affectedIds.length: 1}
+        equals: {affectorId: ability.affectorId, "affectedIds[0]": clue.affectorId}
+      - id: resolved
+        type: ResolutionComplete
+        lane: transient
+        keys: [grpid]
+        equals: {affectorId: ability.affectorId, "details.grpid[0]": ability.raw.grpId}
+      - id: retired
+        type: AbilityInstanceDeleted
+        lane: transient
+        keys: []
+        equals: {affectorId: created.affectorId, affectedIds: created.affectedIds}
+      - id: source-retired
+        type: TriggeringObject
+        lane: persistent
+        op: delete
+        sameRow: source
+counts:
+  - match: {type: TokenCreated, lane: transient}
+    exactly: 1
+  - match: {type: TriggeringObject, lane: persistent, op: delete, sameRow: source}
+    exactly: 1
+  - match: {type: TriggeringObject, lane: persistent, op: create, sameRow: source}
+    exactly: 1
+  - match: {type: TriggeringObject, lane: persistent, op: update, sameRow: source}
+    exactly: 0

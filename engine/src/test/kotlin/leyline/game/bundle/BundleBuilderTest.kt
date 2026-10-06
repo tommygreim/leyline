@@ -960,7 +960,7 @@ class BundleBuilderTest :
                 result.messages[1].type shouldBe GREMessageType.SelectTargetsReq_695e
                 result.messages[1].prompt.promptId shouldBe PromptIds.SELECT_TARGETS
                 result.messages[1].allowCancel shouldBe Messages.AllowCancel.Abort
-                result.messages[1].allowUndo.shouldBeTrue()
+                result.messages[1].allowUndo.shouldBeFalse()
             }
         }
 

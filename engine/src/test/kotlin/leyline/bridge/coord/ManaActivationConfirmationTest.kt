@@ -10,6 +10,9 @@ import leyline.game.mapping.PromptIds
 import leyline.testkit.MatchFlowHarness
 import leyline.testkit.SessionTest
 import leyline.tooling.headless.HeadlessResponseMode
+import wotc.mtgo.gre.external.messaging.Messages.ClientMessageType
+import wotc.mtgo.gre.external.messaging.Messages.ClientToGREMessage
+import wotc.mtgo.gre.external.messaging.Messages.PerformAutoTapActionsResp
 
 /**
  * Automatic mana activation must preserve the client's confirmation boundary.
@@ -65,32 +68,38 @@ class ManaActivationConfirmationTest :
             ailibrary=Mountain;Mountain;Mountain
             """.trimIndent()
 
-        fun MatchFlowHarness.optionalCount() = allMessages.count { it.hasOptionalActionMessage() }
+        fun MatchFlowHarness.confirmAutoPayment() {
+            submitGameplayResponse(
+                ClientToGREMessage
+                    .newBuilder()
+                    .setType(ClientMessageType.PerformAutoTapActionsResp_097b)
+                    .setPerformAutoTapActionsResp(PerformAutoTapActionsResp.newBuilder().setIndex(0))
+                    .build(),
+            ).shouldBeTrue()
+        }
 
         session(
-            "classifies the selected Phyrexian Tower activation as irreversible",
+            "selected Phyrexian Tower sacrifice activation requires a cost payment decision",
             puzzle = towerPuzzle(),
             responseMode = HeadlessResponseMode.PolicyVisible,
             fullControl = true,
         ) {
             val towerIid = human.battlefield.iid("Phyrexian Tower")
-            val before = optionalCount()
 
-            holdNextOptionalAction()
             castSpellByName("Bad Moon").shouldBeTrue()
-            optionalCount() shouldBe before + 1
-
-            val prompt = allMessages.last { it.hasOptionalActionMessage() }.optionalActionMessage
+            val message = allMessages.last { it.hasPayCostsReq() }
+            val prompt = message.payCostsReq
             assertSoftly {
-                // Automatic payment from an irreversible source uses the same
-                // cost-labelled workflow as other mana-payment confirmations;
-                // the source id still identifies the exact permanent to consume.
-                prompt.prompt.promptId shouldBe PromptIds.PAY_COSTS
-                prompt.prompt.parametersList.map { it.parameterName to it.stringValue } shouldBe
-                    listOf("Cost" to "o1oB")
-                prompt.sourceId shouldBe towerIid
+                message.prompt.promptId shouldBe PromptIds.PAY_COSTS
+                message.prompt.parametersList.map { it.parameterName to it.stringValue } shouldBe listOf("Cost" to "o1oB")
+                prompt.autoTapActionsReq.autoTapSolutionsCount shouldBe 1
+                prompt.autoTapActionsReq.autoTapSolutionsList
+                    .single()
+                    .autoTapActionsList
+                    .map { it.instanceId }
+                    .toSet() shouldBe setOf(towerIid)
             }
-            respondToOptionalAction(accept = true)
+            cancelAction()
         }
 
         session(
@@ -99,9 +108,8 @@ class ManaActivationConfirmationTest :
             responseMode = HeadlessResponseMode.PolicyVisible,
             fullControl = true,
         ) {
-            holdNextOptionalAction()
             castSpellByName("Bad Moon").shouldBeTrue()
-            respondToOptionalAction(accept = false)
+            cancelAction()
 
             assertSoftly {
                 human.getZone(ZoneType.Battlefield).cards.map { it.name } shouldContain "Phyrexian Tower"
@@ -122,9 +130,8 @@ class ManaActivationConfirmationTest :
             responseMode = HeadlessResponseMode.PolicyVisible,
             fullControl = true,
         ) {
-            holdNextOptionalAction()
             castSpellByName("Bad Moon").shouldBeTrue()
-            respondToOptionalAction(accept = true)
+            confirmAutoPayment()
             passUntilResolved()
 
             assertSoftly {
@@ -144,12 +151,12 @@ class ManaActivationConfirmationTest :
             responseMode = HeadlessResponseMode.PolicyVisible,
             fullControl = true,
         ) {
-            val before = optionalCount()
+            val before = allMessages.count { it.hasPayCostsReq() }
             castSpellByName("Bad Moon").shouldBeTrue()
             passUntilResolved()
 
             assertSoftly {
-                optionalCount() shouldBe before
+                allMessages.count { it.hasPayCostsReq() } shouldBe before
                 human.getZone(ZoneType.Battlefield).cards.map { it.name } shouldContain "Bad Moon"
                 human.getZone(ZoneType.Battlefield).cards.count { it.name == "Swamp" && it.isTapped } shouldBe 2
             }

@@ -211,7 +211,7 @@ class MatchOneShotPayCostsRuntimeTest :
                     message.prompt.promptId shouldBe promptId
                     message.gameStateId shouldBe published.gameStateId
                     message.allowCancel shouldBe AllowCancel.Abort
-                    message.allowUndo shouldBe true
+                    message.allowUndo shouldBe false
                     message.prompt.parametersList
                         .single { it.parameterName == "CardId" }
                         .numberValue shouldBe sourceInstanceId

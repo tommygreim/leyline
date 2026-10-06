@@ -24,5 +24,7 @@ data class AbilityExhaustionFacts private constructor(
         val abilityGrpId: Int,
         val usesRemaining: Int,
         val uniqueAbilityId: Int,
+        /** For modal abilities, the parent followed by the unavailable child modes. */
+        val exhaustedGrpIds: List<Int> = listOf(abilityGrpId),
     )
 }

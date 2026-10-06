@@ -1,0 +1,18 @@
+[metadata]
+Name:Remaining Siphoner ability identity and upkeep wording
+Goal:Survive
+Turns:6
+Difficulty:Easy
+Description:Cast the new Siphoner, attack with only the original, then accept one upkeep payment and decline the other. Inspect energy trigger text and the optional payment prompt.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=10
+AILife=30
+removesummoningsickness=true
+humancounters=ENERGY=2
+humanbattlefield=Glint-Sleeve Siphoner;Swamp;Swamp;Mountain;Mountain
+humanhand=Glint-Sleeve Siphoner
+humanlibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

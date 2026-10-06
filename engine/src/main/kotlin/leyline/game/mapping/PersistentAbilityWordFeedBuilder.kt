@@ -31,8 +31,12 @@ internal object PersistentAbilityWordFeedBuilder {
                     threshold = entry.threshold,
                     abilityGrpId = entry.abilityGrpId?.let(::GrpId),
                     colors = entry.colors,
+                    hasBlessing = entry.hasBlessing,
                     affectorId = InstanceId(entry.affectorId ?: instanceId),
-                    affectedIds = entry.affectedIds.ifEmpty { listOf(instanceId) }.map(::InstanceId),
+                    affectedIds =
+                        entry.affectedForgeCardIds
+                            .map(frameIds::cardIid)
+                            .ifEmpty { entry.affectedIds.ifEmpty { listOf(instanceId) }.map(::InstanceId) },
                 )
             }
         val stackState =

@@ -1,0 +1,17 @@
+[metadata]
+Name:One-Shot Gather Counters
+Goal:Survive
+Turns:4
+Difficulty:Tutorial
+Description:Use Hopeful Initiate to remove two counters and destroy Sol Ring.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+removesummoningsickness=true
+humanbattlefield=Hopeful Initiate|Counters:P1P1=1;Hopeful Initiate|Counters:P1P1=1;Plains;Plains;Plains
+humanlibrary=Plains;Plains;Plains
+aibattlefield=Sol Ring
+ailibrary=Mountain;Mountain;Mountain

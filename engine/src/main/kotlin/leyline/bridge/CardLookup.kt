@@ -5,6 +5,7 @@ import forge.game.GameActionUtil
 import forge.game.GameEntity
 import forge.game.ability.ApiType
 import forge.game.card.Card
+import forge.game.combat.CombatUtil
 import forge.game.player.Player
 import forge.game.spellability.LandAbility
 import forge.game.spellability.OptionalCost
@@ -46,7 +47,7 @@ internal fun resolveAttackDefender(
     when (defender) {
         is Target.Card -> {
             val card = findCard(game, defender.cardId)
-            if (card != null && card.isPlaneswalker && card.controller.isOpponentOf(attackingPlayer)) card else null
+            card?.takeIf { it in CombatUtil.getAllPossibleDefenders(attackingPlayer) }
         }
         is Target.Player -> {
             val playerDefender = game.getPlayer(defender.playerId.value)
@@ -83,7 +84,28 @@ fun getAllCastableAbilities(
                 ?: emptyList()
         } else {
             card.getSpells()
+        }.toMutableList()
+
+    // Forge 2.0.15 enumerates Secondary spells in getAllPossibleAbilities,
+    // not getSpells. Include those printed spells before expanding costs so
+    // every offer/execution consumer retains one shared, stable index space.
+    val printedFaceAvailable =
+        card.currentStateName == forge.card.CardStateName.Original ||
+            (
+                card.isFaceDown &&
+                    card.isInZone(ZoneType.Exile) &&
+                    (card.isForetold || card.mayPlay(player).isNotEmpty())
+            )
+    if (!card.isInPlay && printedFaceAvailable && card.hasState(forge.card.CardStateName.Secondary)) {
+        for (ability in card.getState(forge.card.CardStateName.Secondary).spellAbilities) {
+            if (ability.isSpell &&
+                !(ability.isAdventure && card.isOnAdventure) &&
+                baseAbilities.none { it === ability }
+            ) {
+                baseAbilities.add(ability)
+            }
         }
+    }
 
     // No early-return for empty baseAbilities: the keyword-handSA appendage
     // (Plot/Foretell) and the Room unlock-SA appendage below add zone-specific

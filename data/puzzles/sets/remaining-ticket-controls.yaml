@@ -1,0 +1,219 @@
+name: remaining-ticket-controls
+description: Gameplay controls for the remaining native destruction, discard, copied text, and temporary-permission checks. Native artwork, prompt wording and rail placement are user checks.
+scenarios:
+  - id: created-treasure-destroy-control
+    puzzle: remaining-token-destruction
+    headless: { forge_catalog: true }
+    run: create two Treasures, then use Abrade to destroy one without paying with either
+    expect: a Treasure is destroyed while Mind Stone and the other Treasure survive
+    steps:
+      - cast: Strike It Rich
+      - resolve_stack: {}
+      - cast: Strike It Rich
+      - resolve_stack: {}
+      - cast: Abrade
+      - modal_choice: { index: 1 }
+      - target: { side: ours, zone: battlefield, card: Treasure Token }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: battlefield, card: Treasure Token }
+            - zone_contains: { side: ours, zone: battlefield, card: Mind Stone }
+            - annotation_seen: { type: TokenDeleted }
+            - stack_empty: true
+  - id: siphoner-entry-and-attack-control
+    puzzle: remaining-siphoner-text
+    headless: { forge_catalog: true }
+    run: cast a second Siphoner, then attack with only the original
+    expect: both energy triggers resolve and the unblocked original deals two damage
+    steps:
+      - cast: Glint-Sleeve Siphoner
+      - resolve_stack: {}
+      - expect:
+          all:
+            - annotation_seen: { type: CounterAdded }
+            - zone_contains: { side: ours, zone: battlefield, card: Glint-Sleeve Siphoner }
+            - stack_empty: true
+      - pass_until: { prompt: DeclareAttackersReq, max_passes: 10 }
+      - attack: { cards: [Glint-Sleeve Siphoner] }
+      - pass_until: { opponent_life: 28, max_passes: 12 }
+  - id: duress-and-deceit-discard-control
+    puzzle: remaining-discard-prompts
+    headless: { forge_catalog: true }
+    run: discard Winternight Stories with Duress, then Grizzly Bears with black-paid Deceit
+    expect: both chosen cards leave the opponent's hand and Deceit stays on the battlefield
+    steps:
+      - cast: Duress
+      - pass_until: { prompt: SelectNReq, max_passes: 8 }
+      - select_card: { side: opponent, zone: hand, card: Winternight Stories }
+      - resolve_stack: {}
+      - cast: Deceit
+      - mana_type_choices: [black, black]
+      - pass_until: { prompt: SelectNReq, max_passes: 12 }
+      - select_card: { side: opponent, zone: hand, card: Grizzly Bears }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: opponent, zone: graveyard, card: Winternight Stories }
+            - zone_contains: { side: opponent, zone: graveyard, card: Grizzly Bears }
+            - zone_not_contains: { side: opponent, zone: hand, card: Grizzly Bears }
+            - zone_contains: { side: ours, zone: battlefield, card: Deceit }
+            - stack_empty: true
+  - id: opponent-tablet-and-hamlet-control
+    puzzle: remaining-opponent-permissions
+    headless: { forge_catalog: true }
+    run: discard the opponent's Harmonize spell, then let them play Hamlet and mill Thor with Tablet
+    expect: Hamlet and Tablet enter for the opponent and the known Thor is milled
+    steps:
+      - cast: Duress
+      - pass_until: { prompt: SelectNReq, max_passes: 8 }
+      - select_card: { side: opponent, zone: hand, card: Winternight Stories }
+      - resolve_stack: {}
+      - pass_until:
+          zone_contains: { side: opponent, zone: graveyard, card: "Thor, God of Thunder" }
+          max_passes: 40
+      - expect:
+          all:
+            - zone_contains: { side: opponent, zone: battlefield, card: Petrified Hamlet }
+            - zone_contains: { side: opponent, zone: battlefield, card: Tablet of Discovery }
+            - zone_contains: { side: opponent, zone: graveyard, card: Winternight Stories }
+            - zone_contains: { side: opponent, zone: hand, card: Grizzly Bears }
+  - id: deceit-black-evoke-control
+    puzzle: remaining-discard-prompts
+    headless: { forge_catalog: true }
+    run: evoke Deceit using black mana, then choose a nonland card to discard
+    expect: the discard and Evoke sacrifice resolve without a blue-paid bounce trigger
+    steps:
+      - cast: { card: Deceit, alt_cost: evoke }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: graveyard, card: Deceit }
+            - zone_not_contains: { side: ours, zone: battlefield, card: Deceit }
+            - stack_empty: true
+  - id: thor-permission-survives-source-removal
+    puzzle: remaining-thor-permission
+    headless: { forge_catalog: true }
+    run: exile Bolt with Thor, return Thor to hand, then cast the exiled Bolt
+    expect: Thor's removal does not revoke the temporary permission and Bolt resolves
+    steps:
+      - cast: Thor, God of Thunder
+      - pass_until: { prompt: SelectTargetsReq, max_passes: 12 }
+      - target: { side: ours, zone: graveyard, card: Lightning Bolt }
+      - resolve_stack: {}
+      - cast: Unsummon
+      - target: { side: ours, zone: battlefield, card: "Thor, God of Thunder" }
+      - pass_until: { prompt: SelectTargetsReq, max_passes: 12 }
+      - target: opponent
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: hand, card: "Thor, God of Thunder" }
+            - zone_contains: { side: ours, zone: exile, card: Lightning Bolt }
+            - action: { type: cast, card: Lightning Bolt }
+      - cast: { card: Lightning Bolt, zone: exile }
+      - target: opponent
+      - resolve_stack: {}
+      - expect:
+          all:
+            - opponent_life: 26
+            - zone_contains: { side: ours, zone: graveyard, card: Lightning Bolt }
+            - zone_not_contains: { side: ours, zone: exile, card: Lightning Bolt }
+            - stack_empty: true
+  - id: copied-donor-entry-control
+    puzzle: remaining-copied-donor-text
+    headless: { forge_catalog: true }
+    run: cast Spider-Man and accept copying the sole creature in the graveyard
+    expect: Spider-Man enters as the donor copy and the original donor is exiled
+    steps:
+      - cast: Superior Spider-Man
+      - pass_until: { prompt: SelectNReq, max_passes: 8 }
+      - select_card: { side: ours, zone: graveyard, card: Doomsday Excruciator }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: battlefield, card: Superior Spider-Man }
+            - zone_contains: { side: ours, zone: exile, card: Doomsday Excruciator }
+            - zone_not_contains: { side: ours, zone: graveyard, card: Doomsday Excruciator }
+            - battlefield_stats: { side: ours, card: Superior Spider-Man, power: 4, toughness: 4 }
+            - stack_empty: true
+  - id: copied-donor-decline-control
+    puzzle: remaining-copied-donor-text
+    headless: { forge_catalog: true }
+    run: decline the optional enter-as-copy replacement
+    expect: the graveyard donor stays and Spider-Man enters as himself
+    steps:
+      - cast: Superior Spider-Man
+      - pass_until: { prompt: SelectNReq, max_passes: 8 }
+      - cancel_action: {}
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: graveyard, card: Doomsday Excruciator }
+            - zone_not_contains: { side: ours, zone: exile, card: Doomsday Excruciator }
+            - battlefield_stats: { side: ours, card: Superior Spider-Man, power: 4, toughness: 4 }
+            - stack_empty: true
+  - id: copy-own-donor-among-both-graveyards
+    puzzle: remaining-copy-both-graveyards
+    headless: { forge_catalog: true }
+    run: select our Bears from the six eligible donors
+    expect: only our chosen donor is exiled and Spider-Man is its 4/4 copy
+    steps:
+      - cast: Superior Spider-Man
+      - pass_until: { prompt: SelectNReq, max_passes: 8 }
+      - select_card: { side: ours, zone: graveyard, card: Grizzly Bears }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: exile, card: Grizzly Bears }
+            - zone_not_contains: { side: ours, zone: graveyard, card: Grizzly Bears }
+            - zone_contains: { side: ours, zone: graveyard, card: Walking Corpse }
+            - zone_contains: { side: ours, zone: graveyard, card: Llanowar Elves }
+            - zone_contains: { side: opponent, zone: graveyard, card: Air Elemental }
+            - zone_contains: { side: opponent, zone: graveyard, card: Colossal Dreadmaw }
+            - zone_contains: { side: opponent, zone: graveyard, card: Raging Goblin }
+            - battlefield_stats: { side: ours, card: Superior Spider-Man, power: 4, toughness: 4 }
+            - stack_empty: true
+  - id: copy-opponent-donor-among-both-graveyards
+    puzzle: remaining-copy-both-graveyards
+    headless: { forge_catalog: true }
+    run: select the opponent's Air Elemental from the six eligible donors
+    expect: only their chosen donor is exiled and Spider-Man is its 4/4 copy
+    steps:
+      - cast: Superior Spider-Man
+      - pass_until: { prompt: SelectNReq, max_passes: 8 }
+      - select_card: { side: opponent, zone: graveyard, card: Air Elemental }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: opponent, zone: exile, card: Air Elemental }
+            - zone_not_contains: { side: opponent, zone: graveyard, card: Air Elemental }
+            - zone_contains: { side: opponent, zone: graveyard, card: Colossal Dreadmaw }
+            - zone_contains: { side: opponent, zone: graveyard, card: Raging Goblin }
+            - zone_contains: { side: ours, zone: graveyard, card: Grizzly Bears }
+            - zone_contains: { side: ours, zone: graveyard, card: Walking Corpse }
+            - zone_contains: { side: ours, zone: graveyard, card: Llanowar Elves }
+            - battlefield_stats: { side: ours, card: Superior Spider-Man, power: 4, toughness: 4 }
+            - stack_empty: true
+  - id: decline-copy-with-both-graveyards
+    puzzle: remaining-copy-both-graveyards
+    headless: { forge_catalog: true }
+    run: decline copying any of the six eligible donors
+    expect: all six donors stay in their original graveyards
+    steps:
+      - cast: Superior Spider-Man
+      - pass_until: { prompt: SelectNReq, max_passes: 8 }
+      - cancel_action: {}
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: graveyard, card: Grizzly Bears }
+            - zone_contains: { side: ours, zone: graveyard, card: Walking Corpse }
+            - zone_contains: { side: ours, zone: graveyard, card: Llanowar Elves }
+            - zone_contains: { side: opponent, zone: graveyard, card: Air Elemental }
+            - zone_contains: { side: opponent, zone: graveyard, card: Colossal Dreadmaw }
+            - zone_contains: { side: opponent, zone: graveyard, card: Raging Goblin }
+            - zone_not_contains: { side: ours, zone: exile, card: Grizzly Bears }
+            - zone_not_contains: { side: opponent, zone: exile, card: Air Elemental }
+            - battlefield_stats: { side: ours, card: Superior Spider-Man, power: 4, toughness: 4 }
+            - stack_empty: true

@@ -9,15 +9,20 @@ import forge.game.cost.CostPayLife
 import forge.game.keyword.Keyword
 import forge.game.spellability.OptionalCost
 import forge.game.spellability.SpellAbility
+import leyline.bridge.ActionAvailability
 import leyline.bridge.handoff.DeferredCastCostPlan
 import leyline.bridge.handoff.GameActionBridge
 import leyline.bridge.handoff.ManaRequirementSpec
 import leyline.bridge.handoff.PlayerAction
+import leyline.bridge.types.GrpId
 import leyline.bridge.types.ManaColorMapping
 import leyline.game.data.CardData
+import leyline.game.mapping.ActionAutoTapSupport
+import leyline.game.mapping.ActionBuildContext
 import leyline.game.mapping.ActionMapper
 import leyline.game.mapping.PromptIds
 import leyline.game.state.GameBridge
+import wotc.mtgo.gre.external.messaging.Messages.AutoTapSolution
 import wotc.mtgo.gre.external.messaging.Messages.CastingTimeOptionType
 import wotc.mtgo.gre.external.messaging.Messages.ManaColor
 
@@ -36,13 +41,29 @@ internal object DeferredCastCostPlanMaterializer {
         val card = (offer.command as? PlayerAction.CastSpell)?.ability?.hostCard ?: return null
         val cardData = bridge.cardRepository.findByGrpId(offer.action.grpId)
         val keywordCount = bridge.abilityRegistryFor(card, cardData)?.slotLayout?.keywordCount ?: 0
-        return materialize(offer, cardData, keywordCount, nextToken)
+        val player = offer.command.ability?.activatingPlayer ?: return null
+        val context =
+            ActionBuildContext(
+                player,
+                { bridge.getOrAllocInstanceId(it) },
+                { GrpId(bridge.resolveGrpId(it, bridge.instanceId(it))) },
+                { bridge.cardRepository.findByGrpId(it.value) },
+                { source, data -> bridge.abilityRegistryFor(source, data) },
+            )
+        return materialize(
+            offer,
+            cardData,
+            keywordCount,
+            autoTapSolution = { ability, cost -> ActionAutoTapSupport.build(cost, context, ability) },
+            nextToken = nextToken,
+        )
     }
 
     fun materialize(
         offer: GameActionBridge.ActionOffer,
         cardData: CardData?,
         keywordCount: Int,
+        autoTapSolution: (SpellAbility, ManaCost) -> AutoTapSolution? = { _, _ -> null },
         nextToken: () -> Long,
     ): Result? {
         val command = offer.command as? PlayerAction.CastSpell ?: return null
@@ -100,15 +121,28 @@ internal object DeferredCastCostPlanMaterializer {
                                 cardData?.abilityIds?.getOrNull(keywordCount + index)?.first ?: 0
                             }
                         val withCost = GameActionUtil.addOptionalCosts(ability, listOf(cost))
-                        val displayedCost = withCost.payCosts?.totalMana?.let(ActionMapper::forgeManaCostToPairs)
-                        DeferredCastCostPlan.OptionalCostEntry(type, abilityGrpId, null, displayedCost)
+                        val effectiveCost = ActionMapper.computeEffectiveCost(withCost, player)
+                        val canPay = ActionAvailability.canExecute(withCost, player)
+                        DeferredCastCostPlan.OptionalCostEntry(
+                            type,
+                            abilityGrpId,
+                            null,
+                            effectiveCost?.let(ActionMapper::forgeManaCostToPairs),
+                            isAffordable = canPay,
+                            autoTapSolution = effectiveCost?.takeIf { canPay }?.let { autoTapSolution(withCost, it) },
+                        )
                     } +
                         keywordCosts.map { name ->
                             val slot = card.findKeywordSlot(name, keywordCount)
                             val abilityGrpId = slot?.let { cardData?.abilityIds?.getOrNull(it)?.first } ?: 0
                             DeferredCastCostPlan.OptionalCostEntry(keywordCostType(name), abilityGrpId, name)
                         }
-                DeferredCastCostPlan.optional(entries, cardData?.manaCost.orEmpty())
+                val baseCost = ActionMapper.computeEffectiveCost(ability, player)
+                DeferredCastCostPlan.optional(
+                    entries,
+                    baseCost?.let(ActionMapper::forgeManaCostToPairs).orEmpty(),
+                    baseCost?.let { autoTapSolution(ability, it) },
+                )
             }
 
         val childSelections = linkedMapOf<Long, RuntimeActionSelection>()

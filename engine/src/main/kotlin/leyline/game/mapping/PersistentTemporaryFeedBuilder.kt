@@ -37,7 +37,9 @@ internal object PersistentTemporaryFeedBuilder {
         val evoked =
             snap.boundCards.values.mapNotNull { bound ->
                 if (!bound.snapshot.evokePaid) return@mapNotNull null
-                val abilityGrpId = bound.altCost(KeywordAbilityIds.EVOKE)?.abilityGrpId ?: return@mapNotNull null
+                val abilityGrpId =
+                    bound.snapshot.grantedCastAbilityGrpId
+                        ?: bound.altCost(KeywordAbilityIds.EVOKE)?.abilityGrpId ?: return@mapNotNull null
                 val instanceId = frameIds.cardIid(bound.forgeCardId)
                 AnnotationBuilder.temporaryPermanent(instanceId, GrpId(abilityGrpId))
             }

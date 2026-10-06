@@ -73,6 +73,13 @@ class ModalChoicePromptAdapterTest :
             }
         }
 
+        test("optional vote with zero timeout abstains") {
+            val records = mutableListOf<PromptCallStatus>()
+            val choice = handle()
+            val vote = request().copy(min = 0, route = ResolvedPromptRoute.ModalChoice(PromptSemantic.VoteChoice))
+            adapter(0L, isGameLoopThread = true, records).request(vote, listOf(choice), choice.hostCard, choice).shouldBeEmpty()
+        }
+
         test("zero timeout returns the default without a history entry or Forge resolution") {
             val records = mutableListOf<PromptCallStatus>()
             val choice = handle()

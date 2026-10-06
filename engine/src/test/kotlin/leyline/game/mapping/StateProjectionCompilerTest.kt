@@ -11,9 +11,13 @@ import io.kotest.matchers.shouldNotBe
 import leyline.UnitTag
 import leyline.bridge.bootstrap.GameBootstrap
 import leyline.bridge.types.ForgeCardId
+import leyline.bridge.types.GrpId
 import leyline.bridge.types.InstanceId
 import leyline.bridge.types.SeatId
 import leyline.game.InMemoryCardRepository
+import leyline.game.annotations.AnnotationBuilder
+import leyline.game.annotations.AnnotationFrameFinalizer
+import leyline.game.annotations.TransferCategory
 import leyline.game.bundle.GsmFrame
 import leyline.game.codes.DetailKeys
 import leyline.game.data.CardProtoBuilder
@@ -51,6 +55,92 @@ import wotc.mtgo.gre.external.messaging.Messages.ZoneType
 
 class StateProjectionCompilerTest :
     FunSpec({
+        test("a resolving spell choice keeps one start and completes only on its resolution event after self exile") {
+            val source = ForgeCardId(10)
+            val priorEditor = ProjectionState.initial().editor()
+            val iid = priorEditor.identities.getOrAlloc(source)
+            priorEditor.viewerCursors[SeatId(1)] = ViewerProjectionCursor(resolvingInstanceId = iid.value)
+            val prior = priorEditor.freeze()
+            val previous =
+                GsmSnapshot.forTest(
+                    objects = mapOf(source to CardSnapshot(source, "Source", 771, SeatId(1), SeatId(1))),
+                    zones = mapOf(ZoneIds.STACK to ZoneSnapshot(ZoneIds.STACK, ZoneType.Stack, null, Visibility.Public, listOf(source))),
+                )
+            val current =
+                GsmSnapshot.forTest(
+                    objects = mapOf(source to CardSnapshot(source, "Source", 771, SeatId(1), SeatId(1))),
+                    zones = mapOf(ZoneIds.EXILE to ZoneSnapshot(ZoneIds.EXILE, ZoneType.Exile, null, Visibility.Public, listOf(source))),
+                )
+            val repeatedStart = AnnotationBuilder.resolutionStart(iid, GrpId(771))
+            val prematureComplete = AnnotationBuilder.resolutionComplete(iid, GrpId(771))
+            val exileTransfer =
+                AnnotationBuilder.zoneTransfer(iid, ZoneIds.STACK, ZoneIds.EXILE, TransferCategory.Exile.label)
+            val choice =
+                StateProjectionCompiler.reconcileResolutionLifecycle(
+                    compilerInput(current, previous),
+                    prior,
+                    1,
+                    listOf(repeatedStart, prematureComplete),
+                )
+            val unrelated =
+                StateProjectionCompiler.reconcileResolutionLifecycle(
+                    compilerInput(current, previous, FrameEventLog(listOf(GameEvent.SpellResolved(ForgeCardId(11), false)))),
+                    prior,
+                    1,
+                    listOf(repeatedStart, prematureComplete),
+                )
+            val completed =
+                StateProjectionCompiler.reconcileResolutionLifecycle(
+                    compilerInput(current, previous, FrameEventLog(listOf(GameEvent.SpellResolved(source, hasFizzled = false)))),
+                    prior,
+                    1,
+                    listOf(repeatedStart, exileTransfer),
+                )
+
+            choice shouldBe emptyList()
+            unrelated shouldBe emptyList()
+            completed.map { it.typeList.single() } shouldBe
+                listOf(AnnotationType.ZoneTransfer_af5a, AnnotationType.ResolutionComplete)
+            AnnotationFrameFinalizer.finalize(completed, 1).annotations.map { it.typeList.single() } shouldBe
+                listOf(AnnotationType.ZoneTransfer_af5a, AnnotationType.ResolutionComplete)
+            completed.last().affectorId shouldBe iid.value
+            completed
+                .last()
+                .detailsList
+                .single { it.key == DetailKeys.GRPID }
+                .valueInt32List shouldBe listOf(771)
+        }
+
+        test("a resolving stack ability closes only for its own Forge ability id") {
+            val source = ForgeCardId(10)
+            val activeAbilityId = 77
+            val priorEditor = ProjectionState.initial().editor()
+            val iid = priorEditor.identities.getOrAlloc(FrameIdResolver.triggerStackAbilityForgeId(activeAbilityId))
+            priorEditor.viewerCursors[SeatId(1)] = ViewerProjectionCursor(resolvingInstanceId = iid.value)
+            val prior = priorEditor.freeze()
+            val active = stackAbility(source, activeAbilityId)
+            val previous = stackAbilitySnapshot(1, source, listOf(active))
+            val current = stackAbilitySnapshot(2, source, emptyList())
+            val sibling = GameEvent.SpellResolved(source, false, isAbility = true, abilityForgeId = 78, abilityGrpId = 9002)
+            val own = GameEvent.SpellResolved(source, false, isAbility = true, abilityForgeId = activeAbilityId, abilityGrpId = 9002)
+
+            StateProjectionCompiler.reconcileResolutionLifecycle(
+                compilerInput(current, previous, FrameEventLog(listOf(sibling))),
+                prior,
+                1,
+                emptyList(),
+            ) shouldBe emptyList()
+            val completed =
+                StateProjectionCompiler.reconcileResolutionLifecycle(
+                    compilerInput(current, previous, FrameEventLog(listOf(sibling, own))),
+                    prior,
+                    1,
+                    emptyList(),
+                )
+            completed.map { it.typeList.single() } shouldBe listOf(AnnotationType.ResolutionComplete)
+            completed.single().affectorId shouldBe iid.value
+        }
+
         test("a publicly chosen card name produces one portrait event, not repeated refresh events") {
             val fid = ForgeCardId(501)
             val card =

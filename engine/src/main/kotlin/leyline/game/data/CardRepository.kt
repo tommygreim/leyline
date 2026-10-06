@@ -1,5 +1,9 @@
 package leyline.game.data
 
+import forge.game.keyword.KeywordInterface
+import forge.game.spellability.SpellAbility
+import leyline.bridge.types.manaTokenToPair
+import leyline.game.codes.KeywordGrpIds
 import wotc.mtgo.gre.external.messaging.Messages.ManaColor
 import kotlin.collections.iterator
 
@@ -16,6 +20,25 @@ interface CardRepository {
     fun findNameByGrpId(grpId: Int): String?
 
     fun findGrpIdByName(name: String): Int?
+
+    /** Exact hidden cost row for an effect-granted casting keyword. */
+    fun findGrantedKeywordAbilityGrpId(
+        sourceGrpId: Int,
+        keyword: String,
+    ): Int? {
+        val parts = keyword.split(":")
+        val baseId =
+            KeywordAbilityIds.fromForgeAltCostName(parts.first())
+                ?: KeywordGrpIds.forKeyword(parts.first()) ?: return null
+        val cost = parts.getOrNull(1) ?: return null
+
+        fun List<Pair<ManaColor, Int>>.totals() = groupBy { it.first }.mapValues { (_, symbols) -> symbols.sumOf { it.second } }
+        val mana = cost.split(Regex("\\s+")).map { manaTokenToPair(it) ?: return null }.totals()
+        return findByGrpId(sourceGrpId)?.hiddenAbilityIds?.map { it.first }?.singleOrNull { id ->
+            val info = findAbilityInfo(id)
+            info?.baseId == baseId && info.manaCost.totals() == mana
+        }
+    }
 
     /**
      * The value used by Arena's `StaticList.CardNames` selector. This is a
@@ -93,6 +116,16 @@ interface CardRepository {
 
     /** Raw localized text and owned cost metadata for one ability row. */
     fun findAbilityLocalization(abilityGrpId: Int): AbilityLocalization? = null
+
+    /** Per-card row for a script-defined alternative cost without a keyword BaseId. */
+    fun findGenericAlternativeCostAbilityGrpId(cardGrpId: Int): Int? =
+        findByGrpId(cardGrpId)
+            ?.abilityIds
+            ?.map { it.first }
+            ?.singleOrNull {
+                val info = findAbilityInfo(it)
+                info?.category == 8 && info.baseId == 0
+            }
 
     /**
      * Keyword presence lookup. [keywordAbilityId] is one of the well-known
@@ -349,4 +382,25 @@ object KeywordAbilityIds {
         )
 
     fun fromForgeAltCostName(name: String): Int? = FORGE_ALT_COST_KEYWORD_IDS[name.uppercase()]
+}
+
+/** Preserve the granting source even after the recipient changes zone. */
+internal fun CardRepository.grantedKeywordAbilityGrpId(sa: SpellAbility): Int? {
+    val keyword = sa.keyword ?: sa.trigger?.keyword ?: return null
+    return grantedKeywordAbilityGrpId(keyword)
+}
+
+/** Animate effects can grant keywords without a StaticAbility, and can rename their source. */
+internal fun CardRepository.grantedKeywordAbilityGrpId(keyword: KeywordInterface): Int? {
+    if (keyword.isIntrinsic) return null
+    // Bare evergreen keywords already have a complete shared GRE identity.
+    if (!keyword.original.contains(':')) return null
+    val source = keyword.static?.hostCard ?: keyword.hostCard ?: return null
+    val sourceGrpId =
+        findPresentationGrpIdByName(source.name)
+            ?: source.rules
+                ?.mainPart
+                ?.name
+                ?.let(::findPresentationGrpIdByName) ?: return null
+    return findGrantedKeywordAbilityGrpId(sourceGrpId, keyword.original)
 }

@@ -25,6 +25,46 @@ import wotc.mtgo.gre.external.messaging.Messages.OrderingType
 class EvokeLifecycleTest :
     SessionTest({
         session(
+            "black-paid Evoke orders the discard and sacrifice identities before either resolves",
+            puzzle =
+                """
+                ActivePlayer=Human
+                ActivePhase=Main1
+                HumanLife=20
+                AILife=20
+                humanhand=Deceit
+                humanbattlefield=Swamp;Swamp
+                humanlibrary=Island;Island;Island
+                aihand=Grizzly Bears;Mountain
+                ailibrary=Mountain;Mountain;Mountain
+                """.trimIndent(),
+        ) {
+            val evoke = checkNotNull(bridge.cardRepository.findKeywordAbilityGrpId(98534, KeywordAbilityIds.EVOKE))
+            castSpellByName("Deceit", alternativeGrpId = evoke).shouldBeTrue()
+            // Only black sources are available; this direct alternate-cost
+            // action can pay both hybrid pips without an interactive color choice.
+            passUntilResolved(maxPasses = 12)
+            val ordering = lastSelectNReq()
+            val initial = allMessages.allGameObjects().filter { it.instanceId in ordering.idsList }
+            initial.map { it.grpId }.toSet() shouldBe setOf(194050, 194051)
+            respondToSelectN(ordering.idsList, OrderingType.OrderAsIndicated)
+            passUntilResolved(maxPasses = 12)
+            val discard = lastSelectNReq()
+            discard.idsList shouldBe listOf(ai.hand.iid("Grizzly Bears"))
+            respondToSelectN(discard.idsList)
+            passUntilResolved(maxPasses = 12)
+            assertSoftly {
+                ai.getZone(ZoneType.Graveyard).cards.map { it.name } shouldContain "Grizzly Bears"
+                human.getZone(ZoneType.Graveyard).cards.map { it.name } shouldContain "Deceit"
+                allMessages
+                    .allGameObjects()
+                    .filter { it.type == wotc.mtgo.gre.external.messaging.Messages.GameObjectType.Ability }
+                    .none { it.grpId == 194049 } shouldBe true
+                game().stack.isEmpty shouldBe true
+            }
+        }
+
+        session(
             "paid Evoke keeps its marker through entry and retires it with the sacrifice ability",
             puzzle =
                 """

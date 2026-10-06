@@ -1,0 +1,16 @@
+[metadata]
+Name:Monument modes used this turn
+Goal:Survive
+Turns:3
+Difficulty:Easy
+Description:Cast Faithless Looting, discard both cards, choose Draw a card for the first Monument trigger, then inspect the Monument and the second trigger. Draw should be grayed out and unavailable on the same Monument.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanbattlefield=Monument to Endurance;Mountain
+humanhand=Faithless Looting;Forest;Island
+humanlibrary=Plains;Swamp;Forest;Island;Mountain;Plains;Swamp
+ailibrary=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain

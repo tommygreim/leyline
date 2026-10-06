@@ -19,7 +19,7 @@ class PlayerControllerStructureTest :
 
         tags(UnitTag)
 
-        // The current set of 68 PCHuman overrides. Alphabetical for review stability.
+        // The current set of 73 PCHuman overrides.
         val expectedOverrides =
             setOf(
                 "announceRequirements",
@@ -28,6 +28,7 @@ class PlayerControllerStructureTest :
                 "arrangeForSurveil",
                 "assignCombatDamage",
                 "chooseBinary",
+                "chooseCardName",
                 "chooseCardsForConvokeOrImprovise",
                 "chooseCardsForCollectEvidence",
                 "chooseCardsForCost",
@@ -58,9 +59,12 @@ class PlayerControllerStructureTest :
                 "choosePlayerToAssistPayment",
                 "chooseProtectionType",
                 "chooseSingleEntityForEffect",
+                "chooseSingleCardFace",
+                "chooseSingleSpellForEffect",
                 "chooseSingleStaticAbility",
                 "chooseSomeType",
                 "chooseSpellAbilityToPlay",
+                "chooseSpellAbilitiesForEffect",
                 "chooseSingleReplacementEffect",
                 "chooseSaToActivateFromOpeningHand",
                 "chooseStartingPlayer",
@@ -90,10 +94,11 @@ class PlayerControllerStructureTest :
                 "selectTargetsInteractively",
                 "tuckCardsViaMulligan",
                 "willPutCardOnTop",
+                "vote",
             )
 
-        test("override count is pinned at 68") {
-            expectedOverrides.size shouldBe 68
+        test("override count is pinned at 73") {
+            expectedOverrides.size shouldBe 73
         }
 
         test("PlayerController declares exactly the expected overrides") {
@@ -119,8 +124,9 @@ class PlayerControllerStructureTest :
             // chooseNumber has three overloads (range, range+params, list-of-values),
             // chooseCardsToDiscardFrom has two overloads (with/without visible cards),
             // and reveal has two overloads (CardCollectionView and List<CardView>),
-            // so the (name, paramTypes) count exceeds the unique-name count by 4.
-            overridingMethods.size shouldBe expectedOverrides.size + 4
+            // chooseCardName and chooseSingleCardFace each have two overloads,
+            // so the (name, paramTypes) count exceeds the unique-name count by 6.
+            overridingMethods.size shouldBe expectedOverrides.size + 6
         }
     })
 

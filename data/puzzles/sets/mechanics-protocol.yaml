@@ -14,6 +14,9 @@ scenarios:
           prompt: { type: SelectNReq, prompt_id: 4482 }
           max_passes: 12
       - select_cost: { zone: hand, cards: [Mountain] }
+      - pass_until:
+          prompt: SelectTargetsReq
+          max_passes: 10
       - target: { side: ours, zone: battlefield, card: Grizzly Bears }
       - resolve_stack: {}
       - expect:
@@ -418,10 +421,16 @@ scenarios:
       - expect:
           action: { type: cast, card: Bloodbraid Elf }
       - cast: Bloodbraid Elf
-      - cast: { card: Llanowar Elves, zone: exile }
+      - expect:
+          prompt: SelectNReq
+      - select_cards: { zone: exile, cards: [Llanowar Elves] }
+      - optional_action: { accept: true }
       - resolve_stack: {}
       - expect:
           all:
+            - annotation_seen:
+                type: CastingTimeOption
+                details: { type: "13", alternateCostGrpId: "149" }
             - zone_contains: { side: ours, zone: battlefield, card: Bloodbraid Elf }
             - zone_contains: { side: ours, zone: battlefield, card: Llanowar Elves }
   - id: discover-geological-appraiser
@@ -432,10 +441,13 @@ scenarios:
       - expect:
           action: { type: cast, card: Geological Appraiser }
       - cast: Geological Appraiser
-      - cast: { card: Llanowar Elves, zone: exile }
+      - optional_action: { accept: true }
       - resolve_stack: {}
       - expect:
           all:
+            - annotation_seen:
+                type: CastingTimeOption
+                details: { type: "13", alternateCostGrpId: "149" }
             - zone_contains: { side: ours, zone: battlefield, card: Geological Appraiser }
             - zone_contains: { side: ours, zone: battlefield, card: Llanowar Elves }
   - id: discover-hidden-courtyard
@@ -446,10 +458,13 @@ scenarios:
       - expect:
           action: { type: activate, card: Hidden Courtyard }
       - activate: { card: Hidden Courtyard, ability_grp_id: 169776 }
-      - cast: { card: Llanowar Elves, zone: exile }
+      - optional_action: { accept: true }
       - resolve_stack: {}
       - expect:
           all:
+            - annotation_seen:
+                type: CastingTimeOption
+                details: { type: "13", alternateCostGrpId: "149" }
             - zone_contains: { side: ours, zone: graveyard, card: Hidden Courtyard }
             - zone_contains: { side: ours, zone: battlefield, card: Llanowar Elves }
   - id: bargain-rowans-grim-search
@@ -848,7 +863,7 @@ scenarios:
   - id: emerge-wretched-gryff
     puzzle: emerge-wretched-gryff
     run: cast Wretched Gryff with Emerge by sacrificing Walking Corpse
-    expect: Emerge exposes an alt-cost cast, prompts for sacrifice-as-cost, and resolves the spell
+    expect: Emerge offers both sacrifice choices, sacrifices Walking Corpse, preserves Grizzly Bears, and resolves the spell
     steps:
       - cast: { card: Wretched Gryff, alt_cost: emerge }
       - expect:
@@ -858,7 +873,24 @@ scenarios:
       - expect:
           all:
             - zone_contains: { side: ours, zone: battlefield, card: Wretched Gryff }
+            - zone_contains: { side: ours, zone: battlefield, card: Grizzly Bears }
             - zone_contains: { side: ours, zone: graveyard, card: Walking Corpse }
+            - stack_empty: true
+  - id: emerge-cancel-sacrifice-choice
+    puzzle: emerge-wretched-gryff
+    run: cancel Emerge while choosing the creature to sacrifice
+    expect: Gryff stays in hand, both possible sacrifices stay on the battlefield, and no spell is committed
+    steps:
+      - cast: { card: Wretched Gryff, alt_cost: emerge }
+      - expect:
+          prompt: PayCostsReq
+      - cancel_action: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: hand, card: Wretched Gryff }
+            - zone_contains: { side: ours, zone: battlefield, card: Walking Corpse }
+            - zone_contains: { side: ours, zone: battlefield, card: Grizzly Bears }
+            - zone_not_contains: { side: ours, zone: graveyard, card: Walking Corpse }
             - stack_empty: true
   - id: evoke-mulldrifter
     puzzle: evoke-mulldrifter

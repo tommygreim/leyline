@@ -7,6 +7,7 @@ import forge.game.ability.ApiType
 import forge.game.card.Card
 import forge.game.card.CardCollection
 import forge.game.card.CardCollectionView
+import forge.game.card.CardLists
 import forge.game.card.CardView
 import forge.game.player.Player
 import forge.game.player.PlayerView
@@ -26,6 +27,7 @@ import leyline.bridge.handoff.PromptSideEffect
 import leyline.bridge.handoff.ResolutionAbilityShape
 import leyline.bridge.handoff.ResolutionRouteInput
 import leyline.bridge.handoff.ResolvedPromptRoute
+import leyline.bridge.handoff.SearchLibraryValue
 import leyline.bridge.handoff.SearchSourceValue
 import leyline.bridge.handoff.TapPaymentDescriptor
 import leyline.bridge.interaction.ChooseCardsForEffectContext
@@ -84,6 +86,30 @@ class TargetingCoordinator(
 ) {
     private val log = LoggerFactory.getLogger(TargetingCoordinator::class.java)
     private val spellAffectorIids = mutableMapOf<Int, Int>()
+    private val confirmedCopyChoices = java.util.IdentityHashMap<SpellAbility, Card>()
+
+    /** Select once, before Forge commits an optional enter-as-copy replacement.
+     * A decline must return NotReplaced, not accept a replacement that later does nothing.
+     * Use the same zone, last-state and validity filters as Forge's CloneEffect.
+     */
+    fun confirmEnterAsCopy(sa: SpellAbility): Boolean {
+        check(sa.api == ApiType.Clone && sa.isReplacementAbility && sa.hasParam("Choices"))
+        val host = sa.hostCard
+        // ReplacementHandler assigns the host's current controller immediately
+        // after confirmation; do not reuse an activator from an earlier entry.
+        val activator = host.controller
+        val zone = sa.getParam("ChoiceZone")?.let(ZoneType::smartValueOf) ?: ZoneType.Battlefield
+        val choices = CardCollection(activator.game.getCardsIn(zone))
+        when (zone) {
+            ZoneType.Battlefield -> choices.retainAll(sa.lastStateBattlefield)
+            ZoneType.Graveyard -> choices.retainAll(sa.lastStateGraveyard)
+            else -> Unit
+        }
+        val valid = CardLists.getValidCards(choices, sa.getParam("Choices"), activator, host, sa)
+        val chosen = chooseSingleEntity(valid, sa, sa.getParam("ChoiceTitle"), true, false) ?: return false
+        confirmedCopyChoices[sa] = chosen
+        return true
+    }
 
     // -- Entity choice ---------------------------------------------------
 
@@ -93,8 +119,14 @@ class TargetingCoordinator(
         title: String?,
         isOptional: Boolean,
         hasDelayedReveal: Boolean,
+        searchLibrary: SearchLibraryValue? = null,
     ): T? {
-        if (optionList.isEmpty()) return null
+        confirmedCopyChoices.remove(sa)?.let { chosen ->
+            check(optionList.any { it === chosen }) { "Confirmed copy donor is no longer a legal choice" }
+            @Suppress("UNCHECKED_CAST")
+            return chosen as T
+        }
+        if (optionList.isEmpty() && searchLibrary == null) return null
         val reveal = bridge.journal.activeRevealEntry()
         val revealedCards = optionList.filterIsInstance<Card>()
         val candidateRefs = buildCandidateRefs(optionList)
@@ -106,7 +138,7 @@ class TargetingCoordinator(
                     hasDelayedReveal = hasDelayedReveal,
                     optionCount = optionList.size,
                     candidateRefs = candidateRefs,
-                    activeReveal = reveal != null,
+                    activeReveal = reveal != null && searchLibrary == null,
                     allCandidatesProjectable = allCandidatesProjectable(optionList),
                 ),
             )
@@ -125,13 +157,25 @@ class TargetingCoordinator(
 
         val labels = optionList.map { it.entityLabel() }
         val groupedSearch = groupedSearchOptionIndices(plan.semantic, sa, optionList)
-        val semantic = if (groupedSearch != null) PromptSemantic.GroupedSearch else plan.semantic
+        val semantic =
+            when {
+                groupedSearch != null -> PromptSemantic.GroupedSearch
+                searchLibrary != null -> PromptSemantic.Search
+                else -> plan.semantic
+            }
         val request =
             PromptRequest(
                 promptType = "choose_cards",
                 message = title ?: "Choose one",
                 options = labels,
-                min = plan.min,
+                min =
+                    if (optionList.isEmpty()) {
+                        0
+                    } else if (isOptional && sa?.api == ApiType.Clone) {
+                        1
+                    } else {
+                        plan.min
+                    },
                 max = plan.max,
                 defaultIndex = 0,
                 candidateRefs = plan.candidateRefsPolicy.candidateRefs(candidateRefs),
@@ -143,7 +187,15 @@ class TargetingCoordinator(
                         resolutionInput = plan.resolutionRouteInput,
                     ),
                 sourceEntityId = plan.sourceIdPolicy.sourceEntityId(sa),
+                protocolPromptId = PromptIds.CHOOSE_OBJECT_TO_COPY.takeIf { sa?.api == ApiType.Clone },
+                cancellable = isOptional && sa?.api == ApiType.Clone,
+                replacementAbilityGrpId =
+                    sa
+                        ?.takeIf { it.api == ApiType.Clone && it.isReplacementAbility }
+                        ?.let(bridge::resolveAbilityIdentity)
+                        ?.abilityGrpId,
                 searchSource = searchSource(semantic, sa),
+                searchLibrary = searchLibrary,
                 searchGroupOptionIndices = groupedSearch.orEmpty(),
             )
         val residual =
@@ -160,13 +212,13 @@ class TargetingCoordinator(
                 check(cards.size == optionList.size) { "CardSelect requires card options" }
                 @Suppress("UNCHECKED_CAST")
                 (bridge.requestCardSelect(request, cards).handles.firstOrNull() as? T)
-                    ?: if (isOptional) null else optionList.getFirst()
+                    ?: if (isOptional || optionList.isEmpty()) null else optionList.getFirst()
             } else {
                 val idx = bridge.requestChoice(request).firstOrNull()
                 if (idx != null && idx in 0 until optionList.size) {
                     optionList.get(idx)
                 } else {
-                    if (isOptional) null else optionList.getFirst()
+                    if (isOptional || optionList.isEmpty()) null else optionList.getFirst()
                 }
             }
 
@@ -272,8 +324,9 @@ class TargetingCoordinator(
         // header degrades to a stub. New callers must thread the SpellAbility
         // through; pass null only if there genuinely is no source spell.
         sa: SpellAbility?,
+        searchLibrary: SearchLibraryValue? = null,
     ): List<T> {
-        if (optionList.isEmpty()) return emptyList()
+        if (optionList.isEmpty() && searchLibrary == null) return emptyList()
         val labels = optionList.map { it.entityLabel() }
         val candidateRefs = buildCandidateRefs(optionList)
         val plan =
@@ -287,9 +340,14 @@ class TargetingCoordinator(
                     allCandidatesProjectable = allCandidatesProjectable(optionList),
                 ),
             )
-        if (plan.autoReturnPolicy.shouldReturnAll) return optionList.toList()
+        if (plan.autoReturnPolicy.shouldReturnAll && searchLibrary == null) return optionList.toList()
         val groupedSearch = groupedSearchOptionIndices(plan.semantic, sa, optionList)
-        val semantic = if (groupedSearch != null) PromptSemantic.GroupedSearch else plan.semantic
+        val semantic =
+            when {
+                groupedSearch != null -> PromptSemantic.GroupedSearch
+                searchLibrary != null -> PromptSemantic.Search
+                else -> plan.semantic
+            }
         val request =
             PromptRequest(
                 promptType = "choose_cards",
@@ -298,7 +356,7 @@ class TargetingCoordinator(
                 min = plan.effectiveMin,
                 max = plan.effectiveMax,
                 defaultIndex = 0,
-                candidateRefs = plan.candidateRefsPolicy.candidateRefs(candidateRefs),
+                candidateRefs = if (searchLibrary != null) candidateRefs else plan.candidateRefsPolicy.candidateRefs(candidateRefs),
                 route =
                     PromptRouteResolver.resolve(
                         semantic,
@@ -308,6 +366,7 @@ class TargetingCoordinator(
                 unfilteredRefs = plan.candidateRefsPolicy.unfilteredRefs(candidateRefs, plan.semantic),
                 sourceEntityId = plan.sourceIdPolicy.sourceEntityId(sa),
                 searchSource = searchSource(semantic, sa),
+                searchLibrary = searchLibrary,
                 searchGroupOptionIndices = groupedSearch.orEmpty(),
             )
         val residual =
@@ -365,6 +424,7 @@ class TargetingCoordinator(
             forgeAbilityId = exactStackAbilityId ?: ability?.id ?: 0,
             abilityOnStack = exactStackAbilityId != null,
             typeCycling = SearchShape.isTypeCycling(ability),
+            changeType = ability?.takeIf { it.hasParam("ChangeType") }?.getParam("ChangeType"),
         )
     }
 

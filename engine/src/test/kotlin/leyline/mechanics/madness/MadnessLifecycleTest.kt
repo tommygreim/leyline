@@ -138,11 +138,10 @@ class MadnessLifecycleTest :
                 // Fiery Temper landed on stack via madness — it MUST prompt for a
                 // target (ValidTgts$ Any). A missing prompt is a regression worth
                 // catching, so hard-assert rather than conditionally skipping.
-                val hasPendingTarget =
-                    h.allMessages
-                        .asReversed()
-                        .any { it.hasSelectTargetsReq() }
-                hasPendingTarget.shouldBeTrue()
+                h
+                    .passUntil(maxPasses = 8) {
+                        allMessages.any { it.hasSelectTargetsReq() }
+                    }.shouldBeTrue()
                 // AI player's seatId = 2; that's a valid "Any" target for Fiery Temper.
                 h.selectTargets(listOf(2))
 

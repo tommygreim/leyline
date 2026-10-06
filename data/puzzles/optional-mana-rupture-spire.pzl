@@ -1,0 +1,16 @@
+[metadata]
+Name:Optional Mana Payment
+Goal:Survive
+Turns:6
+Difficulty:Tutorial
+Description:Choose and undo a land while paying Rupture Spire's entry cost.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanhand=Rupture Spire
+humanbattlefield=Island;Island
+humanlibrary=Plains;Plains;Plains;Plains
+ailibrary=Plains;Plains;Plains;Plains

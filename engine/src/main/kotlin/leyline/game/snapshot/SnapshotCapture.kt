@@ -1,6 +1,7 @@
 package leyline.game.snapshot
 
 import forge.game.Game
+import forge.game.ability.ApiType
 import forge.game.card.Card
 import forge.game.player.Player
 import leyline.bridge.types.ForgeCardId
@@ -11,6 +12,7 @@ import leyline.game.annotations.AbilityWordScanner
 import leyline.game.annotations.CastAbilityWordScanner
 import leyline.game.data.BasicLandAbilities
 import leyline.game.data.CardRepository
+import leyline.game.data.grantedKeywordAbilityGrpId
 import leyline.game.mapping.FrameIdResolver
 import leyline.game.mapping.ObjectMapper
 import leyline.game.mapping.ZoneIds
@@ -46,6 +48,7 @@ object SnapshotCapture {
                     startingLife = player.startingLife,
                     maxHandSize = player.maxHandSize,
                     speed = player.speed,
+                    hasBlessing = player.hasBlessing(),
                     manaPool = ManaSnapshotCapture.capturePool(player, bridge),
                 )
             }
@@ -264,7 +267,16 @@ object SnapshotCapture {
             // If that callback casts a child spell, Arena should already have
             // removed the parent from its visual stack. Keep older abilities
             // from the same permanent: only the first resolving match is hidden.
-            if (!concealedResolvingAbility && entry.isAbility && stack.isResolving(sourceCard) && entries.any { it.isSpell }) {
+            val hasRepeatedCastChoice =
+                generateSequence(entry.spellAbility) { it.subAbility }.any {
+                    it.api == ApiType.Play && it.getParam("Amount") == "All"
+                }
+            if (!concealedResolvingAbility &&
+                entry.isAbility &&
+                stack.isResolving(sourceCard) &&
+                entries.any { it.isSpell } &&
+                !hasRepeatedCastChoice
+            ) {
                 concealedResolvingAbility = true
                 continue
             }
@@ -290,13 +302,7 @@ object SnapshotCapture {
                     targets = targets,
                     forgeAbilityId = entry.spellAbility?.id ?: 0,
                     runtimeTriggerId = runtimeTriggerId,
-                    abilityOriginalCardGrpId =
-                        run {
-                            val ability = entry.spellAbility
-                            val original = ability.trigger?.originalHost ?: ability.originalHost
-                            val definitionName = ability.trigger?.cardState?.name ?: ability.cardState?.name ?: original?.name
-                            definitionName?.let(bridge.cardRepository::findGrpIdByName) ?: 0
-                        },
+                    abilityOriginalCardGrpId = resolveAbilityOriginalCardGrpId(entry.spellAbility, bridge.cardRepository),
                     effectSourceForgeCardId = sourceCard.effectSource?.let { ForgeCardId(it.id) },
                     selectedModalAbilityGrpIds =
                         if (entry.isSpell) bridge.selectedModalAbilityGrpIds(fid) else emptyList(),
@@ -306,11 +312,22 @@ object SnapshotCapture {
         return StackSnapshot(entries)
     }
 
+    internal fun resolveAbilityOriginalCardGrpId(
+        ability: forge.game.spellability.SpellAbility,
+        cards: CardRepository,
+    ): Int {
+        val original = ability.trigger?.originalHost ?: ability.originalHost
+        val definitionName = ability.trigger?.cardState?.name ?: ability.cardState?.name ?: original?.name
+        return definitionName?.let(cards::findGrpIdByName) ?: 0
+    }
+
     internal fun resolveStackSourceCardGrpId(
         sourceCard: Card,
         cards: CardRepository,
     ): Int =
-        cards.findGrpIdByName(sourceCard.name)
+        SpeedEffectIdentity.CARD_GRP_ID.takeIf { SpeedEffectIdentity.matches(sourceCard) }
+            ?: GrpIdResolver.activeCloneSource(sourceCard)?.let { GrpIdResolver.resolve(sourceCard, cards) }
+            ?: cards.findGrpIdByName(sourceCard.name)
             ?: sourceCard.effectSource?.let { source -> cards.findGrpIdByName(source.name) }
             ?: 0
 
@@ -548,6 +565,8 @@ object SnapshotCapture {
                 tokenRegistry = bridge.tokenRegistry,
             )
         val isEngineToken = card.isToken && preparedRole !is PreparedRole.Copy
+        val hasCopyLayer = GrpIdResolver.activeCloneSource(card) != null
+        val copiedTitleId = if (hasCopyLayer) bridge.cardRepository.findTitleIdByName(resolvedName) ?: 0 else 0
         val tokenAbility = card.tokenSpawningAbility
         val tokenSourceCard = tokenAbility?.hostCard?.takeIf { isEngineToken && tokenAbility.isAbility }
         val tokenSourceCardGrpId =
@@ -601,6 +620,7 @@ object SnapshotCapture {
             grpId = grpId,
             owner = ownerSeat,
             controller = controllerSeat,
+            battleProtectorSeatId = if (onBf && card.isBattle) card.protectingPlayer?.let(bridge::seatOf) else null,
             mayLookSeatIds = mayLookSeatIds,
             isProjectable =
                 card.gamePieceType == forge.card.GamePieceType.CARD ||
@@ -631,11 +651,14 @@ object SnapshotCapture {
             currentLoyalty = if (onBf && type.isPlaneswalker) card.currentLoyalty else 0,
             isOnAdventure = card.isOnAdventure,
             endOfTurnLeavePlay = card.isToken && card.hasSVar("EndOfTurnLeavePlay"),
+            grantedCastAbilityGrpId = card.castSA?.let { bridge.cardRepository.grantedKeywordAbilityGrpId(it) },
             evokePaid =
                 (onBf || card.isInZone(ForgeZoneType.Stack)) &&
                     card.castSA?.isEvoke == true,
             isToken = card.isToken,
             isCopyToken = card.gamePieceType == forge.card.GamePieceType.COPIED_SPELL || (card.isToken && card.copiedPermanent != null),
+            copiedFromGrpId = if (!card.isToken && hasCopyLayer) grpId else 0,
+            copiedTitleId = copiedTitleId,
             tokenSourceCardGrpId = tokenSourceCardGrpId,
             tokenParentAbilityInstanceId = tokenParentAbilityInstanceId,
             attachedToInstanceId = attachedToInstanceId,

@@ -75,7 +75,7 @@ class GatherCountersSessionTest :
                 stackAbilityIids shouldContain destination
                 prompt.prompt.promptId shouldBe PromptIds.GATHER_COUNTERS
                 prompt.allowCancel shouldBe wotc.mtgo.gre.external.messaging.Messages.AllowCancel.Abort
-                prompt.allowUndo shouldBe true
+                prompt.allowUndo shouldBe false
             }
 
             respondToGatherCounters(sourceIids.map { it to 1 })

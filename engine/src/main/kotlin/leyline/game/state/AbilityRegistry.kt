@@ -1,5 +1,7 @@
 package leyline.game.state
 
+import forge.game.ability.AbilityFactory
+import forge.game.ability.AbilityUtils
 import forge.game.ability.ApiType
 import forge.game.card.Card
 import forge.game.card.CardTraitChanges
@@ -9,6 +11,7 @@ import forge.game.spellability.SpellAbility
 import leyline.bridge.types.AbilityDefinitionRef
 import leyline.bridge.types.AbilityKeywordFamily
 import leyline.bridge.types.ResolvedAbilityIdentity
+import leyline.game.codes.KeywordGrpIds
 import leyline.game.codes.SlotEntry
 import leyline.game.codes.SlotKind
 import leyline.game.codes.SlotLayout
@@ -32,10 +35,11 @@ class AbilityRegistry private constructor(
     private val hiddenAbilityIds: List<Pair<Int, Int>> = emptyList(),
     val sourceCardGrpId: Int,
     val slotLayout: SlotLayout = SlotLayout.Companion.EMPTY,
+    private val grantedKeywordResolver: (SpellAbility) -> Int? = { null },
 ) {
     /** Resolve a live or copied SpellAbility through its stable definition identity. */
     fun forSpellAbility(ability: SpellAbility): Int? =
-        if (ability.grantorStatic != null) {
+        grantedKeywordResolver(ability) ?: if (ability.grantorStatic != null) {
             grantedAbilityGrpId(ability)
         } else {
             forSpellAbility(ability.definitionId)
@@ -60,14 +64,39 @@ class AbilityRegistry private constructor(
         return ResolvedAbilityIdentity(definition, abilityGrpId, keywordFamilies[definition])
     }
 
+    /** Resolve a regenerated intrinsic trigger only when the source has one trigger identity. */
+    internal fun resolveSoleIntrinsicTrigger(definition: AbilityDefinitionRef.Trigger): ResolvedAbilityIdentity? =
+        triggerMap.values
+            .distinct()
+            .singleOrNull()
+            ?.let { ResolvedAbilityIdentity(definition, it) }
+
     /** Resolve an ability added by a continuous `AddAbility` effect. */
     fun grantedAbilityGrpId(ability: SpellAbility): Int? {
-        if (ability.grantorStatic == null || hiddenAbilityIds.size != 1) return null
-        return hiddenAbilityIds.single().first
+        val grantor = ability.grantorStatic ?: return null
+        if (hiddenAbilityIds.size == 1) return hiddenAbilityIds.single().first
+        val variables =
+            grantor.hostCard.staticAbilities
+                .flatMap { it.getParam("AddAbility")?.split(" & ").orEmpty() }
+                .distinct()
+        if (variables.size != hiddenAbilityIds.size) return null
+        val matching =
+            variables.withIndex().filter { (_, variable) ->
+                val script = AbilityUtils.getSVar(grantor, variable)
+                script.isNotEmpty() && AbilityFactory.getMapParams(script) == ability.originalMapParams
+            }
+        return matching.singleOrNull()?.let { hiddenAbilityIds[it.index].first }
     }
 
     /** Stable client unique-ability slot for a generated activated ability. */
     fun grantedAbilityUniqueIndex(ability: SpellAbility): Int? = grantedAbilityGrpId(ability)?.let { 0 }
+
+    fun generatedUniqueAbilityId(ability: SpellAbility): Int? =
+        if (grantedKeywordResolver(ability) != null) {
+            ability.keyword?.let(::grantedKeywordUniqueAbilityId)
+        } else {
+            grantedUniqueAbilityId(ability)
+        }
 
     companion object {
         /** Separate granted slots from printed slots and dynamically appended keywords. */
@@ -88,6 +117,16 @@ class AbilityRegistry private constructor(
             return index.takeIf { it >= 0 }?.let { 10_000 + it }
         }
 
+        /** Keyword-generated activated abilities have no changedCardTraits entry. */
+        fun grantedKeywordUniqueAbilityId(keyword: KeywordInterface): Int? {
+            val host = keyword.hostCard ?: return null
+            val grants = host.changedCardKeywords.cellSet().flatMap { it.value.keywords }
+            val index =
+                grants.indexOfFirst { it === keyword }.takeIf { it >= 0 }
+                    ?: grants.indexOfFirst { it.idx == keyword.idx && it.original == keyword.original && it.static == keyword.static }
+            return index.takeIf { it >= 0 }?.let { 20_000 + it }
+        }
+
         /** Empty registry — no mappings. */
         val EMPTY =
             AbilityRegistry(emptyMap(), emptyMap(), emptyMap(), emptyMap(), sourceCardGrpId = 0, slotLayout = SlotLayout.Companion.EMPTY)
@@ -99,10 +138,18 @@ class AbilityRegistry private constructor(
         fun build(
             card: Card,
             cardData: CardData,
+            grantedKeywordResolver: (SpellAbility) -> Int? = { null },
         ): AbilityRegistry {
             val abilityIds = cardData.abilityIds
             if (abilityIds.isEmpty()) {
-                return AbilityRegistry(emptyMap(), emptyMap(), emptyMap(), emptyMap(), sourceCardGrpId = cardData.grpId)
+                return AbilityRegistry(
+                    emptyMap(),
+                    emptyMap(),
+                    emptyMap(),
+                    emptyMap(),
+                    sourceCardGrpId = cardData.grpId,
+                    grantedKeywordResolver = grantedKeywordResolver,
+                )
             }
 
             val fallbackGrpId = abilityIds[0].first
@@ -110,13 +157,14 @@ class AbilityRegistry private constructor(
             val staticMap = mutableMapOf<Int, Int>()
             val triggerMap = mutableMapOf<Int, Int>()
             val keywordFamilies = mutableMapOf<AbilityDefinitionRef, AbilityKeywordFamily>()
+            val keywordRows = mutableSetOf<Int>()
 
             val keywordCount =
                 if (card.type.isDungeon) {
                     mapDungeonRooms(card, abilityIds, saMap, triggerMap)
                     0
                 } else {
-                    mapKeywords(card, abilityIds, saMap, staticMap, triggerMap, keywordFamilies)
+                    mapKeywords(card, cardData, saMap, staticMap, triggerMap, keywordFamilies, keywordRows)
                 }
             val slotKinds =
                 abilityIds.mapIndexed { i, _ ->
@@ -151,8 +199,8 @@ class AbilityRegistry private constructor(
             mapReconfigureUnattachAbilities(card, saMap)
             mapStationThresholdStatics(card, abilityIds, staticMap)
             mapManaAbilities(card, abilityIds, manaSlotIndices, fallbackGrpId, saMap)
-            mapUnclaimedIntrinsicTriggers(card, cardData, abilityIds, keywordCount, triggerMap)
-            mapUnclaimedIntrinsicStatics(card, cardData, abilityIds, keywordCount, staticMap)
+            mapUnclaimedIntrinsicTriggers(card, cardData, abilityIds, keywordCount, triggerMap, keywordRows)
+            mapUnclaimedIntrinsicStatics(card, cardData, abilityIds, keywordCount, staticMap, keywordRows)
             mapUnclaimedLegacyStatics(card, cardData, abilityIds, keywordCount, staticMap)
             mapUnclaimedIntrinsics(card, fallbackGrpId, staticMap, triggerMap)
 
@@ -167,7 +215,16 @@ class AbilityRegistry private constructor(
                 } + virtualSlots
             val layout = SlotLayout(keywordCount, activatedCount, slots)
 
-            return AbilityRegistry(saMap, staticMap, triggerMap, keywordFamilies, cardData.hiddenAbilityIds, cardData.grpId, layout)
+            return AbilityRegistry(
+                saMap,
+                staticMap,
+                triggerMap,
+                keywordFamilies,
+                cardData.hiddenAbilityIds,
+                cardData.grpId,
+                layout,
+                grantedKeywordResolver,
+            )
         }
 
         /**
@@ -214,14 +271,15 @@ class AbilityRegistry private constructor(
             }
         }
 
-        /** Phase 1: Keywords occupy the first N slots. Returns keyword count. */
+        /** Bind keywords by native BaseId when available; legacy fixtures use printed order. */
         private fun mapKeywords(
             card: Card,
-            abilityIds: List<Pair<Int, Int>>,
+            cardData: CardData,
             saMap: MutableMap<Int, Int>,
             staticMap: MutableMap<Int, Int>,
             triggerMap: MutableMap<Int, Int>,
             keywordFamilies: MutableMap<AbilityDefinitionRef, AbilityKeywordFamily>,
+            keywordRows: MutableSet<Int>,
         ): Int {
             val keywordStrings =
                 card.rules
@@ -230,15 +288,28 @@ class AbilityRegistry private constructor(
                     ?.toList() ?: emptyList()
             val liveKeywords = card.getKeywords() ?: emptyList()
             val claimed = mutableSetOf<KeywordInterface>()
+            val abilityIds = cardData.abilityIds
+            val hasBaseIds = cardData.abilityBaseIds.size == abilityIds.size && cardData.abilityBaseIds.any { it != 0 }
+            val claimedRows = mutableSetOf<Int>()
 
             for ((slotIdx, kwText) in keywordStrings.withIndex()) {
                 if (slotIdx >= abilityIds.size) break
-                val grpId = abilityIds[slotIdx].first
                 val matching =
                     liveKeywords.filter { kw ->
                         kw !in claimed && kw.isIntrinsic && matchesKeywordText(kw, kwText)
                     }
                 for (kw in matching) {
+                    val baseId = KeywordGrpIds.forKeyword(KeywordGrpIds.projectionName(kw))
+                    val row =
+                        abilityIds.indices.firstOrNull {
+                            it !in claimedRows &&
+                                baseId != null &&
+                                (abilityIds[it].first == baseId || (hasBaseIds && cardData.abilityBaseIds[it] == baseId))
+                        } ?: slotIdx.takeUnless { hasBaseIds }
+                            ?: continue
+                    val grpId = abilityIds[row].first
+                    keywordRows.add(grpId)
+                    claimedRows.add(row)
                     claimed.add(kw)
                     val family = keywordFamily(kw)
                     for (sa in kw.abilities) {
@@ -382,6 +453,7 @@ class AbilityRegistry private constructor(
             abilityIds: List<Pair<Int, Int>>,
             keywordCount: Int,
             triggerMap: MutableMap<Int, Int>,
+            keywordRows: Set<Int>,
         ) {
             if (cardData.abilityKinds.size != abilityIds.size) return
             val triggers =
@@ -403,7 +475,9 @@ class AbilityRegistry private constructor(
             }
             val intrinsicSlots =
                 abilityIds.indices.filter { idx ->
-                    idx >= keywordCount &&
+                    abilityIds[idx].first !in triggerMap.values &&
+                        abilityIds[idx].first !in keywordRows &&
+                        (cardData.abilityCategories.size == abilityIds.size || idx >= keywordCount) &&
                         if (cardData.abilityCategories.size == abilityIds.size) {
                             cardData.abilityCategories[idx] == TRIGGER_CATEGORY
                         } else {
@@ -436,6 +510,7 @@ class AbilityRegistry private constructor(
             abilityIds: List<Pair<Int, Int>>,
             keywordCount: Int,
             staticMap: MutableMap<Int, Int>,
+            keywordRows: Set<Int>,
         ) {
             if (cardData.abilityKinds.size != abilityIds.size) return
             val statics =
@@ -445,7 +520,9 @@ class AbilityRegistry private constructor(
             if (statics.isEmpty()) return
             val intrinsicSlots =
                 abilityIds.indices.filter { idx ->
-                    idx >= keywordCount &&
+                    abilityIds[idx].first !in staticMap.values &&
+                        abilityIds[idx].first !in keywordRows &&
+                        (cardData.abilityCategories.size == abilityIds.size || idx >= keywordCount) &&
                         if (cardData.abilityCategories.size == abilityIds.size) {
                             cardData.abilityCategories[idx] >= STATIC_CATEGORY_FLOOR
                         } else {

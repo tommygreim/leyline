@@ -5,6 +5,7 @@ import forge.card.ICardFace
 import forge.game.card.Card
 import forge.game.card.CounterType
 import forge.game.player.PlayerController.BinaryChoiceType
+import forge.game.spellability.AbilitySub
 import forge.game.spellability.SpellAbility
 import forge.game.trigger.WrappedAbility
 import leyline.bridge.handoff.InteractivePromptBridge
@@ -24,6 +25,28 @@ import java.util.stream.Collectors
 class StaticChoiceCoordinator(
     private val bridge: InteractivePromptBridge,
 ) {
+    /** Keep exact Forge vote handles without treating the choice as a casting mode. */
+    fun vote(
+        sa: SpellAbility,
+        message: String,
+        options: List<Any>,
+        optional: Boolean,
+    ): Any? {
+        if (options.isEmpty()) return null
+        val choices = options.map { it as AbilitySub }
+        val request =
+            PromptRequest(
+                promptType = "choose_one",
+                message = message,
+                options = choices.map { it.description ?: it.toString() },
+                min = if (optional) 0 else 1,
+                max = 1,
+                route = PromptRouteResolver.resolve(PromptSemantic.VoteChoice),
+                sourceEntityId = sa.hostCard.id,
+            )
+        return bridge.requestModalChoice(request, choices, sa.hostCard, sa).firstOrNull()
+    }
+
     fun confirmAction(
         message: String,
         options: List<String>,

@@ -244,6 +244,21 @@ class ZoneMoveLedgerTest :
                 listOf(TransferCategory.CastSpell, TransferCategory.Resolve)
         }
 
+        test("counter effect cause does not counter its own successfully resolving spell") {
+            val targetId = ForgeCardId(43)
+            val counterId = ForgeCardId(44)
+            val cause = ZoneMoveCause(counterId, 17, 17, "Counter", false)
+            val moves =
+                listOf(
+                    ZoneMove(0, targetId, Zone.Stack, Zone.Graveyard, cause),
+                    ZoneMove(1, counterId, Zone.Stack, Zone.Graveyard, cause),
+                )
+            val events = listOf(GameEvent.SpellResolved(counterId, hasFizzled = false))
+
+            ZoneMoveLedger.fold(moves, events).map { it.category } shouldContainExactly
+                listOf(TransferCategory.Countered, TransferCategory.Resolve)
+        }
+
         test("preserves same-frame Paradigm cast and exile moves") {
             val moves =
                 listOf(

@@ -1,0 +1,18 @@
+[metadata]
+Name:Optional copy from both graveyards
+Goal:Survive
+Turns:5
+Difficulty:Easy
+Description:Cast Superior Spider-Man. The donor picker must show three creatures from each graveyard, but not Abrade or Duress. Check the pending side rectangle, then choose your Grizzly Bears. Reset and choose the opponent's Air Elemental. Reset again and Decline. A chosen donor supplies the artwork, frame and abilities while Spider-Man keeps his name and 4/4 stats; only that donor is exiled from its owner's graveyard by the post-entry trigger. Decline leaves all six donors alone. The side rectangle disappears after each decision.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=30
+AILife=30
+humanbattlefield=Island;Island;Swamp;Swamp
+humanhand=Superior Spider-Man
+humangraveyard=Grizzly Bears;Walking Corpse;Llanowar Elves;Abrade
+aigraveyard=Air Elemental;Colossal Dreadmaw;Raging Goblin;Duress
+humanlibrary=Island;Island;Island;Island;Island;Island;Island;Island;Island;Island
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

@@ -143,9 +143,9 @@ class SpellExecutor(
         try {
             val controller = player.controller as? PlayerController
             if (controller != null) {
-                controller.withManaColorChoice(selectedColor) { manaAbility.resolve() }
+                controller.withManaColorChoice(selectedColor) { game.stack.addAndUnfreeze(manaAbility) }
             } else {
-                manaAbility.resolve()
+                game.stack.addAndUnfreeze(manaAbility)
             }
         } catch (ex: Exception) {
             log.error("activateMana: resolve() failed for {}: {}", card.name, ex.message, ex)

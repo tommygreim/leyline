@@ -10,6 +10,7 @@ import leyline.testkit.MatchFlowHarness
 import leyline.testkit.SessionTest
 import leyline.testkit.detailInt
 import leyline.testkit.detailString
+import leyline.tooling.headless.ClientAccumulator
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationInfo
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
@@ -98,6 +99,13 @@ class ParadigmLifecycleTest :
             sawCopySelfExile.shouldBeTrue()
 
             val allGsms = gsms()
+            val client = ClientAccumulator()
+            allMessages.forEach { message ->
+                client.process(message)
+                if (message.hasGameStateMessage()) {
+                    client.assertConsistent("Paradigm frame ${message.gameStateMessage.gameStateId}")
+                }
+            }
             val allAnnotations = allGsms.flatMap { it.annotationsList }
             val originalStackToExile = allAnnotations.first { it.isStackToExileParadigmTransfer() }
             val originalExileIid = originalStackToExile.affectedIdsList.single()

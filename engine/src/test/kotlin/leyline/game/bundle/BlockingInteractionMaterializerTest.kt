@@ -31,6 +31,114 @@ class BlockingInteractionMaterializerTest :
     FunSpec({
         tags(UnitTag)
 
+        test("resolution cast browser binds every choice to the resolving source and offers decline") {
+            val source = ForgeCardId(41)
+            val candidates = listOf(ForgeCardId(42), ForgeCardId(43))
+            val state =
+                GameStateMessage
+                    .newBuilder()
+                    .apply {
+                        (41..43).forEach { addGameObjects(GameObjectInfo.newBuilder().setInstanceId(it + 100).setGrpId(it + 1000)) }
+                    }.build()
+            val prior =
+                ProjectionState
+                    .initial()
+                    .editor()
+                    .apply {
+                        (41..43).forEach { identities.bind(ForgeCardId(it), InstanceId(it + 100)) }
+                        viewerCursors[SeatId(1)] = ViewerProjectionCursor(fullState = state)
+                    }.freeze()
+            val interaction = BlockingInteraction.ResolutionCast(source, null, candidates, true, true, PromptIds.RESOLUTION_CAST_ANY_FREE)
+            val materializer = BlockingInteractionMaterializer(1)
+            val prepared =
+                materializer.resolutionCast(
+                    emptyList(),
+                    LogicalSequencePlanner(),
+                    interaction,
+                    ProjectionTransition(prior.revision, prior),
+                )
+            val request = prepared.bundle.messages.last()
+            assertSoftly {
+                request.prompt.promptId shouldBe PromptIds.RESOLUTION_CAST_ANY_FREE
+                request.actionsAvailableReq.actionsList.map { it.actionType } shouldBe
+                    listOf(ActionType.Cast, ActionType.Cast, ActionType.Pass)
+                request.actionsAvailableReq.actionsList
+                    .take(2)
+                    .map { it.sourceId } shouldBe listOf(141, 141)
+                request.actionsAvailableReq.actionsList
+                    .take(2)
+                    .map { it.instanceId } shouldBe listOf(142, 143)
+                prepared.bundle.messages
+                    .first()
+                    .gameStateMessage.annotationsList
+                    .single()
+                    .affectorId shouldBe 141
+            }
+            val next = checkNotNull(prepared.transition).nextState
+            val reopened =
+                materializer.resolutionCast(
+                    emptyList(),
+                    LogicalSequencePlanner(),
+                    interaction.copy(candidateIds = candidates.takeLast(1)),
+                    ProjectionTransition(next.revision, next),
+                )
+            reopened.bundle.messages
+                .first()
+                .gameStateMessage.annotationsCount shouldBe 0
+            reopened.bundle.messages
+                .last()
+                .actionsAvailableReq.actionsList
+                .filter { it.actionType == ActionType.Cast }
+                .map { it.instanceId } shouldBe
+                listOf(143)
+        }
+
+        test("resolution cast trigger source uses its ability identity and mandatory choice has no decline") {
+            val source = ForgeCardId(41)
+            val trigger =
+                leyline.game.mapping.FrameIdResolver
+                    .triggerStackAbilityForgeId(99)
+            val state =
+                GameStateMessage
+                    .newBuilder()
+                    .addGameObjects(GameObjectInfo.newBuilder().setInstanceId(141).setGrpId(1041))
+                    .addGameObjects(GameObjectInfo.newBuilder().setInstanceId(142).setGrpId(1042))
+                    .addGameObjects(GameObjectInfo.newBuilder().setInstanceId(199).setGrpId(1099))
+                    .build()
+            val prior =
+                ProjectionState
+                    .initial()
+                    .editor()
+                    .apply {
+                        identities.bind(source, InstanceId(141))
+                        identities.bind(ForgeCardId(42), InstanceId(142))
+                        identities.bind(trigger, InstanceId(199))
+                        viewerCursors[SeatId(1)] = ViewerProjectionCursor(fullState = state, resolvingInstanceId = 199)
+                    }.freeze()
+            val prepared =
+                BlockingInteractionMaterializer(1).resolutionCast(
+                    emptyList(),
+                    LogicalSequencePlanner(),
+                    BlockingInteraction.ResolutionCast(source, 99, listOf(ForgeCardId(42)), false, false, PromptIds.RESOLUTION_CAST_PAID),
+                    ProjectionTransition(prior.revision, prior),
+                )
+            assertSoftly {
+                prepared.bundle.messages
+                    .first()
+                    .gameStateMessage.annotationsCount shouldBe 0
+                prepared.bundle.messages
+                    .last()
+                    .actionsAvailableReq.actionsList
+                    .single()
+                    .sourceId shouldBe 199
+                prepared.bundle.messages
+                    .last()
+                    .actionsAvailableReq.actionsList
+                    .single()
+                    .alternativeGrpId shouldBe 0
+            }
+        }
+
         test("caps blocker damage at the attacker's available damage") {
             val prepared =
                 BlockingInteractionMaterializer(seatId = 1).damage(

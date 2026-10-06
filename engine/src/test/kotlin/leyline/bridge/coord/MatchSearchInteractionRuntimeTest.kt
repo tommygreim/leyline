@@ -17,6 +17,7 @@ import leyline.bridge.handoff.InteractivePromptBridge
 import leyline.bridge.handoff.PromptRequest
 import leyline.bridge.handoff.PromptSemantic
 import leyline.bridge.handoff.ResolvedPromptRoute
+import leyline.bridge.handoff.SearchLibraryValue
 import leyline.bridge.handoff.SearchSourceValue
 import leyline.bridge.handoff.SearchWindowValue
 import leyline.bridge.types.ForgeCardId
@@ -134,6 +135,84 @@ class MatchSearchInteractionRuntimeTest :
             search.itemsToSearchList.forEach { id -> objects.getValue(id).grpId shouldBeGreaterThan 0 }
             coordinator.acceptSettled(leyline.testkit.searchResp(listOf(search.itemsSoughtList.first())), published.gameStateId) shouldBe
                 true
+            finished.await(3, TimeUnit.SECONDS) shouldBe true
+        }
+
+        test("empty search candidates retain the opponent library and allow fail to find") {
+            val board = startPuzzleAtMain1(puzzle.replace("ailibrary=Forest", "ailibrary=Mountain;Forest;Forest"))
+            val coordinator = board.bridge.cutCoordinator
+            coordinator.drain(SeatId(1))
+            val library =
+                board.ai
+                    .getZone(ZoneType.Library)
+                    .cards
+                    .map { ForgeCardId(it.id) }
+            val searchRequest =
+                request(board, min = 0).copy(
+                    options = emptyList(),
+                    candidateRefs = emptyList(),
+                    searchLibrary = SearchLibraryValue(SeatId(2), library),
+                )
+            val result = AtomicReference<List<Int>>()
+            val finished = CountDownLatch(1)
+            Thread {
+                result.set(coordinator.search.awaitSearch(searchRequest, 3_000))
+                finished.countDown()
+            }.start()
+            val published = awaitPublished(coordinator)
+            val batch = coordinator.drain(SeatId(1)).flatten()
+            val search = batch.single { it.hasSearchReq() }.searchReq
+            search.zonesToSearchList shouldContainExactly listOf(ZoneIds.libraryOf(SeatId(2)))
+            search.itemsToSearchCount shouldBe 3
+            search.itemsSoughtList.shouldBeEmpty()
+            val objects =
+                batch
+                    .filter { it.hasGameStateMessage() }
+                    .flatMap { it.gameStateMessage.gameObjectsList }
+                    .associateBy { it.instanceId }
+            search.itemsToSearchList.forEach { id -> objects.getValue(id).grpId shouldBeGreaterThan 0 }
+            coordinator.acceptSettled(leyline.testkit.searchResp(emptyList()), published.gameStateId) shouldBe true
+            finished.await(3, TimeUnit.SECONDS) shouldBe true
+            result.get() shouldContainExactly listOf(0)
+        }
+
+        test("search exposes only the exact library view supplied by Forge") {
+            val board = startPuzzleAtMain1(puzzle.replace("ailibrary=Forest", "ailibrary=Mountain;Forest;Forest"))
+            val coordinator = board.bridge.cutCoordinator
+            coordinator.drain(SeatId(1))
+            val initial = handshakeFull(board.game, board.bridge, 1)
+            val library =
+                board.ai
+                    .getZone(ZoneType.Library)
+                    .cards
+                    .map { ForgeCardId(it.id) }
+            val searchRequest =
+                request(board, min = 0).copy(
+                    options = emptyList(),
+                    candidateRefs = emptyList(),
+                    searchLibrary = SearchLibraryValue(SeatId(2), library.take(1)),
+                )
+            val finished = CountDownLatch(1)
+            Thread {
+                coordinator.search.awaitSearch(searchRequest, 3_000)
+                finished.countDown()
+            }.start()
+            val published = awaitPublished(coordinator)
+            val batch = coordinator.drain(SeatId(1)).flatten()
+            val search = batch.single { it.hasSearchReq() }.searchReq
+            search.itemsToSearchCount shouldBe 1
+            val objects =
+                (listOf(initial) + batch.filter { it.hasGameStateMessage() }.map { it.gameStateMessage })
+                    .flatMap { it.gameObjectsList }
+                    .associateBy { it.instanceId }
+            objects.getValue(search.itemsToSearchList.single()).grpId shouldBeGreaterThan 0
+            library.drop(1).forEach { fid ->
+                val iid = board.bridge.getOrAllocInstanceId(fid).value
+                // Hidden library cards may be omitted entirely, rather than
+                // published as identity-zero objects. Neither exposes a title.
+                (objects[iid]?.grpId ?: 0) shouldBe 0
+            }
+            coordinator.acceptSettled(leyline.testkit.searchResp(emptyList()), published.gameStateId) shouldBe true
             finished.await(3, TimeUnit.SECONDS) shouldBe true
         }
 

@@ -84,6 +84,16 @@ just puzzle-check file.pzl    # validate a puzzle fixture
 Puzzle-backed scripted suites exercise complete gameplay paths. See
 [`docs/puzzle-harness.md`](docs/puzzle-harness.md) for fixture boundaries.
 
+Selected upstream ports through `9d05a4b` retain this fork's tested Forge and
+protocol-schema pins. They include exact stack-ability attribution, per-recipient
+keyword-grant cleanup, repeated modal choices, explicit votes and effect choices,
+granted mana and alternative-cost identities, Ascend, and Siege projection.
+
+`./gradlew :engine:testConformance` runs the authored protocol contracts in
+`conformance/contracts/` against deterministic gameplay scenarios, plus mutation
+tests that verify incorrect messages are rejected. These checks cover message
+contents, order, and lifecycle; native animation fidelity still needs playtesting.
+
 ## Design stance
 
 - **Playable behavior first.** A change is complete when its user-facing path

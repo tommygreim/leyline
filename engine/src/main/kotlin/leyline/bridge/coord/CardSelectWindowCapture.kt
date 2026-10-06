@@ -84,6 +84,8 @@ internal object CardSelectWindowCapture {
                     defaultOptionIndex = request.defaultIndex,
                     choiceResultSentiment = route.descriptor.choiceResultSentiment,
                     cancellable = request.cancellable,
+                    promptId = request.protocolPromptId,
+                    replacementAbilityGrpId = request.replacementAbilityGrpId,
                 ),
             handlesByOption = candidateHandles.mapIndexed { index, card -> index to card }.toMap(),
         )

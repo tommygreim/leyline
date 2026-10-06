@@ -8,6 +8,7 @@ import leyline.game.data.CardData
 import leyline.game.data.KeywordAbilityIds
 import leyline.game.snapshot.EarthbendProjection
 import leyline.game.snapshot.GsmSnapshot
+import leyline.game.snapshot.SpeedEffectIdentity
 import leyline.game.state.AbilityRegistry
 import leyline.game.state.EffectTracker
 import org.slf4j.LoggerFactory
@@ -425,10 +426,14 @@ object ZoneMapper {
                     grpId
                 }
             val parentInstanceId =
-                if (grpId == KeywordAbilityIds.PARADIGM_DELAYED_TRIGGER) {
-                    paradigmSourceStackIidLookup(entry.forgeCardId) ?: 0
-                } else {
-                    instanceIdLookup(entry.forgeCardId).value
+                when {
+                    sourceCardGrpId == SpeedEffectIdentity.CARD_GRP_ID && grpId == SpeedEffectIdentity.ABILITY_GRP_ID ->
+                        // Native ability 355 selects its next-speed art from the
+                        // parent's current PlayerSpeed designation.
+                        FrameIdResolver.speedTriggerHolderIid(entry.owner).value
+                    grpId == KeywordAbilityIds.PARADIGM_DELAYED_TRIGGER ->
+                        paradigmSourceStackIidLookup(entry.forgeCardId) ?: 0
+                    else -> instanceIdLookup(entry.forgeCardId).value
                 }
 
             zoneBuilder.addObjectInstanceIds(abilityInstanceId)
@@ -442,6 +447,20 @@ object ZoneMapper {
                         parentInstanceId = parentInstanceId,
                     ).toBuilder()
                     .apply {
+                        snap.objects[entry.forgeCardId]
+                            ?.copiedTitleId
+                            ?.takeIf { it != 0 }
+                            ?.let { name = it }
+                        if (grpId == SpeedEffectIdentity.ABILITY_GRP_ID && sourceCardGrpId == SpeedEffectIdentity.CARD_GRP_ID) {
+                            name =
+                                if (snap.seats.single { it.seatId == entry.owner }.speed >=
+                                    3
+                                ) {
+                                    SpeedEffectIdentity.MAX_TITLE_ID
+                                } else {
+                                    SpeedEffectIdentity.START_TITLE_ID
+                                }
+                        }
                         if (entry.abilityOriginalCardGrpId != 0 && entry.abilityOriginalCardGrpId != sourceCardGrpId) {
                             addAbilityOriginalCardGrpIds(entry.abilityOriginalCardGrpId)
                         }

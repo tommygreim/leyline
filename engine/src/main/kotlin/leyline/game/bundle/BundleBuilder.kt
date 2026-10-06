@@ -20,6 +20,7 @@ import leyline.bridge.handoff.StaticChoiceKind
 import leyline.bridge.handoff.TargetingWindowValue
 import leyline.bridge.handoff.TriggerOrderWindowValue
 import leyline.bridge.types.ForgeCardId
+import leyline.bridge.types.GrpId
 import leyline.bridge.types.InstanceId
 import leyline.bridge.types.SeatId
 import leyline.game.annotations.AnnotationBuilder
@@ -1002,6 +1003,145 @@ class BundleBuilder(
         )
     }
 
+    internal fun resolutionCastInteractionBundle(
+        game: Game,
+        counter: LogicalSequencePlanner,
+        interaction: BlockingInteraction.ResolutionCast,
+        routes: List<ViewerRoute>,
+    ): PreparedViewerCut<BlockingInteractionMaterializer.Prepared> {
+        val frame = prepareViewerPromptProjection(game, counter, routes, ViewerProjectionIntent.EMPTY)
+        val result = frame.fold.viewers[frame.playerIndex].result
+        val player =
+            blockingInteractions.resolutionCast(
+                stateOnlyMessages(result.gsm, frame.playerInput.events.events, counter),
+                counter,
+                interaction,
+                frame.fold.transition,
+            )
+        // Resolution is public; only the card picker is private. Publish the
+        // same start to other viewers, without our hypothetical action rail or
+        // a pending request they cannot answer.
+        val pending = player.bundle.messages.last { it.hasGameStateMessage() }
+        val sourceStart =
+            pending.gameStateMessage.annotationsList.firstOrNull {
+                AnnotationType.ResolutionStart in it.typeList
+            }
+        val transition = checkNotNull(player.transition)
+        val viewers =
+            frame.outputs(player.bundle.messages).map { output ->
+                if (output.seatId.value == seatId || sourceStart == null) {
+                    output
+                } else {
+                    val publicState =
+                        pending.gameStateMessage
+                            .toBuilder()
+                            .setPendingMessageCount(0)
+                            .clearActions()
+                            .addAllActions(
+                                transition.nextState.viewerCursors[output.seatId]
+                                    ?.fullState
+                                    ?.actionsList
+                                    .orEmpty(),
+                            ).build()
+                    val message =
+                        pending
+                            .toBuilder()
+                            .clearSystemSeatIds()
+                            .addSystemSeatIds(output.seatId.value)
+                            .setGameStateMessage(publicState)
+                            .build()
+                    output.copy(batches = output.batches + listOf(listOf(message)))
+                }
+            }
+        val next =
+            if (sourceStart == null) {
+                transition.nextState
+            } else {
+                transition.nextState.copy(
+                    viewerCursors =
+                        transition.nextState.viewerCursors.mapValues { (seat, cursor) ->
+                            if (viewers.any { it.seatId == seat }) cursor.copy(resolvingInstanceId = sourceStart.affectorId) else cursor
+                        },
+                )
+            }
+        val completeTransition = transition.copy(nextState = next)
+        return PreparedViewerCut(
+            player.copy(transition = completeTransition),
+            viewers,
+            completeTransition,
+            player.closesPlaybackFrame,
+            player.bundle.actionGameStateId,
+        )
+    }
+
+    internal fun manaPaymentInteractionBundle(
+        game: Game,
+        counter: LogicalSequencePlanner,
+        interaction: BlockingInteraction.ManaPayment,
+        manaCost: forge.card.mana.ManaCost,
+        ability: forge.game.spellability.SpellAbility,
+        routes: List<ViewerRoute>,
+    ): PreparedViewerCut<BlockingInteractionMaterializer.Prepared> {
+        val bound =
+            bridge
+                .editProjection(bridge.projectionStateSnapshot()) {
+                    SnapshotCapture.captureBoundCard(ability.hostCard, game, bridge)
+                }.first
+        val frame =
+            prepareViewerPromptProjection(
+                game,
+                counter,
+                routes,
+                if (ability.isSpell) {
+                    ViewerProjectionIntent.of(
+                        listOf(ProjectionSupplement.PreStackSpell(bound)),
+                    )
+                } else {
+                    ViewerProjectionIntent.EMPTY
+                },
+            )
+        val (payment, next) =
+            bridge.editProjection(
+                frame.fold.transition.nextState
+                    .copy(revision = frame.fold.transition.expectedRevision),
+            ) {
+                val projection = ActionMapper.buildProjectionFromSnapshot(seatId, frame.playerInput.snapshot, bridge)
+                val offers = projection.offers.filter { it.command is leyline.bridge.handoff.PlayerAction.ActivateMana }
+                val solution =
+                    leyline.game.mapping.ActionAutoTapSupport.build(
+                        manaCost,
+                        leyline.game.mapping.ActionBuildContext(
+                            checkNotNull(bridge.getPlayer(SeatId(seatId))),
+                            bridge::getOrAllocInstanceId,
+                            { GrpId(bridge.resolveGrpId(it)) },
+                            { bridge.cardRepository.findByGrpId(it.value) },
+                            bridge::abilityRegistryFor,
+                        ),
+                        ability,
+                    )
+                offers to solution
+            }
+        val transition = frame.fold.transition.copy(nextState = next)
+        val stateMessages =
+            stateOnlyMessages(
+                frame.fold.viewers[frame.playerIndex]
+                    .result.gsm,
+                frame.playerInput.events.events,
+                counter,
+            )
+        val player =
+            blockingInteractions
+                .manaPayment(
+                    stateMessages,
+                    counter,
+                    interaction,
+                    transition,
+                    payment.second,
+                    ActionsAvailableReq.newBuilder().addAllActions(payment.first.map { it.action }).build(),
+                ).copy(manaOffers = payment.first)
+        return PreparedViewerCut(player, frame.outputs(player.bundle.messages), transition, true, player.bundle.actionGameStateId)
+    }
+
     internal fun generalOptionalInteractionBundle(
         counter: LogicalSequencePlanner,
         interaction: BlockingInteraction.Optional,
@@ -1829,6 +1969,7 @@ class BundleBuilder(
                     targetForgeCardIds = emptyList(),
                     isActivatedAbility = false,
                     deferAnnouncement = true,
+                    abilityOriginalCardGrpId = it.abilityOriginalCardGrpId,
                 )
             }
         val frame = prepareViewerPromptProjection(game, counter, routes, ViewerProjectionIntent.of(supplements))
@@ -1944,7 +2085,15 @@ class BundleBuilder(
                 game,
                 counter,
                 routes,
-                ViewerProjectionIntent.of(privateCardPrompt = privatePrompt),
+                ViewerProjectionIntent.of(
+                    privateCardPrompt = privatePrompt,
+                    supplements =
+                        listOfNotNull(
+                            window.replacementAbilityGrpId?.let { abilityId ->
+                                ProjectionSupplement.EnterAsCopyChoice(checkNotNull(window.sourceForgeCardId), abilityId)
+                            },
+                        ),
+                ),
             )
         if (window.kind == CardSelectKind.DiscardCreatureOptional) {
             // Winternight Stories draws before it asks for the alternate
