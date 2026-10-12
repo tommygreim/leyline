@@ -18,8 +18,14 @@ Priority is automatic when there is no executable non-mana action. A legal
 but unaffordable action remains an inactive affordance. Casts and activations
 use the same cost, target and mode checks for priority and active offers.
 Alternative-zone casts, zero-mana spells and payable non-mana costs count.
-Plain mana production does not force a stop, but manually activating mana
-retains a visible window to spend it.
+Plain mana production normally does not force a stop, but manually activating
+mana retains a visible window to spend it. At an enabled opponent-turn
+declare-blockers stop, a defender who actually declared a blocker gets an
+empty-stack response window if any mana activation is executable. This allows
+tapping a blocking Birds of Paradise before damage without full control or an
+unrelated instant in hand. A tapped blocker still blocks. Declining all blocks
+does not create this mana-only stop; disabled stops and explicit yields retain
+their ordinary behavior.
 
 A meaningful response to an opponent-controlled stack object stops on either
 turn, regardless of ordinary phase preferences. With smart stops enabled, an
@@ -34,7 +40,8 @@ Arena automatic-priority cases.
 On an empty stack, own-turn baseline preferences enable main phases,
 beginning combat, declarations and first-strike damage. Opponent-turn
 meaningful responses remain eligible, including upkeep cycling. Baseline
-preferences never force an empty decision. A disabled own upkeep or draw
+preferences never force a decision with no executable action; the post-block
+exception counts executable mana actions. A disabled own upkeep or draw
 window can be requested with an explicit stop or full control.
 
 Combat declarations, targets, modes, payment, ordering and other required

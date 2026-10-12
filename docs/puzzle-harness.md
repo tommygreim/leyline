@@ -40,7 +40,27 @@ phase updates then arrive before its battlefield holder exists. For example,
 `double-block-free-assignment.pzl` leaves a Forest in hand to create a normal
 Main1 action window before the player advances to combat.
 
-The same fixture covers native combat selection projection. Iterative block
+`three-steps-counter-cleanup.pzl` likewise starts on Human Main1 with a playable
+Forest, rather than letting the AI cast during scene initialization. End the
+human turn without casting the counterspell, then respond to the opposing
+Tablet of Discovery. The session regression requires the opening action window
+and the subsequent counter/resolve exits; `stack-cleanup` exercises that same
+path through scripted gameplay. Native scene loading and stack retirement are
+separate checks.
+
+`blocker-mana-priority.pzl` starts on Human Main1 with a Forest in hand so the
+client can initialize before the opposing Juggernaut's forced attack. Leave
+the Forest in hand and Full Control off. Birds of Paradise is the only blocker
+and mana source. After submitting its block, the defender's normal
+Declare Blockers stop must permit tapping Birds for mana before damage, even
+with no payable non-mana action. Tapping must not remove its block. The session
+test exercises the mana/color picker and damage; `combat-warmup` covers the
+post-block checkpoint and blocked combat. Reset and decline all blocks for the
+control: normal automation does not force a mana-only post-block stop and the
+player takes five. Native priority controls and mana affordances remain user
+checks; no client is launched by an agent.
+
+The double-block fixture also covers native combat selection projection. Iterative block
 choices are provisional and must not mutate Forge's combat before submission.
 The client nevertheless needs `BlockInfo.attackerIds`, reciprocal
 `AttackInfo.orderedBlockers`, and provisional `Declared` block state to draw
@@ -118,6 +138,78 @@ checks both explicit selection (only Corpse is sacrificed) and cancellation
 (Gryff stays in hand, both donors survive, and the stack is empty). Native cost
 presentation and untapped mana after Cancel remain user checks. A mana-plan
 preview must not erase the selected Emerge sacrifice before real payment.
+
+The confirmed Warp/Sneak/Convoke native checks use `try-warp.pzl`,
+`sneak-splinter.pzl`, and `convoke-conclave-tribunal.pzl`. Warp starts in hand
+and creates its delayed exile permission through an actual Warp cast; do not
+replace that path with a plain imported exile card. Sneak starts on Human Main1
+with a Forest as an opening action control: leave it in hand, attack with
+Raging Goblin, and reach the unblocked-attacker cost through combat. Convoke
+provides three Plains, two selectable creature reducers, and an opposing
+Walking Corpse for Tribunal's real entry target. Its goal is Survive so that
+inspection can continue after the cast. The `sneak` and `mechanics-protocol`
+suites exercise casting, Sneak cancellation, delayed exile/recast, and
+Tribunal's entry exile; native highlights, cost controls, tap/refund
+presentation, and animations remain maintainer checks. I115's Convoke abort
+distinction is now implemented: Cancel discards provisional creature choices
+and aborts the Forge cast, while the explicit confirmation action accepts
+those choices and proceeds to ordinary mana payment. A cost fully paid by
+creatures completes immediately instead of publishing an empty Cancel-only
+window. Session regressions cover zero/partial selection, retry, and shared
+Improvise/Waterbend paths. The maintainer confirmed the Warp/Sneak/Convoke
+retests, followed by Improvise Ironheart and optional Ruinous Waterbending.
+The activated Waterbend Koi confirmation retest also passes, including mixed
+mana/reducer payment and cancellation controls.
+Agents do not launch or drive Arena.
+
+`optional-static-surveil.pzl` exercises a real optional static callback:
+Enhanced Surveillance is already on the battlefield, and casting Wary Thespian
+creates its entry surveil. Accepting the source-grounded confirmation opens
+surveil three; declining opens surveil one. The isolated `optional-static-surveil`
+acceptance suite reaches both grouping checkpoints; session tests also finish
+the grouping/ordering decisions and check graveyard, library top, creature and
+prompt cleanup. This does not establish every optional-static workflow or a
+specialized native prompt beyond the existing optional-action UI. Native checks
+belong to the maintainer.
+
+The existing `honorbound-page-prepare.pzl` and `mechanics-protocol` scenario
+`prepared-honorbound-page` also cover target-reference cleanup: cast Page, then
+cast its prepared Forum's Favor copy and target a creature. The copy retires
+during this path, so a pending target-submission rider must not be reinserted
+after sanitization. Valid target riders still retain their source, and damage
+events may retain cards from the previous frame after same-frame deaths.
+
+The next reducer-payment block has three focused fixtures:
+`payment-improvise-ironheart.pzl`, `payment-waterbend-koi.pzl`, and
+`payment-waterbend-ruinous.pzl`. The `payment-reducers` acceptance suite covers
+Cancel/retry, successful Improvise, an entirely reducer-paid Waterbend
+activation followed by an unblocked attack, and paid/declined optional
+Waterbend. The mixed Koi scenario chooses only Merfolk and pays the remaining
+two with Islands. Session regressions use the native auto-tap confirmation,
+require no second reducer window, and verify exact tapped resources. They
+also check that confirming with no reducers and insufficient ordinary mana
+opens a cancellable mana-payment window with Auto Pay disabled, not another
+reducer picker. Session regressions send individual payment selections before
+Cancel and assert unchanged resources; the acceptance `select_cost` step
+commits its whole selection and is not proof of partial-selection cancellation.
+Koi starts with only two Islands, so ordinary mana alone cannot cover its
+Waterbend {3}; leave the extra Island in hand. Tap Merfolk, Bears, and Short
+Sword, not Koi, so it remains available for the attack check. Ruinous starts
+with three base-cost Swamps and four reducers; its paid path gains three life
+from the three creature deaths, while declining Waterbend gains none.
+All fixtures start on Human Main1 and use Survive rather than a lethal goal.
+Use locked Full Control when inspecting same-turn tap/refund state; automatic
+phase advancement can otherwise reach the next untap before inspection.
+
+Quantum Riddler's printed entry trigger draws one; its separate replacement
+ability may double that draw. Stack snapshots now ask Forge for applicable
+batch and individual draw replacements and retain their native text rows
+alongside the original trigger. This is contextual explanation, not a prediction of the final draw
+count: the hand can change before resolution. The Warp session checks cover
+zero, one, and two other cards in hand and the resulting draw counts. A
+separate Elvish Visionary/Teferi's Ageless Insight regression covers a draw
+replacement from another permanent, including the native text owner. The
+native ability text/layout remains a maintainer check.
 
 That means direct `.pzl` placement can be incomplete when the important fact is history-derived:
 

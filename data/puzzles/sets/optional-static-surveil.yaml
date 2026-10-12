@@ -1,0 +1,23 @@
+name: optional-static-surveil
+description: Enhanced Surveillance offers a choice before changing the surveil amount.
+scenarios:
+  - id: accept-extra-surveil
+    puzzle: optional-static-surveil
+    headless: { forge_catalog: true, full_control: true }
+    run: accept Enhanced Surveillance's additional two cards
+    expect: the static application asks before the surveil group is shown
+    steps:
+      - cast: Wary Thespian
+      - pass_until: { prompt: OptionalActionMessage, max_passes: 8 }
+      - optional_action: { accept: true }
+      - pass_until: { prompt: GroupReq, max_passes: 8 }
+  - id: decline-extra-surveil
+    puzzle: optional-static-surveil
+    headless: { forge_catalog: true, full_control: true }
+    run: decline Enhanced Surveillance's additional two cards
+    expect: the printed surveil still proceeds after the choice
+    steps:
+      - cast: Wary Thespian
+      - pass_until: { prompt: OptionalActionMessage, max_passes: 8 }
+      - optional_action: { accept: false }
+      - pass_until: { prompt: GroupReq, max_passes: 8 }

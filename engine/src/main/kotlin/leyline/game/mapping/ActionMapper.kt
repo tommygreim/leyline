@@ -5,8 +5,10 @@ import forge.card.mana.ManaCost
 import forge.game.card.Card
 import forge.game.cost.CostPayment
 import forge.game.player.Player
+import forge.game.spellability.AlternativeCost
 import forge.game.spellability.LandAbility
 import forge.game.spellability.SpellAbility
+import forge.game.zone.ZoneType
 import leyline.bridge.ActionAvailability
 import leyline.bridge.ActionCostParts
 import leyline.bridge.ActionManaCosts
@@ -706,13 +708,33 @@ object ActionMapper {
             val sa = choosePrimaryHandCastAbility(forgeCard, castable)
             if (sa == null) {
                 val instanceId = bridge.getOrAllocInstanceId(fid).value
-                emitUncastableHandCost(
+                val hasHandAlternateCast = castable.any { ability -> CastRails.handWithAltCost.any { it.saPredicate(ability) } }
+                // A legal alternate rail is not a normal cast. In particular,
+                // Sneak during combat must not manufacture a printed-cost
+                // modal option pointing at the very same Sneak ability.
+                if (!hasHandAlternateCast) {
+                    emitUncastableHandCost(
+                        card = forgeCard,
+                        player = player,
+                        instanceId = instanceId,
+                        grpId = cardSnap.grpId,
+                        cardData = snap.boundCards[fid]?.data,
+                        builder = builder,
+                    )
+                }
+                addHandAltCostCastActions(
+                    bridge = bridge,
                     card = forgeCard,
                     player = player,
                     instanceId = instanceId,
                     grpId = cardSnap.grpId,
-                    cardData = snap.boundCards[fid]?.data,
+                    altCosts = snap.boundCards[fid]?.altCosts ?: emptyList(),
                     builder = builder,
+                    castable = castable,
+                    autoTapSolution = { cost, ability -> autoTapForCost(player, cost, ability) },
+                    onActive = { action, index, ability ->
+                        bindOffer(action, PlayerAction.CastSpell(fid, index, ability = ability))
+                    },
                 )
                 addSecondaryFaceCastActions(
                     forgeCard,
@@ -964,8 +986,9 @@ object ActionMapper {
         card: Card,
         castable: List<SpellAbility>,
     ): SpellAbility? {
-        val primary = castable.filterNot { it.isAdventure || it.isOmen }
-        primary.firstOrNull { it.hasParam("WithoutManaCost") }?.let { return it }
+        val faces = castable.filterNot { it.isAdventure || it.isOmen }
+        faces.firstOrNull { it.hasParam("WithoutManaCost") }?.let { return it }
+        val primary = faces.filterNot { ability -> CastRails.handWithAltCost.any { it.saPredicate(ability) } }
         if (card.keywords.none { it.original.startsWith("AlternateAdditionalCost") }) {
             return primary.firstOrNull()
         }
@@ -1075,6 +1098,25 @@ object ActionMapper {
             presentationOnly = true,
         )
         return builder.build()
+    }
+
+    /** Forge's legal Plotted alternative is delayed; the inactive hand-side display is not. */
+    private fun plottedDisplayAbility(
+        card: Card,
+        player: Player,
+        untimed: List<SpellAbility>,
+    ): SpellAbility? {
+        if (!card.isPlotted ||
+            !card.isInZone(ZoneType.Exile) ||
+            card.owner != player ||
+            untimed.any { it.alternativeCost == AlternativeCost.Plotted }
+        ) {
+            return null
+        }
+        return untimed.firstOrNull { it.isSpell }?.copyWithNoManaCost(player)?.also {
+            it.alternativeCost = AlternativeCost.Plotted
+            it.restrictions.zone = ZoneType.Exile
+        }
     }
 
     private fun addZoneCastActionsFromSnap(
@@ -1193,7 +1235,9 @@ object ActionMapper {
                         // Only the timing predicate is intentionally bypassed;
                         // e.g. Escape must remain hidden when its required
                         // graveyard exiles are unavailable.
-                        getAllCastableAbilities(forgeCard, player, checkTiming = false)
+                        val untimedAbilities = getAllCastableAbilities(forgeCard, player, checkTiming = false)
+                        val plottedDisplay = plottedDisplayAbility(forgeCard, player, untimedAbilities)
+                        (untimedAbilities + listOfNotNull(plottedDisplay))
                             .filter { candidate ->
                                 candidate.setActivatingPlayer(player)
                                 candidate.payCosts?.let { CostPayment.canPayAdditionalCosts(it, candidate, false) } != false

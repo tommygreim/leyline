@@ -35,6 +35,12 @@ class PriorityActionCandidates private constructor(
                 (isOwnTurn && candidate.mdfcLandAbility?.canPlay() == true)
         }
 
+    /** Legal mana activations are distinct from the non-mana smart-stop test. */
+    fun hasLegalManaAction(player: Player): Boolean =
+        byCardId.values.any { candidate ->
+            candidate.manaAbilities.any { ActionAvailability.canExecute(it, player) }
+        }
+
     companion object {
         fun query(
             game: Game,

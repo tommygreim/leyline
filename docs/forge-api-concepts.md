@@ -48,6 +48,19 @@ an optional enter-as-copy replacement, the donor picker itself offers Decline;
 there is no separate yes/no preflight. Select using Forge's CloneEffect zone,
 last-state and validity filters during confirmation, then consume that exact
 choice at resolution. Decline must preserve Forge's NotReplaced result.
+Optional static-application callbacks may supply a null confirmation mode.
+Accept that Forge contract and publish a source-grounded optional action on the
+engine thread rather than falling into the desktop `InputConfirm` wait.
+Capture the supplied confirmation text in the immutable handoff; a source ID
+alone does not explain a generic Take Action/Decline window. The private-client
+source/text template uses the native localized CardId formatter and the exact
+engine question, with the source card highlighted. SurveilNum owns its actual
+base/result counts and includes earlier accepted modifiers in later questions;
+the bridge does not recompute those rules. This template requires the launcher's
+private-client source-prompts patch; stock numeric prompt 23 cannot display a
+string parameter. Do not substitute unrelated draw/discard localizations.
+Decline leaves the base effect unchanged; noninteractive probes decline without
+publishing. Manual combat-damage assignment retains its separate workflow.
 The native `ReplacementEffectController` suppresses Static ability rows,
 including printed enter-as-copy replacements. Use the native
 `PendingEffectController` path instead: a player-scoped MiscContinuousEffect
@@ -140,6 +153,13 @@ Normal action building pattern:
 3. Check `ComputerUtilMana.canPayManaCost(...)`.
 4. Emit active or inactive action with the right cost fields.
 
+Waterbend is an exception to the ordinary human mana probe: Forge disables
+its tap reduction during `ComputerUtilMana.canPayManaCost`. Use
+`ActionManaCosts.canPayManaCost` at the bridge, which previews the adjusted cost
+and exact reducer/mana sources for Waterbend. Its display and payment previews
+copy the ability's query context so the live Waterbend cap is not mutated;
+neither query taps sources or changes a pending selection.
+
 Shared priority visibility and player controls are described in
 [Priority flow](priority-flow.md). Inactive actions remain presentation data;
 they do not require a visible priority decision.
@@ -178,6 +198,18 @@ Forge cost payment uses visitor-style cost parts. `CostDecision` is the bridge p
 Use the existing cost-decision path when the engine is paying a cost and asks for cards or permanents. Do not invent a parallel resolver from protocol input to game mutation. The bridge should collect a choice, return Forge objects to the cost visitor, and let Forge perform the payment.
 
 Optional additional costs should be selected before `PlaySpellAbility.playAbility(...)` runs, then fed back into Forge through `GameActionUtil.addOptionalCosts(...)`.
+
+`PlaySpellAbility.payManaCost` already runs `CostAdjustment` for Convoke,
+Improvise, and Waterbend, including activated Waterbend costs. Do not run a
+separate reducer picker or tap sources in `PlayerController.payManaCost` before
+delegating: that creates a second picker for the same remaining cost. Keep
+selection, cancellation, and final taps in Forge's shared adjustment path.
+The iterative reducer window confirms through native
+`PerformAutoTapActionsResp`, not a priority Pass action. Its Auto Pay control
+accepts the selected reducers and proceeds to ordinary mana payment; that
+payment still prompts if mana is insufficient or requires confirmation for
+life/sacrifices. With no spell on the stack, the client's priority Pass label
+can be empty, so it is not a substitute for a payment confirmation control.
 
 ## 8. Events Versus Snapshots
 
@@ -240,6 +272,28 @@ Forge card IDs are engine identity. Client instance IDs are protocol identity. K
 Event-layer types should carry Forge IDs. Resolve Forge IDs to instance IDs at mapping time, when the current frame has the right allocation and zone-transfer context.
 
 When a prompt records target or source identity while a spell is still on the stack, freeze the instance ID if later resolution would move the source and change the normal lookup result.
+
+Resolution transfers have the same requirement: effects of a resolving spell
+must name its published stack instance, even after the projection allocates
+that card's graveyard instance. Capture that source identity before allocating
+any zone changes; snapshot object order must not decide which identity is used.
+Using the newly allocated source can make annotation dependency ordering split
+another card's `ObjectIdChanged`/`ZoneTransfer` pair. Arena joins those events
+only when the matching transfer immediately follows the identity change;
+otherwise the old stack visual can survive an otherwise empty protocol stack.
+Counter cleanup tests must assert source identity and pair adjacency, not just
+exit categories and final zone contents.
+
+Annotation reference checks follow the native consumer's lookup rules.
+Target-selection/submission events require a card in the new state, including
+both object data and zone membership (or an explicit revealed-card proxy).
+Damage may retain its source/victim from either the previous or new state.
+Mana-payment and user-action IDs are historical animation references, not
+automatically invalid because a card has left the new state. The default
+`client_annotation_ref` stream invariant checks the stricter target/damage
+contract; the broader `annotation_ref` remains diagnostic.
+Persistent TargetSpec references also remain diagnostic: the native reference
+handler skips an unknown source/target, unlike submitted-target event translation.
 
 ## 11. Tests
 

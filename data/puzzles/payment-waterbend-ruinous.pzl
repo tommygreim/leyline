@@ -1,0 +1,18 @@
+[metadata]
+Name:Payment reducers - optional Waterbend
+Goal:Survive
+Turns:4
+Difficulty:Easy
+Description:Cast Ruinous Waterbending with Waterbend 4, select Coral Merfolk, and Cancel: the spell returns to hand and every resource stays untapped. Retry with Coral Merfolk, Grizzly Bears, Short Sword, and Witching Well as reducers, paying the base cost with three Swamps. All three creatures die and the paid bonus gains 3 life. Reset and cast without Waterbend: the creatures still die but you gain no life.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+
+humanhand=Ruinous Waterbending
+humanbattlefield=Swamp;Swamp;Swamp;Coral Merfolk;Grizzly Bears;Short Sword;Witching Well
+humanlibrary=Swamp;Swamp;Swamp;Swamp;Swamp;Swamp
+aibattlefield=Walking Corpse
+ailibrary=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain

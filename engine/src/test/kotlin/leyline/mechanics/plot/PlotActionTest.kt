@@ -25,11 +25,9 @@ import wotc.mtgo.gre.external.messaging.Messages.ActionType
  * same hand-cast rail as Warp/Sneak; the offer carries `alternativeGrpId =
  * PLOTTED keyword ability grpId` and the SA's mana cost.
  *
- * Cast-from-exile leg uses `AlternativeCost.Plotted` from a card already
- * sitting in Exile with the Plotted designation. That state can't be
- * programmatically synthesized without driving the action, so this file
- * focuses on the hand activation. The exile-cast leg is empirically verified
- * via `data/puzzles/plot-railway-brawler.pzl` + bot-match.
+ * Cast-from-exile leg uses `AlternativeCost.Plotted`. Projection tests below
+ * establish current-turn display versus executable actions; the authored
+ * `data/puzzles/plot-railway-brawler.pzl` drives the real zone/turn history.
  *
  * Card: Railway Brawler (Sorcery 4G, Plot {3}{G}).
  */
@@ -158,5 +156,38 @@ class PlotActionTest :
             val actions = board.actions()
 
             actions shouldNot offerAltCost(plottedAbilityGrpId)
+        }
+
+        test("a card plotted this turn is displayed beside hand without an executable cast") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    repeat(5) { addCard("Forest", human, ZoneType.Battlefield) }
+                    addCard("Railway Brawler", human, ZoneType.Exile).setPlotted(true)
+                }
+            val card =
+                board.game.humanPlayer.exile
+                    .card("Railway Brawler")
+            card.setTurnInZone(board.game.phaseHandler.turn)
+            val iid = board.instanceId(card.id)
+            val actions = board.actions()
+            actions.actionsList.any { it.instanceId == iid && it.actionType == ActionType.Cast } shouldBe false
+            actions.inactiveActionsList.any { it.instanceId == iid && it.actionType == ActionType.Cast } shouldBe true
+        }
+
+        test("plot display permissions do not expose the other player's card as our cast") {
+            val board =
+                startWithBoard { _, _, opponent ->
+                    addCard("Railway Brawler", opponent, ZoneType.Exile).setPlotted(true)
+                }
+            val card =
+                board.game.players[1]
+                    .getCardsIn(ZoneType.Exile)
+                    .single()
+            card.setTurnInZone(board.game.phaseHandler.turn)
+            val iid = board.instanceId(card.id)
+            val actions = board.actions()
+            (actions.actionsList + actions.inactiveActionsList).any {
+                it.instanceId == iid && it.actionType == ActionType.Cast
+            } shouldBe false
         }
     })

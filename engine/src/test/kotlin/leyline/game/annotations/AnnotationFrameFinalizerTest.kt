@@ -41,7 +41,7 @@ class AnnotationFrameFinalizerTest :
             }
         }
 
-        test("stale target annotations and TargetSpecs are omitted from the new state") {
+        test("target annotations require a card object as well as zone membership") {
             val staleSubmitted = AnnotationBuilder.playerSubmittedTargets(113.iid, 1.sid)
             val validSubmitted = AnnotationBuilder.playerSubmittedTargets(411.iid, 1.sid)
             val staleSpec =
@@ -76,6 +76,7 @@ class AnnotationFrameFinalizerTest :
                             .newBuilder()
                             .setZoneId(10)
                             .setType(ZoneType.Battlefield)
+                            .addObjectInstanceIds(113)
                             .addObjectInstanceIds(411),
                     ).addAnnotations(staleSubmitted)
                     .addAnnotations(validSubmitted)
@@ -90,6 +91,31 @@ class AnnotationFrameFinalizerTest :
                 result.transient.single().affectedIdsList shouldBe listOf(411)
                 result.persistent.map { it.id } shouldBe listOf(2)
                 result.removedPersistentIds shouldBe listOf(1)
+            }
+        }
+
+        test("invalid target riders are filtered after replacement rewriting and before numbering") {
+            val retire = AnnotationBuilder.objectIdChanged(origId = 113.iid, newId = 411.iid)
+            val valid = AnnotationBuilder.playerSubmittedTargets(instanceId = 113.iid, casterSeatId = 1.sid)
+            val invalid = AnnotationBuilder.playerSubmittedTargets(instanceId = 555.iid, casterSeatId = 1.sid)
+            val state =
+                GameStateMessage
+                    .newBuilder()
+                    .addGameObjects(GameObjectInfo.newBuilder().setInstanceId(411).setType(GameObjectType.Card))
+                    .addZones(ZoneInfo.newBuilder().setZoneId(10).addObjectInstanceIds(411))
+                    .build()
+
+            val result =
+                AnnotationFrameFinalizer.finalize(
+                    listOf(retire, valid, invalid),
+                    firstId = 50,
+                    retainAnnotation = AnnotationReferenceSanitizer.targetReferenceFilter(state),
+                )
+
+            assertSoftly {
+                result.annotations.single { AnnotationType.PlayerSubmittedTargets in it.typeList }.affectedIdsList shouldBe listOf(411)
+                result.annotations.map { it.id } shouldBe listOf(50, 51)
+                result.nextId shouldBe 52
             }
         }
 

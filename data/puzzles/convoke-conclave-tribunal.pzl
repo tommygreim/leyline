@@ -1,9 +1,9 @@
 [metadata]
 Name:Convoke - Conclave Tribunal
-Goal:Cast Conclave Tribunal using a creature as a Convoke reducer.
+Goal:Survive
 Turns:4
 Difficulty:Easy
-Description:Conclave Tribunal exposes native Convoke payment actions, taps a creature, pays remaining mana, and resolves.
+Description:Check Tribunal's hand highlight and Convoke payment instruction. First select one creature and Cancel: Tribunal stays in hand and all sources remain untapped. Reset, select one creature and confirm payment with the three Plains, then exile Walking Corpse.
 
 [state]
 ActivePlayer=Human
@@ -14,4 +14,5 @@ AILife=20
 humanhand=Conclave Tribunal
 humanbattlefield=Plains;Plains;Plains;Coral Merfolk;Grizzly Bears
 humanlibrary=Plains;Plains;Plains;Plains;Plains;Plains
+aibattlefield=Walking Corpse
 ailibrary=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain

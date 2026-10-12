@@ -39,7 +39,7 @@ object ZoneMoveLedger {
         events: List<GameEvent>,
     ): List<ZoneMoveIntent> =
         moves.sortedBy { it.order }.map { move ->
-            val eventBacked = move.cause != null || hasSpecificOperationEvent(move, events)
+            val eventBacked = move.cause != null || move.mulliganSeatId != null || hasSpecificOperationEvent(move, events)
             ZoneMoveIntent(
                 move = move,
                 category = category(move, events),
@@ -71,6 +71,7 @@ object ZoneMoveLedger {
         val destruction =
             events.filterIsInstance<GameEvent.CardDestroyed>().firstOrNull { it.cardId == cardId }?.destruction
         return when {
+            move.mulliganSeatId != null && move.from == Zone.Hand && move.to == Zone.Library -> TransferCategory.Put
             events.any { it is GameEvent.OpeningHandAction && it.cardId == cardId } &&
                 move.from == Zone.Hand &&
                 move.to == Zone.Battlefield -> TransferCategory.Put

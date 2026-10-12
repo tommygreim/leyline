@@ -13,10 +13,13 @@ import wotc.mtgo.gre.external.messaging.Messages.AnnotationInfo
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
 import wotc.mtgo.gre.external.messaging.Messages.GREMessageType
 import wotc.mtgo.gre.external.messaging.Messages.GREToClientMessage
+import wotc.mtgo.gre.external.messaging.Messages.GameObjectInfo
+import wotc.mtgo.gre.external.messaging.Messages.GameObjectType
 import wotc.mtgo.gre.external.messaging.Messages.GameStateMessage
 import wotc.mtgo.gre.external.messaging.Messages.GameStateType
 import wotc.mtgo.gre.external.messaging.Messages.KeyValuePairInfo
 import wotc.mtgo.gre.external.messaging.Messages.KeyValuePairValueType
+import wotc.mtgo.gre.external.messaging.Messages.ZoneInfo
 
 /**
  * Unit tests for focused [InvariantChecker] diagnostics and hard checks.
@@ -475,6 +478,128 @@ class InvariantCheckerTest :
             checker.process(greMessage(msgId = 2, gsm = g2))
 
             checker.violations.filter { it.check == "annotation_ref" }.shouldBeEmpty()
+        }
+
+        test("default validation rejects a submitted target object absent from every zone") {
+            val checker = InvariantChecker()
+            val submitted =
+                annotation(1, AnnotationType.PlayerSubmittedTargets)
+                    .toBuilder()
+                    .setAffectorId(1)
+                    .addAffectedIds(123)
+                    .build()
+            val g =
+                gsm(gsId = 1, annotations = listOf(submitted))
+                    .toBuilder()
+                    .addGameObjects(GameObjectInfo.newBuilder().setInstanceId(123).setType(GameObjectType.Card))
+                    .build()
+
+            checker.process(greMessage(msgId = 1, gsm = g))
+
+            checker.violations.map { it.check } shouldBe listOf("client_annotation_ref")
+            checker.violations.single().message shouldContain "affectedId 123"
+        }
+
+        test("submitted targets cannot use a retired card from the previous state") {
+            val checker = InvariantChecker()
+            val initial =
+                gsm(gsId = 1, annotations = emptyList())
+                    .toBuilder()
+                    .addGameObjects(GameObjectInfo.newBuilder().setInstanceId(123).setType(GameObjectType.Card))
+                    .addZones(ZoneInfo.newBuilder().setZoneId(ZoneIds.STACK).addObjectInstanceIds(123))
+                    .build()
+            checker.seedFull(initial)
+            val submitted =
+                annotation(1, AnnotationType.PlayerSubmittedTargets)
+                    .toBuilder()
+                    .setAffectorId(1)
+                    .addAffectedIds(123)
+                    .build()
+            val next =
+                gsm(gsId = 2, annotations = listOf(submitted))
+                    .toBuilder()
+                    .setType(GameStateType.Diff)
+                    .addDiffDeletedInstanceIds(123)
+                    .addZones(ZoneInfo.newBuilder().setZoneId(ZoneIds.STACK))
+                    .build()
+
+            checker.process(greMessage(msgId = 1, gsm = next))
+
+            checker.violations.map { it.check } shouldBe listOf("client_annotation_ref")
+        }
+
+        test("damage cannot use an unknown source just because an ability annotation names it") {
+            val checker = InvariantChecker()
+            val damage =
+                annotation(2, AnnotationType.DamageDealt_af5a)
+                    .toBuilder()
+                    .setAffectorId(123)
+                    .addAffectedIds(2)
+                    .build()
+            val g = gsm(gsId = 1, annotations = listOf(aicAnnotation(1, 123, 1), damage))
+
+            checker.process(greMessage(msgId = 1, gsm = g))
+
+            checker.violations.map { it.check } shouldBe listOf("client_annotation_ref")
+            checker.violations.single().message shouldContain "affectorId 123"
+        }
+
+        test("damage retains an old source and victim through their same-frame deletion") {
+            val checker = InvariantChecker()
+            val initial =
+                gsm(gsId = 1, annotations = emptyList())
+                    .toBuilder()
+                    .addGameObjects(GameObjectInfo.newBuilder().setInstanceId(123).setType(GameObjectType.Card))
+                    .addGameObjects(GameObjectInfo.newBuilder().setInstanceId(124).setType(GameObjectType.Token))
+                    .addZones(
+                        ZoneInfo
+                            .newBuilder()
+                            .setZoneId(ZoneIds.BATTLEFIELD)
+                            .addObjectInstanceIds(123)
+                            .addObjectInstanceIds(124),
+                    ).build()
+            checker.seedFull(initial)
+            val damage =
+                annotation(1, AnnotationType.DamageDealt_af5a)
+                    .toBuilder()
+                    .setAffectorId(123)
+                    .addAffectedIds(124)
+                    .build()
+            val next =
+                gsm(gsId = 2, annotations = listOf(damage))
+                    .toBuilder()
+                    .setType(GameStateType.Diff)
+                    .addAllDiffDeletedInstanceIds(listOf(123, 124))
+                    .addZones(ZoneInfo.newBuilder().setZoneId(ZoneIds.BATTLEFIELD))
+                    .build()
+
+            checker.process(greMessage(msgId = 1, gsm = next))
+
+            checker.violations.shouldBeEmpty()
+        }
+
+        test("guarded historical animation and persistent-target references are not fatal") {
+            val checker = InvariantChecker()
+            val annotations =
+                listOf(
+                    AnnotationType.ManaPaid,
+                    AnnotationType.UserActionTaken,
+                    AnnotationType.ObjectIdChanged,
+                    AnnotationType.TargetSpec,
+                ).mapIndexed {
+                    index,
+                    type,
+                    ->
+                    annotation(index + 1, type)
+                        .toBuilder()
+                        .setAffectorId(123)
+                        .addAffectedIds(124)
+                        .build()
+                }
+
+            checker.process(greMessage(msgId = 1, gsm = gsm(gsId = 1, annotations = annotations)))
+
+            checker.violations.shouldBeEmpty()
         }
 
         test("aid_affector entry is pruned after AID fires") {

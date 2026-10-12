@@ -1,0 +1,27 @@
+name: stack-cleanup
+description: Counterspell cleanup reached through a player-controlled opening main phase. Native loading and animation remain separate checks.
+scenarios:
+  - id: three-steps-counter-tablet
+    puzzle: three-steps-counter-cleanup
+    headless: { forge_catalog: true }
+    run: end our turn, then counter the opponent's Tablet with Three Steps Ahead
+    expect: both cards are in their owners' graveyards and the stack is empty
+    steps:
+      - expect:
+          all:
+            - phase: Main1
+            - action: { type: play_land, card: Forest }
+            - stack_empty: true
+      - pass_until:
+          zone_contains: { side: opponent, zone: stack, card: Tablet of Discovery }
+          max_passes: 20
+      - cast: Three Steps Ahead
+      - modal_choice: { index: 0 }
+      - target: { side: opponent, zone: stack, card: Tablet of Discovery }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: graveyard, card: Three Steps Ahead }
+            - zone_contains: { side: opponent, zone: graveyard, card: Tablet of Discovery }
+            - zone_not_contains: { side: opponent, zone: battlefield, card: Tablet of Discovery }
+            - stack_empty: true

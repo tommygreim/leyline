@@ -134,6 +134,30 @@ class LocalPairingServiceTest :
             }
         }
 
+        test("a closed connection can reclaim only its authenticated seat and stale closures cannot release its replacement") {
+            pair()
+            pairing.claim("match-1", alice, 1, false, "old")
+            pairing.releaseConnection("old")
+            shouldThrow<IllegalArgumentException> { pairing.claim("match-1", bob, 1, false, "intruder") }
+            pairing.claim("match-1", alice, 1, false, "new").seatId.value shouldBe 1
+            pairing.releaseConnection("old")
+            shouldThrow<IllegalArgumentException> { pairing.claim("match-1", alice, 1, false, "duplicate") }
+        }
+
+        test("a started room survives both socket closures and Front Door departure until engine teardown") {
+            pair()
+            pairing.claim("match-1", alice, 1, false, "md-a")
+            pairing.claim("match-1", bob, 2, false, "md-b")
+            pairing.releaseConnection("md-a")
+            pairing.releaseConnection("md-b")
+            pairing.leave("fd-alice")
+            clock = 900_000
+            pairing.claim("match-1", bob, 2, false, "retry-b").matchId shouldBe "match-1"
+            pairing.claim("match-1", alice, 1, false, "retry-a").matchId shouldBe "match-1"
+            pairing.complete("match-1")
+            configs.get("match-1").shouldBeNull()
+        }
+
         test("active rooms block another match until the matching room is completed") {
             pair()
             shouldThrow<IllegalArgumentException> { queue(alice) }

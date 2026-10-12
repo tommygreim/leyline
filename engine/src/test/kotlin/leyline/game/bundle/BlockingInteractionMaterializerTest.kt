@@ -2,6 +2,7 @@ package leyline.game.bundle
 
 import io.kotest.assertions.assertSoftly
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import leyline.UnitTag
@@ -25,6 +26,7 @@ import wotc.mtgo.gre.external.messaging.Messages.GameObjectInfo
 import wotc.mtgo.gre.external.messaging.Messages.GameObjectType
 import wotc.mtgo.gre.external.messaging.Messages.GameStateMessage
 import wotc.mtgo.gre.external.messaging.Messages.GameStateType
+import wotc.mtgo.gre.external.messaging.Messages.ParameterType
 import wotc.mtgo.gre.external.messaging.Messages.ZoneInfo
 
 class BlockingInteractionMaterializerTest :
@@ -187,6 +189,49 @@ class BlockingInteractionMaterializerTest :
             assertSoftly {
                 message.prompt.promptId shouldBe PromptIds.DISCARD_OPTIONAL
                 message.optionalActionMessage.prompt shouldBe message.prompt
+            }
+        }
+
+        for (snapshot in listOf(false, true)) {
+            test("${if (snapshot) "snapshot" else "thin"} static confirmation preserves source and exact effect question") {
+                val source = ForgeCardId(42)
+                val prior =
+                    ProjectionState
+                        .initial()
+                        .editor()
+                        .apply { identities.bind(source, InstanceId(142)) }
+                        .freeze()
+                val interaction =
+                    BlockingInteraction.Optional(
+                        sourceId = source,
+                        forceSnapshotBeforePrompt = snapshot,
+                        customPromptId = null,
+                        commanderReturn = null,
+                        confirmationText = "Apply the optional modifier?",
+                    )
+                val materializer = BlockingInteractionMaterializer(seatId = 1)
+                val prepared =
+                    if (snapshot) {
+                        materializer.snapshotOptional(
+                            emptyList(),
+                            LogicalSequencePlanner(),
+                            interaction,
+                            ProjectionTransition(prior.revision, prior),
+                        )
+                    } else {
+                        materializer.generalOptional(prior, LogicalSequencePlanner(), interaction)
+                    }
+                val message = prepared.bundle.messages.single { it.hasOptionalActionMessage() }
+                assertSoftly {
+                    message.prompt.promptId shouldBe PromptIds.SOURCE_EFFECT_CONFIRMATION
+                    message.optionalActionMessage.prompt shouldBe message.prompt
+                    message.optionalActionMessage.sourceId shouldBe 142
+                    message.optionalActionMessage.highlightIdsList shouldBe listOf(142)
+                    message.prompt.parametersList.map { it.parameterName } shouldBe listOf("CardId", "EffectText")
+                    message.prompt.parametersList.map { it.type } shouldBe listOf(ParameterType.Number, ParameterType.NonLocalizedString)
+                    message.prompt.getParameters(0).numberValue shouldBe 142
+                    message.prompt.getParameters(1).stringValue shouldBe interaction.confirmationText
+                }
             }
         }
 
@@ -356,7 +401,7 @@ class BlockingInteractionMaterializerTest :
                     )
                 numeric.sourceId shouldBe stackIid.value
                 pending.actionsList shouldBe state.actionsList
-                (output.indexOfFirst { it.hasNumericInputReq() } > output.indexOf(stateMessage)) shouldBe true
+                output.indexOfFirst { it.hasNumericInputReq() } shouldBeGreaterThan output.indexOf(stateMessage)
             }
         }
     })

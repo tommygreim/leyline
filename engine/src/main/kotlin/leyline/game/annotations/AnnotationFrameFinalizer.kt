@@ -14,9 +14,11 @@ object AnnotationFrameFinalizer {
     fun finalize(
         annotations: List<AnnotationInfo>,
         firstId: Int,
+        retainAnnotation: (AnnotationInfo) -> Boolean = { true },
     ): FinalizedAnnotationFrame {
         require(firstId > 0) { "Transient annotation IDs must be positive" }
-        val ordered = AnnotationOrderEnforcer.enforce(dedupePhaseSteps(followFrameIdChanges(annotations)))
+        val retained = followFrameIdChanges(annotations).filter(retainAnnotation)
+        val ordered = AnnotationOrderEnforcer.enforce(dedupePhaseSteps(retained))
         val numbered = ordered.mapIndexed { index, annotation -> annotation.toBuilder().setId(firstId + index).build() }
         return FinalizedAnnotationFrame(numbered, firstId + numbered.size)
     }

@@ -210,6 +210,13 @@ object ZoneTransferDetector {
         val pendingSpellResolutionLookup = context.pendingSpellResolutionLookup
         val forgeCardKnown = context.forgeCardKnown
         val paradigmSourceIidLookup = context.paradigmSourceIidLookup
+        // A spell's effects belong to its published stack identity, not the
+        // graveyard identity allocated later in this same projection frame.
+        val previousStackIids =
+            previousZones.entries
+                .filter { it.value == ZoneIds.STACK }
+                .mapNotNull { (iid, _) -> forgeIdLookup(InstanceId(iid))?.let { it to iid } }
+                .toMap()
         val ledgerIntents = ZoneMoveLedger.fold(context.zoneMoves, events)
         val pendingLedgerIntents = ledgerIntents.toMutableList()
         val patchedObjects = gameObjects.toMutableList()
@@ -335,6 +342,8 @@ object ZoneTransferDetector {
                 val affectorId =
                     if (category == TransferCategory.Warp) {
                         origId
+                    } else if (ledgerIntent?.move?.mulliganSeatId != null) {
+                        ledgerIntent.move.mulliganSeatId.value
                     } else if (ledgerIntent?.sourceCardId != null) {
                         val sourceCardId = ledgerIntent.sourceCardId
                         val intentAbilityIds =
@@ -370,13 +379,11 @@ object ZoneTransferDetector {
                                 .firstOrNull { (abilityId, rootId, stackId) ->
                                     intentAbilityIds.any { it == abilityId || it == rootId || it == stackId }
                                 }?.first
-                        val sourceIdentity =
-                            if (stackAbilityForgeId != null) {
-                                FrameIdResolver.triggerStackAbilityForgeId(stackAbilityForgeId)
-                            } else {
-                                sourceCardId
-                            }
-                        idLookup(sourceIdentity).value
+                        if (stackAbilityForgeId != null) {
+                            idLookup(FrameIdResolver.triggerStackAbilityForgeId(stackAbilityForgeId)).value
+                        } else {
+                            previousStackIids[sourceCardId] ?: idLookup(sourceCardId).value
+                        }
                     } else if (forgeCardId != null && events.isNotEmpty()) {
                         val sourceCardId = TransferCategoryResolver.affectorSourceFromEvents(forgeCardId, events)
                         if (sourceCardId != null) {
@@ -1180,6 +1187,7 @@ object ZoneTransferDetector {
                     forgeCardId = forgeCardId,
                     grpId = pendingResolution?.spellGrpId?.takeIf { it != 0 } ?: grpIdResolver(forgeCardId).value,
                     ownerSeatId = ownerSeatId,
+                    affectorId = ledgerIntent?.move?.mulliganSeatId?.value ?: 0,
                     isAdventureCast = spellCastEvent?.isAdventure == true,
                     altCostAbilityGrpId = spellCastEvent?.altCostAbilityGrpId ?: 0,
                     kickerAbilityGrpId = spellCastEvent?.kickerAbilityGrpId ?: 0,

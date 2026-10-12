@@ -52,6 +52,8 @@ data class ManaSourcePaymentCommandReceipt(
 data class ManaSourcePaymentResult(
     val optionIndices: List<Int>,
     val shards: List<ManaSourcePaymentShardValue>,
+    /** Abort the entire payment, distinct from completing with no reducer sources. */
+    val cancelled: Boolean = false,
 ) : List<Int> by optionIndices
 
 data class ManaSourcePaymentShardValue(

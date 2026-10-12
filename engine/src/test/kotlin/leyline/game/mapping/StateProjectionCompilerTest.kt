@@ -881,7 +881,7 @@ class StateProjectionCompilerTest :
             }
         }
 
-        test("one compile stages order move then supplements and clears exact submitted targets") {
+        test("one compile stages order move and consumes but does not republish unresolvable target supplements") {
             val cardId = ForgeCardId(10)
             val sourceId = ForgeCardId(20)
             val pending = PendingSubmittedTargets(InstanceId(777), SeatId(1), version = 3)
@@ -912,11 +912,9 @@ class StateProjectionCompilerTest :
             val next = first.transition.nextState
             val newCardId = next.identities.forgeIdToInstanceId.getValue(cardId)
             val annotationTypes = first.gsm.annotationsList.map { it.typeList.single() }
-            val submitted = first.gsm.annotationsList.single { it.typeList == listOf(AnnotationType.PlayerSubmittedTargets) }
             val changed = first.gsm.annotationsList.single { it.typeList == listOf(AnnotationType.ObjectIdChanged) }
             val transfer = first.gsm.annotationsList.single { it.typeList == listOf(AnnotationType.ZoneTransfer_af5a) }
             val newTurn = first.gsm.annotationsList.single { it.typeList == listOf(AnnotationType.NewTurnStarted) }
-            val selecting = first.gsm.annotationsList.single { it.typeList == listOf(AnnotationType.PlayerSelectingTargets) }
 
             shouldThrow<IllegalStateException> {
                 StateProjectionCompiler.compileOneViewer(
@@ -950,13 +948,9 @@ class StateProjectionCompilerTest :
                 changed.affectedIdsList shouldContainExactly listOf(100)
                 transfer.affectedIdsList shouldContainExactly listOf(newCardId.value)
                 newTurn.affectedIdsList shouldContainExactly listOf(1)
-                selecting.affectedIdsList shouldContainExactly
-                    listOf(
-                        next.identities.forgeIdToInstanceId
-                            .getValue(FrameIdResolver.triggerStackAbilityForgeId(9))
-                            .value,
-                    )
-                submitted.affectedIdsList shouldContainExactly listOf(777)
+                annotationTypes.any {
+                    it == AnnotationType.PlayerSelectingTargets || it == AnnotationType.PlayerSubmittedTargets
+                } shouldBe false
                 next.identities.forgeIdToInstanceId shouldContainKey FrameIdResolver.triggerStackAbilityForgeId(9)
                 next.identities.forgeIdToInstanceId shouldContainKey FrameIdResolver.triggerStackAbilityForgeId(10)
                 next.viewerCursors.getValue(SeatId(1)).previousSnapshot shouldBe first.projectionSnapshot

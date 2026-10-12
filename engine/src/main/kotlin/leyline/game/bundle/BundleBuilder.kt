@@ -955,7 +955,23 @@ class BundleBuilder(
             return PreparedViewerCut(
                 player,
                 routes.map { route ->
-                    val messages = if (route.viewer.seatId.value == seatId) player.bundle.messages else listOf(content)
+                    val messages =
+                        if (route.viewer.seatId.value == seatId) {
+                            player.bundle.messages
+                        } else {
+                            listOf(
+                                content
+                                    .toBuilder()
+                                    .clearSystemSeatIds()
+                                    .addSystemSeatIds(route.viewer.seatId.value)
+                                    .setGameStateMessage(
+                                        content.gameStateMessage
+                                            .toBuilder()
+                                            .clearActions()
+                                            .setPendingMessageCount(0),
+                                    ).build(),
+                            )
+                        }
                     ViewerBatches(route.viewer.seatId, listOf(messages))
                 },
                 checkNotNull(player.transition),

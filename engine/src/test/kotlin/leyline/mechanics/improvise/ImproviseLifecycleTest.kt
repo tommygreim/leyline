@@ -11,6 +11,7 @@ import leyline.game.data.KeywordAbilityIds
 import leyline.testkit.MatchFlowHarness
 import leyline.testkit.SessionTest
 import leyline.testkit.after
+import leyline.testkit.clientMessage
 import leyline.testkit.detailInt
 import leyline.testkit.hasDetail
 import leyline.testkit.haveManaCost
@@ -18,11 +19,45 @@ import leyline.testkit.performAction
 import leyline.testkit.persistentAnnotationsOfType
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
+import wotc.mtgo.gre.external.messaging.Messages.ClientMessageType
 import wotc.mtgo.gre.external.messaging.Messages.ManaColor
 import wotc.mtgo.gre.external.messaging.Messages.ManaSpecType
+import wotc.mtgo.gre.external.messaging.Messages.PerformAutoTapActionsResp
 
 class ImproviseLifecycleTest :
     SessionTest({
+        session(
+            "Improvise Cancel abandons a partial artifact selection without paying ordinary mana",
+            puzzleFile = "data/puzzles/payment-improvise-ironheart.pzl",
+            fullControl = true,
+        ) {
+            after { castSpellByName("Ironheart, Clever Champion").shouldBeTrue() }.expectOnePayCostsReq()
+            after { respondToMakePayment(human.battlefield.iid("Ornithopter")) }.expectOnePayCostsReq()
+            cancelAction()
+            assertSoftly {
+                human.hand
+                    .card("Ironheart, Clever Champion")
+                    .zone.zoneType shouldBe forge.game.zone.ZoneType.Hand
+                human.getZone(forge.game.zone.ZoneType.Battlefield).cards.all { !it.isTapped } shouldBe true
+                game().stack.isEmpty shouldBe true
+                game().stackZone.shouldBeEmpty()
+            }
+            after { castSpellByName("Ironheart, Clever Champion").shouldBeTrue() }.expectOnePayCostsReq()
+            respondToMakePayment(human.battlefield.iid("Ornithopter"))
+            respondToPaymentDone()
+            passUntilResolved(maxPasses = 8)
+            assertSoftly {
+                human.battlefield.card("Ironheart, Clever Champion").name shouldBe "Ironheart, Clever Champion"
+                human.battlefield.card("Ornithopter").isTapped shouldBe true
+                human
+                    .getZone(forge.game.zone.ZoneType.Battlefield)
+                    .cards
+                    .filter { it.name == "Island" }
+                    .count { it.isTapped } shouldBe 4
+                game().stack.isEmpty shouldBe true
+            }
+        }
+
         session(
             "Ironheart pays Improvise through PayCostsReq",
             puzzle =
@@ -53,13 +88,18 @@ class ImproviseLifecycleTest :
                     .actionsList
                     .single { it.actionType == ActionType.Cast && it.instanceId == ironheartIid }
 
-            castAction should haveManaCost(generic = 4, blue = 1)
+            assertSoftly {
+                castAction should haveManaCost(generic = 4, blue = 1)
+                castAction.hasAutoTapSolution() shouldBe true
+                castAction.autoTapSolution.autoTapActionsList.count { it.abilityGrpId == KeywordAbilityIds.IMPROVISE } shouldBe 4
+            }
 
             val initialPayCosts = after { castSpellByName("Ironheart, Clever Champion").shouldBeTrue() }.expectOnePayCostsReq()
             initialPayCosts.paymentActions.actionsList
+                .filter { it.actionType == ActionType.MakePayment }
                 .map { it.instanceId }
                 .toSet() shouldBe artifactIids.toSet()
-            initialPayCosts.paymentActions.actionsList.forEach { action ->
+            initialPayCosts.paymentActions.actionsList.filter { it.actionType == ActionType.MakePayment }.forEach { action ->
                 val mana =
                     action.manaPaymentOptionsList
                         .single()
@@ -108,10 +148,10 @@ private fun MatchFlowHarness.respondToMakePayment(instanceId: Int) {
 private fun MatchFlowHarness.respondToPaymentDone() {
     send(
         submitWithGsId(
-            performAction { actionType = ActionType.Pass }
-                .toBuilder()
-                .setGameStateId(latestPromptGsId())
-                .build(),
+            clientMessage(ClientMessageType.PerformAutoTapActionsResp_097b) {
+                gameStateId = latestPromptGsId()
+                setPerformAutoTapActionsResp(PerformAutoTapActionsResp.newBuilder().setIndex(0))
+            },
         ),
     )
     drainSink()

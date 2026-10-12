@@ -996,9 +996,11 @@ class BundleBuilderTest :
         }
 
         test("submitted-target rider leads the finalized frame with ascending ids") {
-            val (b, game, counter) = startWithBoard { _, _, _ -> }
+            val board = startWithBoard { _, human, _ -> addCard("Grizzly Bears", human, ZoneType.Battlefield) }
+            val (b, game, counter) = board
+            val sourceIid = board.human.battlefield.iid("Grizzly Bears")
             val builder = bundleBuilder(b)
-            val staged = builder.prepareTargetingSubmit(counter, b.projectionStateSnapshot(), 777.iid, SeatId(1))
+            val staged = builder.prepareTargetingSubmit(counter, b.projectionStateSnapshot(), sourceIid.iid, SeatId(1))
             b.commitProjection(checkNotNull(staged.transition))
 
             val result = BundleBuilderTestSupport.stateOnly(builder, b, game, counter)
@@ -1006,7 +1008,7 @@ class BundleBuilderTest :
 
             assertSoftly {
                 gsm.annotationsList.first().typeList shouldBe listOf(AnnotationType.PlayerSubmittedTargets)
-                gsm.annotationsList.first().affectedIdsList shouldBe listOf(777)
+                gsm.annotationsList.first().affectedIdsList shouldBe listOf(sourceIid)
                 gsm.annotationsList.map { it.id } shouldBe gsm.annotationsList.indices.map { gsm.annotationsList.first().id + it }
                 builder.pendingSubmittedTargets() shouldBe null
                 b.projectionStateSnapshot().persistentAnnotations.nextAnnotationId shouldBe gsm.annotationsList.last().id + 1

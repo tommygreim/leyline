@@ -98,28 +98,14 @@ internal class BlockingInteractionMaterializer(
             val sourceId =
                 interaction.sourceId?.let { editor.identities.getOrAlloc(it).value }
                     ?: error("Optional interaction requires a source")
-            val prompt =
-                Prompt
-                    .newBuilder()
-                    .setPromptId(
-                        interaction.customPromptId ?: interaction.costText?.let { PromptIds.PAY_COSTS } ?: PromptIds.OPTIONAL_ACTION,
-                    ).apply {
-                        val cost = interaction.costText
-                        if (cost != null) {
-                            addParameters(costPromptParameter(cost))
-                        } else {
-                            addParameters(cardIdPromptParameter(sourceId))
-                        }
-                        interaction.recipientIds.forEach { recipientId ->
-                            addParameters(cardIdPromptParameter(editor.identities.getOrAlloc(recipientId).value))
-                        }
-                    }.build()
+            val prompt = optionalPrompt(interaction, sourceId) { editor.identities.getOrAlloc(it).value }
             val optional =
                 OptionalActionMessage
                     .newBuilder()
                     .setSourceId(sourceId)
                     .setPrompt(prompt)
                     .apply {
+                        if (interaction.confirmationText != null) addHighlightIds(sourceId)
                         interaction.mechanicType?.let { addOptionalActionTypes(it) }
                         addAllRecipientIds(
                             interaction.recipientIds.map { editor.identities.getOrAlloc(it).value },
@@ -324,14 +310,7 @@ internal class BlockingInteractionMaterializer(
                 ?.value
                 ?: error("Optional interaction recipient has no projected identity")
         }
-        val prompt =
-            Prompt
-                .newBuilder()
-                .setPromptId(interaction.customPromptId ?: PromptIds.OPTIONAL_ACTION)
-                .addParameters(cardIdPromptParameter(sourceId))
-                .addAllParameters(
-                    interaction.recipientIds.map { recipientId -> cardIdPromptParameter(recipientInstanceId(recipientId)) },
-                ).build()
+        val prompt = optionalPrompt(interaction, sourceId, recipientInstanceId)
         val optional =
             OptionalActionMessage
                 .newBuilder()
@@ -339,6 +318,7 @@ internal class BlockingInteractionMaterializer(
                 .addAllRecipientIds(
                     interaction.recipientIds.map(recipientInstanceId),
                 ).apply {
+                    if (interaction.confirmationText != null) addHighlightIds(sourceId)
                     interaction.mechanicType?.let { addOptionalActionTypes(it) }
                 }.setPrompt(prompt)
                 .build()
@@ -916,6 +896,35 @@ internal class BlockingInteractionMaterializer(
             // temporarily playable exile/graveyard cards do not jump zones.
             .addAllActions(presentationActions)
             .build()
+
+    private fun optionalPrompt(
+        interaction: BlockingInteraction.Optional,
+        sourceId: Int,
+        recipientInstanceId: (ForgeCardId) -> Int,
+    ): Prompt =
+        Prompt
+            .newBuilder()
+            .apply {
+                val confirmation = interaction.confirmationText
+                if (confirmation != null) {
+                    setPromptId(PromptIds.SOURCE_EFFECT_CONFIRMATION)
+                    addParameters(cardIdPromptParameter(sourceId))
+                    addParameters(
+                        PromptParameter
+                            .newBuilder()
+                            .setParameterName("EffectText")
+                            .setType(ParameterType.NonLocalizedString)
+                            .setStringValue(confirmation),
+                    )
+                } else {
+                    setPromptId(
+                        interaction.customPromptId ?: interaction.costText?.let { PromptIds.PAY_COSTS } ?: PromptIds.OPTIONAL_ACTION,
+                    )
+                    val cost = interaction.costText
+                    addParameters(if (cost != null) costPromptParameter(cost) else cardIdPromptParameter(sourceId))
+                }
+                interaction.recipientIds.forEach { addParameters(cardIdPromptParameter(recipientInstanceId(it))) }
+            }.build()
 
     private fun costPromptParameter(costText: String): PromptParameter =
         PromptParameter

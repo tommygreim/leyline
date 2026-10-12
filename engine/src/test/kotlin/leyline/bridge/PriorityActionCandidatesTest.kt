@@ -116,6 +116,21 @@ class PriorityActionCandidatesTest :
             candidates.hasLegalNonManaAction(board.human).shouldBeTrue()
             projection.actions.ofType(ActionType.Cast).shouldHaveSize(1)
         }
+        for (tapped in listOf(false, true)) {
+            test("mana-only candidates require an executable source and stay separate from non-mana actions: $tapped") {
+                val board =
+                    startWithBoard { _, human, _ ->
+                        addCard("Birds of Paradise", human, ZoneType.Battlefield).isTapped = tapped
+                    }
+                val candidates = PriorityActionCandidates.query(board.game, board.human)
+                candidates.hasLegalNonManaAction(board.human).shouldBeFalse()
+                candidates.hasLegalManaAction(board.human) shouldBe !tapped
+                board.human.battlefield
+                    .card("Birds of Paradise")
+                    .isTapped shouldBe tapped
+                board.human.manaPool.totalMana() shouldBe 0
+            }
+        }
         for (manaAvailable in listOf(false, true)) {
             test("opponent cycling stop requires payable mana: $manaAvailable") {
                 val board =

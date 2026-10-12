@@ -56,7 +56,12 @@ object LibraryKnowledgeTracker {
                         cardsByInstanceId[iid]?.let { fid -> next[fid] = next[fid].orEmpty() + event.seatId }
                     }
                 is GameEvent.ZoneChanged -> {
-                    if (event.to == Zone.Library) rememberPublicReturn(event.cardId, event.from)
+                    if (event.to == Zone.Library) {
+                        rememberPublicReturn(event.cardId, event.from)
+                        if (event.from == Zone.Hand && event.mulliganSeatId == libraryOwners[event.cardId]) {
+                            event.mulliganSeatId?.let { next[event.cardId] = setOf(it) }
+                        }
+                    }
                     if (event.to != Zone.Library) next.remove(event.cardId)
                 }
                 // The collector specializes BF -> Hand/Library; final library

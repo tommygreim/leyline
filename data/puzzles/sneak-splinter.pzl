@@ -3,15 +3,15 @@ Name:Sneak - Splinter
 Goal:Survive
 Turns:3
 Difficulty:Easy
-Description:Cast Splinter for its Sneak cost after Raging Goblin goes unblocked.
+Description:Leave Forest in hand. Attack with Raging Goblin. During declare blockers only Sneak {B}, not normal casting, should be offered for Splinter. Return the unblocked Goblin and verify tapped attacking entry; reset to check cancellation.
 
 [state]
 ActivePlayer=Human
-ActivePhase=COMBAT_DECLARE_ATTACKERS
+ActivePhase=Main1
 HumanLife=20
 AILife=20
 
-humanhand=Splinter, Hamato Yoshi
+humanhand=Splinter, Hamato Yoshi;Forest
 humanbattlefield=Swamp;Raging Goblin
 humanlibrary=Swamp;Swamp;Swamp
 aibattlefield=

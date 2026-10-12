@@ -77,4 +77,6 @@ data class StackEntry(
     val deferAnnouncement: Boolean = false,
     /** Printing that owns the ability's localized text when it was copied/granted. */
     val abilityOriginalCardGrpId: Int = 0,
+    /** Active draw replacements explaining this ability's result, with their text-owning printings. */
+    val contextualAbilities: List<Pair<Int, Int>> = emptyList(),
 )

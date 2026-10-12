@@ -60,6 +60,20 @@ internal class ManaSourcePaymentHandler(
         return if (deliver(receipt)) HandlerResult.Resume else HandlerResult.Waiting
     }
 
+    /** Native Auto Pay confirms the current reducers, then Forge pays the remainder. */
+    fun tryHandleAutoTap(greMsg: ClientToGREMessage): HandlerResult {
+        val runtime =
+            ctx.bridge.cutCoordinator
+                .promptRuntimes(ctx.seatId)
+                .manaSourcePayments
+        val pending = runtime.current() ?: return HandlerResult.NotHandled
+        if (greMsg.performAutoTapActionsResp.index != 0) return HandlerResult.Waiting
+        val receipt =
+            runtime.complete(pending.interactionId, greMsg.gameStateId, emptyList())
+                ?: return HandlerResult.Waiting
+        return if (deliver(receipt)) HandlerResult.Resume else HandlerResult.Waiting
+    }
+
     /** Release the most recently tapped mana source, leaving the window open. */
     fun tryHandleUndo(greMsg: ClientToGREMessage): HandlerResult {
         val runtime =

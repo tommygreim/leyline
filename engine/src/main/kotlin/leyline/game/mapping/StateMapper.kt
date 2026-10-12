@@ -691,7 +691,8 @@ object StateMapper {
                         keywordDiff.destroyed.map { it.cardInstanceId } +
                         grantedAbilityDiff.created.map { it.cardInstanceId } +
                         grantedAbilityDiff.destroyed.map { it.cardInstanceId } +
-                        libraryKnowledgeChanged.map { editor.identities.getOrAlloc(it).value }
+                        libraryKnowledgeChanged.map { editor.identities.getOrAlloc(it).value } +
+                        shuffleIdentityPlans.flatMap { plan -> plan.reallocations.values.map { it.new.value } }
                 ).toSet(),
         )
     }
@@ -1232,6 +1233,15 @@ object StateMapper {
                 previousCompanionIds
         val changedObjects =
             current.gameObjectsList.filter { obj ->
+                // Private library knowledge belongs only to its explicit viewers.
+                // A Diff must not bypass the permission applied to Full states.
+                if (viewingSeatId != 0 &&
+                    (obj.zoneId == ZoneIds.P1_LIBRARY || obj.zoneId == ZoneIds.P2_LIBRARY) &&
+                    obj.visibility == Visibility.Private &&
+                    viewingSeatId !in obj.viewersList
+                ) {
+                    return@filter false
+                }
                 // Always include new objects absent from prev (e.g. RevealedCard proxies synthesized mid-diff).
                 if (obj.instanceId !in prevInstanceIds) {
                     // Still apply opponent-hand filter unless reveal is active

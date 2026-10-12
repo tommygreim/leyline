@@ -406,6 +406,11 @@ class MatchConnection(
 
     @Suppress("ElseCaseInsteadOfExhaustiveWhen")
     private fun processGREMessage(greMsg: ClientToGREMessage) {
+        // Cosmetic hover/emote messages can name the other seat (for example
+        // while inspecting its shock-land replacement). They do not submit a
+        // game decision and must not tear down the room. Keep the authenticated
+        // seat guard below for every gameplay and settings message.
+        if (greMsg.type == ClientMessageType.Uimessage_a39e) return
         seatAssignment?.let { assignment ->
             require(greMsg.systemSeatId == 0 || greMsg.systemSeatId == assignment.seatId.value) {
                 "GRE seat does not match the assigned player"
@@ -430,7 +435,9 @@ class MatchConnection(
         // where MatchSession owns response correlation. Read-only familiar and
         // spectator sessions intentionally ignore mirrored gameplay responses.
         when (greMsg.type) {
-            ClientMessageType.ConnectReq_097b -> connectFlow.onConnect(ConnectAttempt(matchId, seatId, isFamiliar))
+            ClientMessageType.ConnectReq_097b -> {
+                if (!resumeDisconnectedSession()) connectFlow.onConnect(ConnectAttempt(matchId, seatId, isFamiliar))
+            }
 
             // Startup is server-owned. Legacy responses are inert and cannot replay it.
             ClientMessageType.ChooseStartingPlayerResp_097b -> {}
@@ -562,6 +569,29 @@ class MatchConnection(
         sendInitialBundle()
     }
 
+    private fun resumeDisconnectedSession(): Boolean {
+        if (seatAssignment?.humanVsHuman != true || isFamiliar) return false
+        val retained = registry.detachedSession(matchId, SeatId(seatId)) ?: return false
+        synchronized(retained.connection.sessionLock) {
+            registry.reattachConnection(matchId, SeatId(seatId), clientId, this, retained)
+            retained.connection.sink = MatchOutputMessageSink(output)
+            bindSession(retained)
+            sendRoomState()
+            // Drain committed output first: its most recent prompt may have
+            // arrived after the old transport died. Resync then replays the
+            // current decision without abandoning the engine's waiting future.
+            retained.deliverRuntimeHorizon()
+            retained.gameBridge.cutCoordinator.lifecycle.publishTransportReconnect(
+                SeatId(seatId),
+                retained.lastPromptMessage(),
+            )
+            retained.deliverLifecycle(retained.gameBridge)
+            armRuntimeDeliveryObserver()
+        }
+        log.info("Match transport resumed for seat {}", seatId)
+        return true
+    }
+
     override fun disconnected() {
         val event = log.atInfo().addKeyValue("event", "match.disconnected")
         val correlatedEvent = lastConnectedMatchId?.let { event.addKeyValue("match_id", it) } ?: event
@@ -571,6 +601,12 @@ class MatchConnection(
         if (detachedAfterTeardown || (session == null && seatAssignment == null)) return
         if (isSpectatorMode() && isFamiliar) {
             log.info("Match Door: spectator familiar disconnected, leaving AI match active")
+            return
+        }
+        if (registry.detachConnection(matchId, SeatId(seatId), this)) {
+            detachedAfterTeardown = true
+            state = MatchHandlerState.Handshaking()
+            seatAssignment = null
             return
         }
         registry.teardownMatch(

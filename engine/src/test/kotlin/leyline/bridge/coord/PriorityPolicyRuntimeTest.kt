@@ -66,6 +66,37 @@ class PriorityPolicyRuntimeTest :
             }
         }
 
+        test("enabled defender post-block priority permits mana-only actions without changing other smart stops") {
+            val policy = runtime()
+            val blocked =
+                observation(own = false, phase = PhaseType.COMBAT_DECLARE_BLOCKERS)
+                    .copy(hasDeclaredBlockers = true, hasManaAction = true)
+            assertSoftly {
+                policy.visible(blocked).shouldBeTrue()
+                policy.visible(blocked.copy(hasManaAction = false)).shouldBeFalse()
+                policy.visible(blocked.copy(hasDeclaredBlockers = false)).shouldBeFalse()
+                policy.visible(blocked.copy(isOwnTurn = true)).shouldBeFalse()
+                policy.visible(blocked.copy(phase = PhaseType.MAIN1)).shouldBeFalse()
+                policy.visible(blocked.copy(phase = PhaseType.COMBAT_DECLARE_ATTACKERS)).shouldBeFalse()
+                policy.visible(blocked.copy(stackEmpty = false, stack = listOf(PriorityStackObject(42, 1)))).shouldBeFalse()
+            }
+            policy.submit(
+                settingsMessage { addStops(stop(StopType.DeclareBlockersStep, SettingScope.Opponents, SettingStatus.Clear_a3fe)) },
+            )
+            policy.visible(blocked).shouldBeFalse()
+        }
+
+        test("explicit turn yield skips the mana-only post-block window and full control overrides it") {
+            val policy = runtime()
+            val blocked =
+                observation(own = false, phase = PhaseType.COMBAT_DECLARE_BLOCKERS, turn = 2)
+                    .copy(hasDeclaredBlockers = true, hasManaAction = true)
+            policy.submit(settingsMessage { autoPassOption = AutoPassOption.UnlessOpponentAction }, turnNumber = 2)
+            policy.visible(blocked).shouldBeFalse()
+            policy.submit(settingsMessage { autoPassOption = AutoPassOption.FullControl })
+            policy.visible(blocked).shouldBeTrue()
+        }
+
         test("default resolve-my-stack-effects auto-passes own objects even when there are legal responses") {
             assertSoftly {
                 val policy = runtime()

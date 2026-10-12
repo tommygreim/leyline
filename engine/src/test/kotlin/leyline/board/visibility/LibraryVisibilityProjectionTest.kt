@@ -6,11 +6,13 @@ import io.kotest.assertions.withClue
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.maps.shouldBeEmpty
 import io.kotest.matchers.shouldBe
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.SeatId
 import leyline.game.event.FrameEventLog
 import leyline.game.event.GameEvent
+import leyline.game.event.Zone
 import leyline.game.mapping.ZoneIds
 import leyline.game.snapshot.GsmSnapshot
 import leyline.game.state.AbilityExhaustionFacts
@@ -160,6 +162,205 @@ class LibraryVisibilityProjectionTest :
             afterNewLook.viewers[ForgeCardId(bear.id)] shouldBe setOf(SeatId(1))
         }
 
+        for (seat in 1..2) {
+            for (count in 1..2) {
+                test("$count final mulligan bottom cards for seat $seat stay private until that player's shuffle") {
+                    val board =
+                        startWithBoard { _, human, opponent ->
+                            val owner = if (seat == 1) human else opponent
+                            addCard("Forest", owner, ZoneType.Hand)
+                            addCard("Island", owner, ZoneType.Hand)
+                            addCard("Swamp", owner, ZoneType.Library)
+                        }
+                    val owner = if (seat == 1) board.human else board.ai
+                    val selected = listOf(owner.hand.card("Forest"), owner.hand.card("Island")).take(count)
+                    val previous = capture(board)
+                    selected.forEach { board.game.action.moveToLibrary(it, -1, null) }
+                    val snapshot = capture(board)
+                    val events = selected.map { GameEvent.ZoneChanged(ForgeCardId(it.id), Zone.Hand, Zone.Library, SeatId(seat)) }
+                    val knowledge =
+                        LibraryKnowledgeTracker.plan(
+                            LibraryKnowledgeTracker.State(),
+                            snapshot,
+                            previous,
+                            events,
+                            board.bridge::getOrAllocInstanceId,
+                        )
+                    val expected = selected.associate { ForgeCardId(it.id) to setOf(SeatId(seat)) }
+                    knowledge.viewers shouldBe expected
+                    snapshot.zones
+                        .getValue(ZoneIds.libraryOf(seat))
+                        .contents
+                        .takeLast(count) shouldBe selected.map { ForgeCardId(it.id) }
+                    val state = board.bridge.projectionStateSnapshot().copy(libraryKnowledge = knowledge)
+                    repeat(3) {
+                        LibraryKnowledgeTracker.plan(
+                            knowledge,
+                            snapshot,
+                            snapshot,
+                            emptyList(),
+                            board.bridge::getOrAllocInstanceId,
+                        ) shouldBe knowledge
+                        val own =
+                            project(board, snapshot, seat, projectionState = state)
+                                .gameObjectsList
+                                .filter { it.zoneId == ZoneIds.libraryOf(seat) && it.grpId != 0 }
+                        assertSoftly {
+                            own.size shouldBe count
+                            own.map { it.grpId }.toSet() shouldBe
+                                selected.map { snapshot.objects.getValue(ForgeCardId(it.id)).grpId }.toSet()
+                            own.forEach { card ->
+                                card.visibility shouldBe Visibility.Private
+                                card.viewersList shouldBe listOf(seat)
+                            }
+                            project(board, snapshot, 3 - seat, projectionState = state)
+                                .gameObjectsList
+                                .filter { it.zoneId == ZoneIds.libraryOf(seat) && it.grpId != 0 }
+                                .shouldBeEmpty()
+                        }
+                    }
+                    LibraryKnowledgeTracker.plan(
+                        knowledge,
+                        snapshot,
+                        snapshot,
+                        listOf(GameEvent.LibraryShuffled(SeatId(3 - seat))),
+                        board.bridge::getOrAllocInstanceId,
+                    ) shouldBe knowledge
+                    // Ordered facts distinguish learning after a shuffle from forgetting after bottoming.
+                    LibraryKnowledgeTracker
+                        .plan(
+                            knowledge,
+                            snapshot,
+                            snapshot,
+                            events + GameEvent.LibraryShuffled(SeatId(seat)),
+                            board.bridge::getOrAllocInstanceId,
+                        ).viewers
+                        .shouldBeEmpty()
+                    LibraryKnowledgeTracker
+                        .plan(
+                            knowledge,
+                            snapshot,
+                            snapshot,
+                            listOf(GameEvent.LibraryShuffled(SeatId(seat))) + events,
+                            board.bridge::getOrAllocInstanceId,
+                        ).viewers shouldBe expected
+                    owner.shuffle(null)
+                    val shuffled = capture(board)
+                    for (viewer in 1..2) {
+                        val withdrawal =
+                            project(
+                                board,
+                                shuffled,
+                                viewer,
+                                snapshot,
+                                events = FrameEventLog(listOf(GameEvent.LibraryShuffled(SeatId(seat)))),
+                                projectionState = state,
+                            )
+                        withdrawal.gameObjectsList.filter { it.zoneId == ZoneIds.libraryOf(seat) }.forEach { card ->
+                            card.grpId shouldBe 0
+                            card.visibility shouldBe Visibility.Hidden
+                            card.viewersList.shouldBeEmpty()
+                        }
+                    }
+                    board.game.action.moveToHand(selected.first(), null)
+                    LibraryKnowledgeTracker
+                        .plan(
+                            knowledge,
+                            capture(board),
+                            snapshot,
+                            emptyList(),
+                            board.bridge::getOrAllocInstanceId,
+                        ).viewers.keys shouldBe selected.drop(1).map { ForgeCardId(it.id) }.toSet()
+                }
+            }
+        }
+
+        test("redraw returns and ordinary hand returns do not grant library inspection") {
+            val board =
+                startWithBoard { _, human, _ ->
+                    addCard("Forest", human, ZoneType.Hand)
+                    addCard("Swamp", human, ZoneType.Library)
+                }
+            val card = board.human.hand.card("Forest")
+            val previous = capture(board)
+            board.game.action.moveToLibrary(card, -1, null)
+            val snapshot = capture(board)
+            for (event in listOf(
+                GameEvent.ZoneChanged(ForgeCardId(card.id), Zone.Hand, Zone.Library),
+                // A mismatched seat cannot acquire the owner's private knowledge.
+                GameEvent.ZoneChanged(ForgeCardId(card.id), Zone.Hand, Zone.Library, SeatId(2)),
+            )) {
+                LibraryKnowledgeTracker
+                    .plan(
+                        LibraryKnowledgeTracker.State(),
+                        snapshot,
+                        previous,
+                        listOf(event),
+                        board.bridge::getOrAllocInstanceId,
+                    ).viewers
+                    .shouldBeEmpty()
+            }
+        }
+
+        for (seat in 1..2) {
+            for (surveil in listOf(false, true)) {
+                test("${if (surveil) "surveil" else "scry"} top knowledge for human seat $seat stays private across later frames") {
+                    val board =
+                        startWithBoard { _, human, opponent ->
+                            val owner = if (seat == 1) human else opponent
+                            addCard("Grizzly Bears", owner, ZoneType.Library)
+                            addCard("Forest", owner, ZoneType.Library)
+                        }
+                    val player = if (seat == 1) board.human else board.ai
+                    val bear = player.library.card("Grizzly Bears")
+                    val snapshot = capture(board)
+                    val event =
+                        if (surveil) {
+                            GameEvent.Surveil(SeatId(seat), listOf(board.instanceId(bear.id)), emptyList())
+                        } else {
+                            GameEvent.Scry(SeatId(seat), listOf(board.instanceId(bear.id)), emptyList())
+                        }
+                    val knowledge =
+                        LibraryKnowledgeTracker.plan(
+                            LibraryKnowledgeTracker.State(),
+                            snapshot,
+                            snapshot,
+                            listOf(event),
+                            board.bridge::getOrAllocInstanceId,
+                        )
+                    val state = board.bridge.projectionStateSnapshot().copy(libraryKnowledge = knowledge)
+                    knowledge.viewers[ForgeCardId(bear.id)] shouldBe setOf(SeatId(seat))
+                    for (viewer in 1..2) {
+                        val diff =
+                            project(
+                                board,
+                                snapshot,
+                                viewer,
+                                previousSnapshot = snapshot,
+                                events = FrameEventLog(listOf(event)),
+                            )
+                        if (viewer == seat) {
+                            diff.objectFor(board, bear.id).visibility shouldBe Visibility.Private
+                            diff.objectFor(board, bear.id).viewersList shouldBe listOf(seat)
+                        } else {
+                            diff.gameObjectsList.filter { it.zoneId == ZoneIds.libraryOf(seat) && it.grpId != 0 }.shouldBeEmpty()
+                        }
+                    }
+                    repeat(3) {
+                        val own = project(board, snapshot, seat, projectionState = state).objectFor(board, bear.id)
+                        assertSoftly {
+                            own.visibility shouldBe Visibility.Private
+                            own.viewersList shouldBe listOf(seat)
+                            project(board, snapshot, 3 - seat, projectionState = state)
+                                .gameObjectsList
+                                .filter { it.instanceId == board.instanceId(bear.id) }
+                                .shouldBeEmpty()
+                        }
+                    }
+                }
+            }
+        }
+
         test("putting a face-down permanent into a library does not reveal its identity") {
             val board =
                 startWithBoard { _, human, _ ->
@@ -260,6 +461,9 @@ class LibraryVisibilityProjectionTest :
             }
 
             board.human.shuffle(null)
+            // A shuffle can leave the same card on top; its new client identity
+            // still needs the ongoing inspection permission re-emitted.
+            library.reorder(postDrawTop, 0)
             board.game.action.checkStateEffects(true)
 
             val shuffledTop = library.cards.first()
@@ -273,10 +477,19 @@ class LibraryVisibilityProjectionTest :
                     events = FrameEventLog(listOf(GameEvent.LibraryShuffled(SeatId(1)))),
                 )
             assertSoftly {
+                shuffledTop shouldBe postDrawTop
                 shuffledTop.mayPlayerLook(board.human).shouldBeTrue()
                 val inspectedTop =
-                    shuffleProjection.gameObjectsList.single {
-                        it.zoneId == ZoneIds.P1_LIBRARY && it.visibility == Visibility.Private
+                    withClue(
+                        "top=${shuffledTop.id} viewers=${shuffledSnapshot.objects[
+                            ForgeCardId(
+                                shuffledTop.id,
+                            ),
+                        ]?.mayLookSeatIds} objects=${shuffleProjection.gameObjectsList}",
+                    ) {
+                        shuffleProjection.gameObjectsList.single {
+                            it.zoneId == ZoneIds.P1_LIBRARY && it.visibility == Visibility.Private
+                        }
                     }
                 inspectedTop.viewersList shouldBe listOf(1)
                 inspectedTop.grpId shouldBe shuffledSnapshot.objects.getValue(ForgeCardId(shuffledTop.id)).grpId

@@ -447,6 +447,7 @@ object ZoneMapper {
                         parentInstanceId = parentInstanceId,
                     ).toBuilder()
                     .apply {
+                        addAbilityTextContext(entry, grpId, sourceCardGrpId)
                         snap.objects[entry.forgeCardId]
                             ?.copiedTitleId
                             ?.takeIf { it != 0 }
@@ -461,14 +462,30 @@ object ZoneMapper {
                                     SpeedEffectIdentity.START_TITLE_ID
                                 }
                         }
-                        if (entry.abilityOriginalCardGrpId != 0 && entry.abilityOriginalCardGrpId != sourceCardGrpId) {
-                            addAbilityOriginalCardGrpIds(entry.abilityOriginalCardGrpId)
-                        }
                     }.build(),
             )
         }
         orderStackTopFirst(snap, zoneBuilder, instanceIdLookup)
         zones.add(zoneBuilder.build())
+    }
+
+    /** Keep native text rows and their printing owners aligned, including copied triggers. */
+    private fun GameObjectInfo.Builder.addAbilityTextContext(
+        entry: leyline.game.snapshot.StackEntry,
+        grpId: Int,
+        sourceCardGrpId: Int,
+    ) {
+        if (entry.contextualAbilities.isNotEmpty()) {
+            // Explain active replacements alongside the printed trigger;
+            // its final draw count still depends on state at resolution.
+            val triggerPrinting = entry.abilityOriginalCardGrpId.takeIf { it != 0 } ?: sourceCardGrpId
+            (listOf(grpId to triggerPrinting) + entry.contextualAbilities).forEachIndexed { index, (row, printing) ->
+                addUniqueAbilities(UniqueAbilityInfo.newBuilder().setId(index).setGrpId(row))
+                addAbilityOriginalCardGrpIds(printing)
+            }
+        } else if (entry.abilityOriginalCardGrpId != 0 && entry.abilityOriginalCardGrpId != sourceCardGrpId) {
+            addAbilityOriginalCardGrpIds(entry.abilityOriginalCardGrpId)
+        }
     }
 
     /** The instanceId a stack entry projects as — its card for a spell, its minted surrogate otherwise. */

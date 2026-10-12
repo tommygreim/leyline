@@ -3,6 +3,7 @@ package leyline.match
 import com.google.protobuf.ByteString
 import forge.game.zone.ZoneType
 import io.kotest.assertions.assertSoftly
+import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import leyline.IntegrationTag
@@ -14,11 +15,15 @@ import leyline.config.RuntimeMatchConfig
 import leyline.config.RuntimeMatchConfigRegistry
 import leyline.domain.deck.DeckSource
 import leyline.game.generator.PuzzleLibrary
+import leyline.game.mapping.ZoneIds
 import leyline.infra.MatchOutput
 import leyline.testkit.TestCardRegistry
 import leyline.testkit.clientMessage
 import leyline.testkit.declareAttackersResp
 import leyline.testkit.declareBlockersResp
+import leyline.testkit.detailInt
+import leyline.testkit.detailString
+import leyline.testkit.optionalActionResp
 import leyline.testkit.performAction
 import leyline.testkit.selectTargetsResp
 import leyline.testkit.submitAttackersReq
@@ -70,8 +75,23 @@ class HumanMatchFlowTest :
                 val redrawn = mutableSetOf<Int>()
                 val kept = mutableSetOf<Int>()
                 val tucked = mutableSetOf<Int>()
+                val bottomIds = mutableMapOf<Int, Int>()
                 repeat(6) {
                     val (seat, prompt) = match.awaitGre { it.hasMulliganReq() || it.hasGroupReq() }
+                    for (owner in tucked) {
+                        val retained =
+                            match.bridge
+                                .projectionStateSnapshot()
+                                .viewerCursors
+                                .getValue(SeatId(owner))
+                                .fullState!!
+                        val bottomCards = retained.gameObjectsList.filter { it.zoneId == ZoneIds.libraryOf(owner) && it.grpId != 0 }
+                        withClue("seat $owner retains its bottom knowledge during seat $seat's mulligan") {
+                            bottomCards.size shouldBe 1
+                            bottomCards.single().visibility shouldBe Visibility.Private
+                            bottomCards.single().viewersList shouldBe listOf(owner)
+                        }
+                    }
                     when {
                         prompt.hasMulliganReq() && seat !in redrawn -> {
                             match.reply(
@@ -97,6 +117,7 @@ class HumanMatchFlowTest :
                         else -> {
                             val ids = prompt.groupReq.instanceIdsList
                             ids.size shouldBe 7
+                            bottomIds[seat] = ids.last()
                             match.reply(seat, prompt, groupResp(ids.dropLast(1), ids.takeLast(1)))
                             tucked += seat
                         }
@@ -109,6 +130,98 @@ class HumanMatchFlowTest :
                     tucked shouldBe setOf(1, 2)
                     match.bridge.getHandGrpIds(SeatId(1)).size shouldBe 6
                     match.bridge.getHandGrpIds(SeatId(2)).size shouldBe 6
+                    for (viewer in 1..2) {
+                        val annotations = match.greHistory(viewer).flatMap { it.gameStateMessage.annotationsList }
+                        val returns =
+                            annotations.filter {
+                                AnnotationType.ZoneTransfer_af5a in it.typeList &&
+                                    it.detailInt("zone_src") in listOf(ZoneIds.P1_HAND, ZoneIds.P2_HAND)
+                            }
+                        returns.size shouldBe 2
+                        returns.map { it.affectorId }.toSet() shouldBe setOf(1, 2)
+                        returns.map { it.detailString("category") } shouldBe listOf("Put", "Put")
+                        val changes =
+                            annotations.filter {
+                                AnnotationType.ObjectIdChanged in it.typeList &&
+                                    it.detailInt("orig_id") in bottomIds.values
+                            }
+                        changes.size shouldBe 2
+                        changes.forEach { change ->
+                            change.affectorId shouldBe bottomIds.entries.single { it.value == change.detailInt("orig_id") }.key
+                            val owner = change.affectorId
+                            val bottomIid = change.detailInt("new_id")
+                            val bottomObjects =
+                                match
+                                    .greHistory(viewer)
+                                    .flatMap { it.gameStateMessage.gameObjectsList }
+                                    .filter { it.instanceId == bottomIid && it.zoneId == ZoneIds.libraryOf(owner) }
+                            if (viewer == owner) {
+                                bottomObjects.isNotEmpty() shouldBe true
+                                bottomObjects.forEach { card ->
+                                    card.visibility shouldBe Visibility.Private
+                                    card.viewersList shouldBe listOf(owner)
+                                    card.grpId shouldBe TestCardRegistry.repo.findGrpIdByName(if (owner == 1) "Forest" else "Mountain")
+                                }
+                            } else {
+                                withClue("viewer=$viewer owner=$owner bottom=$bottomIid objects=$bottomObjects") {
+                                    bottomObjects.any { it.grpId != 0 || it.viewersList.isNotEmpty() } shouldBe false
+                                }
+                            }
+                        }
+                    }
+                }
+                for (viewer in 1..2) {
+                    match.reconnect(viewer)
+                    val (_, resumed) = match.awaitGre(viewer) { it.hasGameStateMessage() && it.gameStateMessage.type == GameStateType.Full }
+                    val known = resumed.gameStateMessage.gameObjectsList.filter { it.zoneId == ZoneIds.libraryOf(viewer) && it.grpId != 0 }
+                    assertSoftly {
+                        known.size shouldBe 1
+                        known.single().visibility shouldBe Visibility.Private
+                        known.single().viewersList shouldBe listOf(viewer)
+                        resumed.gameStateMessage.gameObjectsList
+                            .any { it.zoneId == ZoneIds.libraryOf(3 - viewer) && it.grpId != 0 } shouldBe false
+                    }
+                }
+            }
+        }
+
+        test("both players can reconnect during London bottom selection without losing their decision") {
+            HumanMatchFixture("60 Forest", "60 Mountain").use { match ->
+                val redrawn = mutableSetOf<Int>()
+                val resumedSeats = mutableSetOf<Int>()
+                repeat(6) {
+                    val (seat, prompt) = match.awaitGre { it.hasMulliganReq() || it.hasGroupReq() }
+                    if (prompt.hasGroupReq()) {
+                        val bridge = match.bridge
+                        val hand = bridge.getHandGrpIds(SeatId(seat))
+                        match.reconnect(seat)
+                        val (_, resumed) = match.awaitGre(seat) { it.hasGroupReq() }
+                        assertSoftly {
+                            match.bridge shouldBe bridge
+                            bridge.getHandGrpIds(SeatId(seat)) shouldBe hand
+                            resumed.groupReq shouldBe prompt.groupReq
+                        }
+                        val ids = resumed.groupReq.instanceIdsList
+                        match.reply(seat, resumed, groupResp(ids.dropLast(1), ids.takeLast(1)))
+                        resumedSeats += seat
+                    } else {
+                        val decision = if (redrawn.add(seat)) MulliganOption.Mulligan else MulliganOption.AcceptHand
+                        match.reply(
+                            seat,
+                            prompt,
+                            clientMessage(ClientMessageType.MulliganResp_097b) {
+                                mulliganResp = MulliganResp.newBuilder().setDecision(decision).build()
+                            },
+                        )
+                    }
+                }
+                match.awaitGre { it.hasActionsAvailableReq() }
+                assertSoftly {
+                    resumedSeats shouldBe setOf(1, 2)
+                    for (seat in 1..2) {
+                        match.bridge.getHandGrpIds(SeatId(seat)).size shouldBe 6
+                        match.greHistory(seat).any { it.type == GREMessageType.IllegalRequest } shouldBe false
+                    }
                 }
             }
         }
@@ -121,7 +234,19 @@ class HumanMatchFlowTest :
                 val bolt = TestCardRegistry.repo.findGrpIdByName("Lightning Bolt")!!
                 repeat(100) {
                     if (cast.size == 2 && (1..2).all { match.bridge.getPlayer(SeatId(it))!!.life == 17 }) return@repeat
-                    val (seat, prompt) = match.awaitGre { it.hasActionsAvailableReq() }
+                    // The final damage may resolve after the check above but
+                    // before the next priority request. Its state publication
+                    // is sufficient evidence; do not wait for an unrelated turn.
+                    val (seat, prompt) =
+                        match.awaitGre {
+                            it.hasActionsAvailableReq() ||
+                                (
+                                    it.hasGameStateMessage() &&
+                                        cast.size == 2 &&
+                                        (1..2).all { player -> match.bridge.getPlayer(SeatId(player))!!.life == 17 }
+                                )
+                        }
+                    if (!prompt.hasActionsAvailableReq()) return@repeat
                     val actions = prompt.actionsAvailableReq.actionsList
                     val land = actions.firstOrNull { it.actionType == ActionType.Play_add3 }
                     val spell = actions.firstOrNull { it.actionType == ActionType.Cast && it.grpId == bolt }
@@ -177,8 +302,21 @@ class HumanMatchFlowTest :
                     }
                     val (seat, prompt) =
                         match.awaitGre {
-                            it.hasActionsAvailableReq() || it.hasDeclareAttackersReq() || it.hasDeclareBlockersReq()
+                            it.hasActionsAvailableReq() ||
+                                it.hasDeclareAttackersReq() ||
+                                it.hasDeclareBlockersReq() ||
+                                (
+                                    it.hasGameStateMessage() &&
+                                        blocked &&
+                                        (1..2).all { player ->
+                                            match.bridge
+                                                .getPlayer(SeatId(player))!!
+                                                .getCardsIn(ZoneType.Graveyard)
+                                                .size == 1
+                                        }
+                                )
                         }
+                    if (prompt.hasGameStateMessage()) return@repeat
                     when {
                         prompt.hasActionsAvailableReq() -> {
                             val actions = prompt.actionsAvailableReq.actionsList
@@ -281,6 +419,79 @@ class HumanMatchFlowTest :
                 match.awaitBothCompleted()
             }
         }
+
+        test("reconnecting the priority holder retains the engine and resumes the same action") {
+            HumanMatchFixture("60 Forest", "60 Mountain").use { match ->
+                match.keepBoth()
+                val (seat, original) = match.awaitGre { it.hasActionsAvailableReq() }
+                val bridge = match.bridge
+                val hand = bridge.getHandGrpIds(SeatId(seat))
+                match.reconnect(seat)
+                val (_, resumed) = match.awaitGre(seat) { it.hasActionsAvailableReq() }
+                assertSoftly {
+                    match.bridge shouldBe bridge
+                    bridge.getHandGrpIds(SeatId(seat)) shouldBe hand
+                    resumed.actionsAvailableReq shouldBe original.actionsAvailableReq
+                    match.greHistory(seat).count { it.hasConnectResp() } shouldBe 2
+                }
+                match.reply(seat, resumed, performAction { actionType = ActionType.Pass })
+                match.awaitGre { it.hasActionsAvailableReq() }
+            }
+        }
+
+        test("reconnecting the other player does not invalidate the priority holder's prompt") {
+            HumanMatchFixture("60 Forest", "60 Mountain").use { match ->
+                match.keepBoth()
+                val (seat, original) = match.awaitGre { it.hasActionsAvailableReq() }
+                match.reconnect(3 - seat)
+                match.reply(seat, original, performAction { actionType = ActionType.Pass })
+                match.awaitGre { it.hasActionsAvailableReq() }
+                match.greHistory(seat).any { it.type == GREMessageType.IllegalRequest } shouldBe false
+            }
+        }
+
+        test("shock land choice survives cross-seat UI hover and a transport reconnect") {
+            HumanMatchFixture("60 Steam Vents", "60 Mountain").use { match ->
+                match.keepBoth()
+                val (seat, priority) = match.awaitGre { it.hasActionsAvailableReq() }
+                seat shouldBe 1
+                val land = priority.actionsAvailableReq.actionsList.first { it.actionType == ActionType.Play_add3 }
+                match.reply(seat, priority, performAction(land))
+                val (_, choice) = match.awaitGre(seat) { it.type == GREMessageType.OptionalActionMessage_695e }
+                match.sendUi(2, 1)
+                match.reconnect(seat)
+                val (_, resumed) = match.awaitGre(seat) { it.type == GREMessageType.OptionalActionMessage_695e }
+                resumed.msgId shouldBe choice.msgId
+                resumed.gameStateId shouldBe choice.gameStateId
+                match.reply(seat, resumed, optionalActionResp(accept = false))
+                match.awaitGre { it.hasActionsAvailableReq() }
+                assertSoftly {
+                    match.bridge.getPlayer(SeatId(1))!!.life shouldBe 20
+                    match.bridge
+                        .getPlayer(SeatId(1))!!
+                        .getCardsIn(ZoneType.Battlefield)
+                        .single()
+                        .isTapped shouldBe true
+                    match.greHistory(2).any { it.type == GREMessageType.OptionalActionMessage_695e } shouldBe false
+                }
+            }
+        }
+
+        test("reconnect expiry cleans up both seats and an old expiry cannot terminate a resumed game") {
+            HumanMatchFixture("60 Forest", "60 Mountain").use { match ->
+                match.keepBoth()
+                val (seat, _) = match.awaitGre { it.hasActionsAvailableReq() }
+                val retained = match.disconnect(seat)
+                match.reconnect(seat, disconnectFirst = false)
+                match.expire(seat, retained)
+                match.isAlive shouldBe true
+                val detached = match.disconnect(seat)
+                match.expire(seat, retained)
+                match.isAlive shouldBe true
+                match.expire(seat, detached)
+                match.isAlive shouldBe false
+            }
+        }
     })
 
 /** Two independent production connections; output queues replace only the TCP edge. */
@@ -294,7 +505,9 @@ private class HumanMatchFixture(
     private val output = LinkedBlockingQueue<Pair<Int, MatchServiceToClientMessage>>()
     private val history = CopyOnWriteArrayList<Pair<Int, MatchServiceToClientMessage>>()
     private val connections = mutableMapOf<Int, MatchConnection>()
+    private val connectSeat: (Int) -> Unit
     val bridge get() = checkNotNull(registry.getMatch(matchId)).bridge
+    val isAlive get() = registry.getMatch(matchId) != null
 
     init {
         TestCardRegistry.ensureDeckRegistered(deck1)
@@ -305,7 +518,7 @@ private class HumanMatchFixture(
             }
         val players = (1..2).map { MatchPlayerIdentity("local-$it", "Player $it", SeatId(it)) }
         try {
-            for (seat in 1..2) {
+            connectSeat = { seat ->
                 val connection =
                     MatchConnection(
                         registry = registry,
@@ -369,6 +582,7 @@ private class HumanMatchFixture(
                     ),
                 )
             }
+            for (seat in 1..2) connectSeat(seat)
         } catch (failure: Throwable) {
             close()
             throw failure
@@ -422,6 +636,35 @@ private class HumanMatchFixture(
                 .toByteString(),
         ),
     )
+
+    fun sendUi(
+        seat: Int,
+        claimedSeat: Int,
+    ) = connections.getValue(seat).receive(
+        service(
+            ClientToMatchServiceMessageType.ClientToGreuimessage,
+            clientMessage(ClientMessageType.Uimessage_a39e) { systemSeatId = claimedSeat }.toByteString(),
+        ),
+    )
+
+    fun disconnect(seat: Int): MatchRegistry.ReconnectLease {
+        connections.getValue(seat).disconnected()
+        return checkNotNull(registry.reconnectLease(matchId, SeatId(seat)))
+    }
+
+    fun reconnect(
+        seat: Int,
+        disconnectFirst: Boolean = true,
+    ) {
+        if (disconnectFirst) disconnect(seat)
+        output.clear()
+        connectSeat(seat)
+    }
+
+    fun expire(
+        seat: Int,
+        retained: MatchRegistry.ReconnectLease,
+    ) = registry.expireDisconnected(matchId, SeatId(seat), retained)
 
     fun awaitGre(
         seat: Int? = null,
@@ -484,6 +727,6 @@ private class HumanMatchFixture(
             .build()
 
     override fun close() {
-        connections.values.forEach(MatchConnection::disconnected)
+        registry.teardownMatch(matchId, MatchTeardownReason.Disconnect)
     }
 }

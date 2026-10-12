@@ -191,7 +191,12 @@ class MatchActionWindowRuntimeTest :
                             mapOf(
                                 SeatId(1) to
                                     ViewerProjectionCursor(
-                                        pendingSubmittedTargets = PendingSubmittedTargets(InstanceId(777), SeatId(1), version = 3),
+                                        pendingSubmittedTargets =
+                                            PendingSubmittedTargets(
+                                                InstanceId(board.human.battlefield.iid("Grizzly Bears")),
+                                                SeatId(1),
+                                                version = 3,
+                                            ),
                                     ),
                                 SeatId(2) to ViewerProjectionCursor(),
                             ),

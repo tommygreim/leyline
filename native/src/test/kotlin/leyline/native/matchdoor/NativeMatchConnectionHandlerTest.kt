@@ -28,6 +28,7 @@ import leyline.native.matchmaking.LocalPairingService
 import org.jetbrains.exposed.v1.jdbc.Database
 import wotc.mtgo.gre.external.messaging.Messages.*
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -274,6 +275,74 @@ class NativeMatchConnectionHandlerTest :
                 channel.finishAndReleaseAll()
                 handlers.shutdownGracefully().syncUninterruptibly()
             }
+        }
+
+        test("an outbound update flushes while the offloaded inbound handler awaits engine progress") {
+            val handlers = DefaultEventExecutorGroup(1)
+            val entered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            val returned = CountDownLatch(1)
+            val response = MatchServiceToClientMessage.newBuilder().setRequestId(7).build()
+            val ch = EmbeddedChannel()
+            ch.pipeline().addLast(
+                handlers,
+                "handler",
+                NativeMatchConnectionHandler({ output, _ ->
+                    object : MatchConnectionPort {
+                        override fun opened() = Unit
+
+                        override fun receive(msg: ClientToMatchServiceMessage) {
+                            output.send(response)
+                            entered.countDown()
+                            check(release.await(5, TimeUnit.SECONDS))
+                            returned.countDown()
+                        }
+
+                        override fun assignSeat(assignment: MatchSeatAssignment) = Unit
+
+                        override fun disconnected() = Unit
+
+                        override fun failed(cause: Throwable) = Unit
+                    }
+                }),
+            )
+            try {
+                ch.writeInbound(ClientToMatchServiceMessage.newBuilder().setRequestId(7).build())
+                entered.await(5, TimeUnit.SECONDS) shouldBe true
+                ch.runPendingTasks()
+                ch.readOutbound<MatchServiceToClientMessage>() shouldBe response
+                returned.count shouldBe 1L
+                release.countDown()
+                returned.await(5, TimeUnit.SECONDS) shouldBe true
+            } finally {
+                release.countDown()
+                ch.finishAndReleaseAll()
+                handlers.shutdownGracefully().syncUninterruptibly()
+            }
+        }
+
+        test("a socket failure closes its transport through disconnect instead of a fatal engine failure") {
+            val events = mutableListOf<String>()
+            val fake =
+                object : MatchConnectionPort {
+                    override fun opened() = Unit
+
+                    override fun receive(msg: ClientToMatchServiceMessage) = Unit
+
+                    override fun assignSeat(assignment: MatchSeatAssignment) = Unit
+
+                    override fun disconnected() {
+                        events += "disconnected"
+                    }
+
+                    override fun failed(cause: Throwable) {
+                        events += "failed"
+                    }
+                }
+            val ch = EmbeddedChannel(NativeMatchConnectionHandler({ _, _ -> fake })).also(channels::add)
+            ch.pipeline().fireExceptionCaught(IOException("Connection reset"))
+            ch.isActive shouldBe false
+            events shouldBe listOf("disconnected")
         }
     })
 

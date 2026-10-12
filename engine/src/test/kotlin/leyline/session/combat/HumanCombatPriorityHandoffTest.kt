@@ -1,11 +1,18 @@
 package leyline.session.combat
 
 import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
 import leyline.bridge.bootstrap.GameBootstrap
 import leyline.bridge.handoff.PendingActionKind
 import leyline.bridge.types.SeatId
+import leyline.testkit.ScriptedAction
 import leyline.testkit.SessionTest
+import leyline.testkit.beInGraveyardOf
+import leyline.testkit.ofType
+import wotc.mtgo.gre.external.messaging.Messages.ActionType
+import wotc.mtgo.gre.external.messaging.Messages.ManaColor
+import wotc.mtgo.gre.external.messaging.Messages.StaticList
 import kotlin.time.Duration.Companion.seconds
 
 private val HUMAN_COMBAT_PRIORITY_HANDOFF_PUZZLE =
@@ -31,12 +38,9 @@ private val HUMAN_COMBAT_PRIORITY_HANDOFF_PUZZLE =
     """.trimIndent()
 
 /**
- * Regression test for the priority-handoff hang during combat resolution on
- * the human's turn.
- *
- * Puzzle: human has Raging Goblin untapped on a turn-3-style board with no
- * cards in hand (guarantees pass-only priority after attackers go in). AI has
- * no creatures (zero blockers, clean path to damage).
+ * Combat declarations hand back to rules priority before damage. The attacker
+ * can advance with no responses, while a defender can use a blocking mana
+ * creature without full control. Declining all blocks preserves smart passing.
  */
 // Session-tier: exercises the full MatchSession + runtime continuation.
 @Suppress("TierPlacementCheck")
@@ -68,5 +72,61 @@ class HumanCombatPriorityHandoffTest :
             passPriority()
 
             ai.life shouldBe 19
+        }
+
+        session(
+            "defender can float mana with a declared blocker before combat damage without full control",
+            puzzleFile = "data/puzzles/blocker-mana-priority.pzl",
+            aiScript = listOf(ScriptedAction.Attack(listOf("Juggernaut")), ScriptedAction.PassPriority),
+        ) {
+            passUntil(maxPasses = 12) { allMessages.any { it.hasDeclareBlockersReq() } }.shouldBeTrue()
+            val req = allMessages.last { it.hasDeclareBlockersReq() }.declareBlockersReq
+            val birdsIid = human.battlefield.iid("Birds of Paradise")
+            val attackerIid =
+                req.blockersList
+                    .single { it.blockerInstanceId == birdsIid }
+                    .attackerInstanceIdsList
+                    .single()
+            declareBlockers(mapOf(birdsIid to attackerIid))
+
+            val pending = checkNotNull(bridge.actionBridge(SeatId(1)).getPending())
+            pending.state.phase shouldBe "COMBAT_DECLARE_BLOCKERS"
+            pending.state.kind shouldBe PendingActionKind.PRIORITY
+            bridge.priorityPolicy.isFullControl() shouldBe false
+            allMessages
+                .last { it.hasActionsAvailableReq() }
+                .actionsAvailableReq
+                .ofType(ActionType.ActivateMana)
+                .map { it.instanceId } shouldBe listOf(birdsIid)
+            val birds = human.battlefield.card("Birds of Paradise")
+            game().combat.isBlocking(birds) shouldBe true
+            birds.isTapped shouldBe false
+
+            activateMana("Birds of Paradise").shouldBeTrue()
+            val colorChoice = allMessages.last { it.hasSelectNReq() }.selectNReq
+            colorChoice.staticList shouldBe StaticList.ManaColors
+            respondToSelectN(listOf(ManaColor.Green_afc9.number))
+            birds.isTapped shouldBe true
+            human.manaPool.totalMana() shouldBe 1
+            game().combat.isBlocking(birds) shouldBe true
+            passThroughCombat()
+            human.life shouldBe 20
+            "Birds of Paradise" should beInGraveyardOf(human)
+        }
+
+        session(
+            "declining blocks does not force a defender mana-only stop",
+            puzzleFile = "data/puzzles/blocker-mana-priority.pzl",
+            aiScript = listOf(ScriptedAction.Attack(listOf("Juggernaut")), ScriptedAction.PassPriority),
+        ) {
+            passUntil(maxPasses = 12) { allMessages.any { it.hasDeclareBlockersReq() } }.shouldBeTrue()
+            declareNoBlockers()
+
+            val pending = checkNotNull(bridge.actionBridge(SeatId(1)).getPending())
+            pending.state.phase shouldBe "MAIN1"
+            pending.state.kind shouldBe PendingActionKind.PRIORITY
+            human.life shouldBe 15
+            human.battlefield.card("Birds of Paradise").isTapped shouldBe false
+            human.manaPool.totalMana() shouldBe 0
         }
     })

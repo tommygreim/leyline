@@ -1,6 +1,31 @@
 name: combat-warmup
 description: Small arena-driven combat smoke suite focused on blocking and combat cleanup.
 scenarios:
+  - id: mana-only-priority-after-block
+    puzzle: blocker-mana-priority
+    run: decline attacking, block Juggernaut with Birds, and inspect the post-block decision
+    expect: the defender has a normal response window before damage despite no payable non-mana actions
+    steps:
+      - expect:
+          action: { type: play_land, card: Forest }
+      - pass_until:
+          prompt: DeclareBlockersReq
+          max_passes: 20
+      - block: { blocker: Birds of Paradise, attacker: Juggernaut }
+      - expect:
+          all:
+            - phase: COMBAT_DECLARE_BLOCKERS
+            - zone_contains: { side: ours, zone: battlefield, card: Birds of Paradise }
+            - our_life: 20
+      - pass_until:
+          zone_not_contains: { side: ours, zone: battlefield, card: Birds of Paradise }
+          max_passes: 12
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: graveyard, card: Birds of Paradise }
+            - zone_contains: { side: opponent, zone: battlefield, card: Juggernaut }
+            - our_life: 20
+            - stack_empty: true
   - id: forced-attack-single-required-block
     puzzle: block1-block-warnings
     run: cast Kardur and block only the attacker that must be blocked

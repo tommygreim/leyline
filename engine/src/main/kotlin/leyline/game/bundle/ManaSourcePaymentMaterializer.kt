@@ -10,6 +10,8 @@ import wotc.mtgo.gre.external.messaging.Messages.Action
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.ActionsAvailableReq
 import wotc.mtgo.gre.external.messaging.Messages.AllowCancel
+import wotc.mtgo.gre.external.messaging.Messages.AutoTapActionsAvailableReq
+import wotc.mtgo.gre.external.messaging.Messages.AutoTapSolution
 import wotc.mtgo.gre.external.messaging.Messages.GREMessageType
 import wotc.mtgo.gre.external.messaging.Messages.GREToClientMessage
 import wotc.mtgo.gre.external.messaging.Messages.GameStateMessage
@@ -92,7 +94,13 @@ internal class ManaSourcePaymentMaterializer(
                         }.build()
                 },
             ).setPaymentActions(paymentActions(window, projection))
-            .setPaymentSelection(
+            // This confirms the chosen reducers and continues through Forge's
+            // ordinary mana payment. The native payment workflow supplies a
+            // localized Auto Pay button even with no spell on the stack.
+            // Do not expose a priority Pass button inside this cost window.
+            .setAutoTapActionsReq(
+                AutoTapActionsAvailableReq.newBuilder().addAutoTapSolutions(AutoTapSolution.getDefaultInstance()),
+            ).setPaymentSelection(
                 SelectNReq
                     .newBuilder()
                     .setContext(SelectionContext.ManaPool)
@@ -153,16 +161,26 @@ internal class ManaSourcePaymentMaterializer(
                             .newBuilder()
                             .setParameterName("Cost")
                             .setType(ParameterType.NonLocalizedString)
-                            .setStringValue(cost),
+                            // Native CostFormatter converts symbols and retains
+                            // explanatory text. The payment request still owns
+                            // the exact, separate numeric mana requirements.
+                            .setStringValue("$cost (${window.kind.paymentInstruction()})"),
                     )
                 }
             }.build()
+
+    private fun ManaSourcePaymentKind.paymentInstruction(): String =
+        when (this) {
+            ManaSourcePaymentKind.Convoke -> "tap creatures to help pay with convoke"
+            ManaSourcePaymentKind.Improvise -> "tap artifacts to help pay with improvise"
+            ManaSourcePaymentKind.Waterbend -> "tap artifacts or creatures to help pay with waterbend"
+        }
 
     private fun ManaSourcePaymentKind.paymentAbilityGrpId(): Int =
         when (this) {
             ManaSourcePaymentKind.Convoke -> KeywordAbilityIds.CONVOKE_PAYMENT
             ManaSourcePaymentKind.Improvise -> KeywordAbilityIds.IMPROVISE
-            ManaSourcePaymentKind.Waterbend -> WATERBEND_PAYMENT_ABILITY_GRP_ID
+            ManaSourcePaymentKind.Waterbend -> KeywordAbilityIds.WATERBEND_PAYMENT
         }
 
     private fun ProjectionState.requireInstanceId(cardId: leyline.bridge.types.ForgeCardId): Int =
@@ -185,6 +203,5 @@ internal class ManaSourcePaymentMaterializer(
 
     private companion object {
         const val MANA_SOURCE_MANA_ID_BASE = 50_000
-        const val WATERBEND_PAYMENT_ABILITY_GRP_ID = 384
     }
 }

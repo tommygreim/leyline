@@ -135,6 +135,7 @@ object StateProjectionCompiler {
             AnnotationFrameFinalizer.finalize(
                 lifecycleAnnotations + listOfNotNull(phaseReconciliation),
                 planned.firstAnnotationId,
+                retainAnnotation = AnnotationReferenceSanitizer.targetReferenceFilter(plannedOrder.gsm),
             )
         var shared =
             planned.copy(
@@ -153,7 +154,14 @@ object StateProjectionCompiler {
         // this after same-frame ObjectIdChanged rewriting so valid replacement
         // references survive, while stale persistent TargetSpecs cannot poison
         // later frames.
-        val sanitized = AnnotationReferenceSanitizer.sanitize(shared.gsm)
+        val sanitized =
+            AnnotationReferenceSanitizer.sanitize(
+                plannedOrder.gsm
+                    .toBuilder()
+                    .clearAnnotations()
+                    .addAllAnnotations(finalized.annotations)
+                    .build(),
+            )
         if (
             sanitized.transient != shared.gsm.annotationsList ||
             sanitized.persistent != shared.gsm.persistentAnnotationsList
@@ -209,7 +217,7 @@ object StateProjectionCompiler {
                     viewer,
                     shared,
                     plannedOrder,
-                    finalized.annotations,
+                    shared.gsm.annotationsList,
                     supplementAnnotations.consumedSubmittedTargets,
                     environment,
                     prior,

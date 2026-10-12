@@ -45,7 +45,8 @@ class InvariantChecker(
     private val needsRuntimeAccumulator =
         selection.includes(InvariantCheck.ActionInstanceIds) ||
             selection.includes(InvariantCheck.ZoneObjects) ||
-            selection.includes(InvariantCheck.AnnotationReferences)
+            selection.includes(InvariantCheck.AnnotationReferences) ||
+            selection.includes(InvariantCheck.ClientAnnotationReferences)
 
     // --- Public API ---
 
@@ -53,6 +54,12 @@ class InvariantChecker(
     fun process(msg: GREToClientMessage) {
         messageIndex++
         val gsId = if (msg.hasGameStateMessage()) msg.gameStateMessage.gameStateId else 0
+        val previousCardIds =
+            if (selection.includes(InvariantCheck.ClientAnnotationReferences) && msg.hasGameStateMessage()) {
+                accumulator.resolvableCardIds()
+            } else {
+                emptySet()
+            }
 
         if (selection.includes(InvariantCheck.MsgIdMonotonicity)) {
             checkMsgIdMonotonicity(msg, gsId)
@@ -98,6 +105,9 @@ class InvariantChecker(
             }
             if (selection.includes(InvariantCheck.AnnotationReferences)) {
                 checkAnnotationReferentialIntegrity(msg.gameStateMessage)
+            }
+            if (selection.includes(InvariantCheck.ClientAnnotationReferences)) {
+                checkClientAnnotationReferences(msg.gameStateMessage, previousCardIds)
             }
         }
     }
@@ -435,7 +445,55 @@ class InvariantChecker(
     }
 
     /**
-     * Validate annotation affectorId/affectedIds resolve to known entities.
+     * Native target events use the new state; damage may use either state.
+     * A bare object, retired id, or ability-lifecycle annotation is not a
+     * substitute for a card the client can resolve. Historical mana/action
+     * references are deliberately left to the broader diagnostic check.
+     */
+    private fun checkClientAnnotationReferences(
+        gsm: GameStateMessage,
+        previousCardIds: Set<Int>,
+    ) {
+        val currentCards = accumulator.resolvableCardIds()
+        val damageCards = previousCardIds + currentCards
+        for (ann in gsm.annotationsList + gsm.persistentAnnotationsList) {
+            val isTargetEvent =
+                ann.typeList.any {
+                    it == AnnotationType.PlayerSelectingTargets || it == AnnotationType.PlayerSubmittedTargets
+                }
+            val isDamage = AnnotationType.DamageDealt_af5a in ann.typeList
+            // TargetSpec's native reference handler skips unknown source/target
+            // entities. Its fidelity belongs to diagnostics, not this fatal guard.
+            if (!isTargetEvent && !isDamage) continue
+
+            val sourceValid =
+                if (isTargetEvent) ann.affectorId in 1..2 else ann.affectorId in damageCards
+            if (!sourceValid) {
+                record(
+                    gsm.gameStateId,
+                    "client_annotation_ref",
+                    "annotation ${ann.id}: affectorId ${ann.affectorId} cannot resolve for native parser (type=${ann.typeList})",
+                )
+            }
+            for (affected in ann.affectedIdsList) {
+                val valid =
+                    if (isTargetEvent) affected in currentCards else affected in 1..2 || affected in damageCards
+                if (!valid) {
+                    record(
+                        gsm.gameStateId,
+                        "client_annotation_ref",
+                        "annotation ${ann.id}: affectedId $affected cannot resolve for native parser " +
+                            "(type=${ann.typeList}, objectPresent=${affected in accumulator.objects}, " +
+                            "zones=${accumulator.zones.values.filter { affected in it.objectInstanceIdsList }.map { it.zoneId }}, " +
+                            "previousCard=${affected in previousCardIds}, gsId=${gsm.gameStateId})",
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Diagnostic: validate annotation affectorId/affectedIds resolve to known entities.
      *
      * Valid targets: accumulated object instanceIds, player seats (1/2),
      * zone IDs (affector can be a zone, e.g. EnteredZoneThisTurn).
@@ -561,6 +619,13 @@ class RuntimeAccumulator {
             objects.containsKey(id) ||
             zones.containsKey(id) ||
             zones.values.any { zone -> id in zone.objectInstanceIdsList }
+
+    /** Native card lookup requires zone membership, except for explicit revealed-card proxies. */
+    fun resolvableCardIds(): Set<Int> =
+        zones.values
+            .flatMap { it.objectInstanceIdsList }
+            .filterTo(mutableSetOf()) { it in objects } +
+            objects.values.filter { it.type == GameObjectType.RevealedCard }.map { it.instanceId }
 
     fun actionInstanceIdsMissingFromObjects(): List<Int> {
         val req = actions ?: return emptyList()

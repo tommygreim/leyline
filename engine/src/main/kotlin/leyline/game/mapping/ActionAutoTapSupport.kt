@@ -5,6 +5,7 @@ import forge.game.spellability.SpellAbility
 import leyline.bridge.ActionManaCosts
 import leyline.bridge.getPlayableManaAbilities
 import leyline.bridge.types.ManaColorMapping
+import leyline.game.data.KeywordAbilityIds
 import wotc.mtgo.gre.external.messaging.Messages.AutoTapAction
 import wotc.mtgo.gre.external.messaging.Messages.AutoTapSolution
 import wotc.mtgo.gre.external.messaging.Messages.ManaColor
@@ -65,6 +66,23 @@ internal object ActionAutoTapSupport {
         // sacrifices the selected sources.
         val preview = ActionManaCosts.predictManaPayment(manaCost, ability, context.player) ?: return null
         val plan = preview.sources
+        val substitutions =
+            preview.substitutions.map { (card, shard) ->
+                val colored = ManaColorMapping.paymentWireColor(shard)
+                ManaSource(
+                    context.instanceId(card),
+                    colored,
+                    when {
+                        ability.hostCard.hasKeyword(forge.game.keyword.Keyword.CONVOKE) || ability.hasParam("TapCreaturesForMana") ->
+                            KeywordAbilityIds.CONVOKE_PAYMENT
+                        ability.hostCard.hasKeyword(forge.game.keyword.Keyword.IMPROVISE) -> KeywordAbilityIds.IMPROVISE
+                        else -> KeywordAbilityIds.WATERBEND_PAYMENT
+                    },
+                    fromSnow = false,
+                    kindSpec = null,
+                    sourceSpecs = listOfNotNull(ManaSpecType.ManaSubstitution, ManaSpecType.FromCreature.takeIf { card.isCreature }),
+                ) to colored
+            }
         // Forge's dry-run API returns source abilities, not the chosen color
         // for a flexible source. Preserve the color-aware predictor there
         // rather than claiming that its first available color was selected.
@@ -73,7 +91,12 @@ internal object ActionAutoTapSupport {
                 colors.size != 1 || ManaColor.AnyColor in colors
             }
         ) {
-            return build(ActionManaCosts.forgeManaCostToPairs(preview.cost), context, plan.toSet())
+            val manaPlan = build(ActionManaCosts.forgeManaCostToPairs(preview.cost), context, plan.toSet()) ?: return null
+            return manaPlan
+                .toBuilder()
+                .addAllAutoTapActions(
+                    buildAutoTapSolution(substitutions, INITIAL_MANA_ID + manaPlan.autoTapActionsCount).autoTapActionsList,
+                ).build()
         }
         val sources =
             plan.mapNotNull { manaAbility ->
@@ -90,7 +113,7 @@ internal object ActionAutoTapSupport {
                     manaAbility.amountOfManaGenerated(false).coerceAtLeast(1),
                 ) to color
             }
-        return buildAutoTapSolution(sources)
+        return buildAutoTapSolution(sources + substitutions)
     }
 
     /**
@@ -319,9 +342,12 @@ internal object ActionAutoTapSupport {
         return sources
     }
 
-    private fun buildAutoTapSolution(matched: List<Pair<ManaSource, ManaColor>>): AutoTapSolution {
+    private fun buildAutoTapSolution(
+        matched: List<Pair<ManaSource, ManaColor>>,
+        initialManaId: Int = INITIAL_MANA_ID,
+    ): AutoTapSolution {
         val builder = AutoTapSolution.newBuilder()
-        var manaIdCounter = INITIAL_MANA_ID
+        var manaIdCounter = initialManaId
         for ((src, payingColor) in matched) {
             val manaId = manaIdCounter++
             val manaInfo =

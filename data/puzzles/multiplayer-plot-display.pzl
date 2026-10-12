@@ -1,0 +1,16 @@
+[metadata]
+Name:Plotted card immediate display
+Goal:Survive
+Turns:5
+Difficulty:Easy
+Description:Plot Slickshot Show-Off for {1}{R}. It should immediately remain beside your hand, inactive this turn. On your next turn cast it for free. A second copy lets you repeat the check.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanhand=Slickshot Show-Off;Slickshot Show-Off
+humanbattlefield=Mountain;Mountain;Mountain;Mountain
+humanlibrary=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain;Mountain
+ailibrary=Forest;Forest;Forest;Forest;Forest;Forest;Forest;Forest

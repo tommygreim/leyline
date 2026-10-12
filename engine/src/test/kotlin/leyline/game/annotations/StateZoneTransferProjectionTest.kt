@@ -35,10 +35,62 @@ class StateZoneTransferProjectionTest :
     FunSpec({
         tags(UnitTag)
 
-        listOf(false, true).forEach { copiedTarget ->
-            test("countered ${if (copiedTarget) "copied" else "ordinary"} spell leaves before its resolving counterspell") {
+        listOf(1, 2).forEach { seat ->
+            listOf(false, true).forEach { visibleEndpoint ->
+                test("mulligan return for seat $seat preserves player attribution with visible-endpoint=$visibleEndpoint") {
+                    val cardId = ForgeCardId(42)
+                    val hand = ZoneIds.handOf(seat)
+                    val library = ZoneIds.libraryOf(seat)
+                    val result =
+                        ZoneTransferDetector.detectZoneTransfers(
+                            gameObjects = if (visibleEndpoint) listOf(stateZoneGameObject(100, 111, library, seat)) else emptyList(),
+                            zones =
+                                listOf(
+                                    stateZone(hand, ZoneType.Hand),
+                                    stateZone(library, ZoneType.Library, 100),
+                                    stateZone(ZoneIds.LIMBO, ZoneType.Limbo),
+                                ),
+                            events = emptyList(),
+                            context =
+                                stateZoneTransferContext(
+                                    previousZones = mapOf(100 to hand),
+                                    forgeIdLookup = { if (it.value == 100) cardId else null },
+                                    idAllocator = { InstanceIdRegistry.IdReallocation(InstanceId(100), InstanceId(200)) },
+                                    idLookup = { InstanceId(100) },
+                                ).copy(zoneMoves = listOf(ZoneMove(0, cardId, Zone.Hand, Zone.Library, null, SeatId(seat)))),
+                        )
+                    val (annotations, _) =
+                        AnnotationPipeline.assembleTransferAndCombatAnnotations(
+                            events = emptyList(),
+                            transferResult = result,
+                            actingSeat = 3 - seat,
+                            combatResult = CombatAnnotationResult(emptyList()),
+                        )
+                    val emitted = AnnotationFrameFinalizer.finalize(annotations, firstId = 1).annotations
+                    val idChange = emitted.single { AnnotationType.ObjectIdChanged in it.typeList }
+                    val transfer = emitted.single { AnnotationType.ZoneTransfer_af5a in it.typeList }
+                    assertSoftly {
+                        result.snapshotFallbacks.shouldBeEmpty()
+                        result.transfers.single().affectorId shouldBe seat
+                        result.transfers.single().category shouldBe TransferCategory.Put
+                        idChange.affectorId shouldBe seat
+                        transfer.affectorId shouldBe seat
+                        idChange.detailInt("orig_id") shouldBe 100
+                        idChange.detailInt("new_id") shouldBe 200
+                        transfer.affectedIdsList shouldBe listOf(200)
+                        transfer.detailInt("zone_src") shouldBe hand
+                        transfer.detailInt("zone_dest") shouldBe library
+                        transfer.detailString("category") shouldBe "Put"
+                    }
+                }
+            }
+        }
+
+        listOf(false to false, false to true, true to false).forEach { (copiedTarget, targetFirst) ->
+            test("countered ${if (copiedTarget) "copied" else "ordinary"} spell preserves stack identity with target-first=$targetFirst") {
                 val target = ForgeCardId(42)
                 val counterspell = ForgeCardId(43)
+                val currentIds = mutableMapOf(target to 100, counterspell to 200)
                 val cause = ZoneMoveCause(counterspell, 17, 17, "Counter", false)
                 val events =
                     listOf(
@@ -49,8 +101,10 @@ class StateZoneTransferProjectionTest :
                 val result =
                     ZoneTransferDetector.detectZoneTransfers(
                         gameObjects =
-                            listOf(stateZoneGameObject(200, 222, ZoneIds.P1_GRAVEYARD, 1)) +
-                                if (copiedTarget) emptyList() else listOf(stateZoneGameObject(100, 111, ZoneIds.P1_GRAVEYARD, 1)),
+                            (
+                                listOf(stateZoneGameObject(200, 222, ZoneIds.P1_GRAVEYARD, 1)) +
+                                    if (copiedTarget) emptyList() else listOf(stateZoneGameObject(100, 111, ZoneIds.P1_GRAVEYARD, 1))
+                            ).let { if (targetFirst) it.reversed() else it },
                         zones =
                             listOf(
                                 stateZone(
@@ -76,9 +130,9 @@ class StateZoneTransferProjectionTest :
                                     when (fid) {
                                         target -> InstanceIdRegistry.IdReallocation(InstanceId(100), InstanceId(300))
                                         else -> InstanceIdRegistry.IdReallocation(InstanceId(200), InstanceId(400))
-                                    }
+                                    }.also { currentIds[fid] = it.new.value }
                                 },
-                                idLookup = { fid -> InstanceId(if (fid == target) 100 else 200) },
+                                idLookup = { fid -> InstanceId(currentIds.getValue(fid)) },
                             ).copy(
                                 zoneMoves =
                                     listOf(
@@ -94,6 +148,7 @@ class StateZoneTransferProjectionTest :
 
                 result.transfers.map { it.forgeCardId to it.category } shouldBe
                     listOf(target to TransferCategory.Countered, counterspell to TransferCategory.Resolve)
+                result.transfers.first().affectorId shouldBe 200
                 val (annotations, persistent) =
                     AnnotationPipeline.assembleTransferAndCombatAnnotations(
                         events = events,
@@ -105,6 +160,11 @@ class StateZoneTransferProjectionTest :
                 val transfers = emitted.filter { AnnotationType.ZoneTransfer_af5a in it.typeList }
                 transfers.map { it.affectedIdsList.single() } shouldBe listOf(300, 400)
                 transfers.map { it.detailString("category") } shouldBe listOf("Countered", "Resolve")
+                emitted.withIndex().filter { AnnotationType.ObjectIdChanged in it.value.typeList }.forEach { (index, idChange) ->
+                    val next = emitted[index + 1]
+                    next.typeList shouldBe listOf(AnnotationType.ZoneTransfer_af5a)
+                    next.affectedIdsList shouldBe listOf(idChange.detailInt("new_id"))
+                }
                 if (copiedTarget) {
                     result.patchedZones.single { it.zoneId == ZoneIds.P1_GRAVEYARD }.objectInstanceIdsList shouldBe listOf(400)
                     persistent.flatMap { it.affectedIdsList } shouldBe listOf(400)

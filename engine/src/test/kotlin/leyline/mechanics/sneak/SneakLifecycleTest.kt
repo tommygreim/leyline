@@ -54,11 +54,21 @@ class SneakLifecycleTest :
             passUntil(maxPasses = 5) { latestSneakOffer(sneakAbilityGrpId) != null }.shouldBeTrue()
 
             val offer = checkNotNull(latestSneakOffer(sneakAbilityGrpId))
+            val available = allMessages.last { it.hasActionsAvailableReq() }.actionsAvailableReq
             assertSoftly(offer) {
                 it.actionType shouldBe ActionType.Cast
                 it.alternativeGrpId shouldBe sneakAbilityGrpId
                 it.abilityGrpId shouldBe 0
                 it.manaCostList.map { cost -> cost.abilityGrpId }.shouldContain(sneakAbilityGrpId)
+                available.actionsList
+                    .count { action ->
+                        action.actionType == ActionType.Cast && action.instanceId == it.instanceId
+                    } shouldBe
+                    1
+                available.inactiveActionsList.count { action ->
+                    action.actionType == ActionType.Cast && action.instanceId == it.instanceId
+                } shouldBe
+                    0
             }
 
             val castStart = messageSnapshot()

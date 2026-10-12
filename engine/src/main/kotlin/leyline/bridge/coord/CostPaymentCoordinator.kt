@@ -76,7 +76,7 @@ class CostPaymentCoordinator(
     /**
      * Convoke / improvise — prompt for a subset of untapped cards and map each
      * chosen card to a mana cost shard (colored first in WUBRG order, then
-     * generic). Empty result means the player tapped no cards.
+     * generic). Empty result means no reducer sources; null aborts the payment.
      */
     fun chooseCardsForConvokeOrImprovise(
         sa: SpellAbility,
@@ -85,7 +85,7 @@ class CostPaymentCoordinator(
         artifacts: Boolean,
         creatures: Boolean,
         maxReduction: Int?,
-    ): Map<Card, ManaCostShard> {
+    ): Map<Card, ManaCostShard>? {
         val options = untappedCards.map { it.name }
         if (options.isEmpty()) return emptyMap()
 
@@ -99,6 +99,7 @@ class CostPaymentCoordinator(
         val request = buildConvokeOrImproviseRequest(sa, manaCost, untappedCards, options, plan)
         val cardList = untappedCards.toList()
         val resolution = bridge.requestManaSourcePayment(request, cardList)
+        if (resolution.cancelled) return null
         val selectedCards = resolution.mapNotNull { cardList.getOrNull(it) }
         val exactShards =
             resolution.shards.mapNotNull { selected ->

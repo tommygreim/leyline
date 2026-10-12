@@ -177,6 +177,27 @@ mulligan. Network handlers submit the exact pending answer and return; they do
 not wait for the other player's mulligan. Bot matches retain their automatic
 Familiar startup.
 
+Final London bottom choices are recorded by the mulligan handoff as one-shot
+card identities. The zone-event collector freezes the owning seat on those
+hand-to-library moves; full-hand redraw returns are not bottom choices. At the
+next safe point, completed bottom transfers publish before a later human
+mulligan prompt replaces the viewer's hand baseline. Startup also retains the
+final seat's bottom transfers before first priority. Both `ObjectIdChanged` and
+`ZoneTransfer` name the owning seat, with transfer category `Put`.
+The same immutable `ZoneChanged.mulliganSeatId` fact feeds library knowledge
+in firing order: selected cards remain privately inspectable by that seat
+while in the library, until its next shuffle. Startup cuts retain these
+knowledge events alongside transfers; later human redraw shuffles neither
+reveal that player's returned hand nor erase the other player's bottom-card
+knowledge. Viewer projection never sends the private identities to the
+opponent, including in a reconnect's full state.
+Incremental GSMs enforce the same private-library viewer filter as full GSMs.
+Face-down battlefield stencils are a separate projection and must still be
+emitted; do not extend this library filter to all `Private` objects.
+Shuffle identity replacements also refresh any still-inspectable objects (for
+example a permission to look at the top card) even if their card values and
+position are unchanged; forgotten private bottom identities remain hidden.
+
 ### Reconnect publication
 
 An immediate constructed reconnect may re-enqueue its missing initial viewer
