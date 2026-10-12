@@ -1,0 +1,21 @@
+# Enhanced Surveillance is an optional static modifier to Wary Thespian's entry surveil.
+# Accept reveals three cards; decline leaves the printed surveil-one amount.
+
+[metadata]
+Name:Optional Static Surveil
+Goal:Survive
+Turns:6
+Difficulty:Tutorial
+Description:Cast Wary Thespian, then choose whether Enhanced Surveillance adds two cards to surveil.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+
+humanbattlefield=Enhanced Surveillance;Forest;Forest
+humanhand=Wary Thespian
+humanlibrary=Grizzly Bears;Island;Mountain;Forest;Forest
+aibattlefield=Mountain
+ailibrary=Mountain;Mountain;Mountain;Mountain;Mountain

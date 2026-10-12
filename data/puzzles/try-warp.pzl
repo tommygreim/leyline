@@ -3,7 +3,7 @@ Name:Try Warp
 Goal:Survive
 Turns:5
 Difficulty:Easy
-Description:Cast Quantum Riddler via Warp {1U} to verify alt-cost wire.
+Description:Cast Quantum Riddler via Warp {1U}. Inspect its entry ability: the printed draw-one trigger must also explain the applicable low-hand draw replacement. Resolve it, check the two-card draw, then test delayed exile and normal-cost recasting.
 
 [state]
 ActivePlayer=Human

@@ -282,6 +282,7 @@ object KeywordAbilityIds {
 
     // Payment-action row used by Convoke's mana-substitution MakePayment actions.
     const val CONVOKE_PAYMENT = 172
+    const val WATERBEND_PAYMENT = 384
 
     // BaseId roots — each printing has its own ability row chaining to this.
     const val EQUIP = 5

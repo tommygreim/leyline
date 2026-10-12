@@ -111,6 +111,41 @@ private val QUANTUM_RIDDLER_PUZZLE =
 @Suppress("UnnecessaryNotNullOperator")
 class WarpLifecycleTest :
     SessionTest({
+        for (otherCards in 0..2) {
+            session(
+                "draw trigger shows active replacement context with $otherCards other cards in hand",
+                puzzle =
+                    QUANTUM_RIDDLER_PUZZLE.replace(
+                        "humanhand=Quantum Riddler",
+                        "humanhand=Quantum Riddler" + ";Island".repeat(otherCards),
+                    ),
+                fullControl = true,
+            ) {
+                val cardGrpId = checkNotNull(bridge.cardRepository.findGrpIdByName("Quantum Riddler"))
+                val warpRow = checkNotNull(bridge.cardRepository.findKeywordAbilityGrpId(cardGrpId, KeywordAbilityIds.WARP))
+                check(castSpellByName("Quantum Riddler", alternativeGrpId = warpRow))
+                check(passUntil(maxPasses = 20) { human.hasCard("Quantum Riddler", ZoneType.Battlefield) })
+                val trigger =
+                    SnapshotCapture
+                        .run(game(), bridge, "replacement-context", 0)
+                        .stack.entries
+                        .single { !it.isSpell }
+                check(passUntil(maxPasses = 20) { game().stack.isEmpty })
+                val stackObjects =
+                    allMessages
+                        .filter { it.hasGameStateMessage() }
+                        .flatMap { it.gameStateMessage.gameObjectsList }
+                        .filter { it.type == GameObjectType.Ability && it.grpId == 86788 }
+                assertSoftly {
+                    trigger.grpId shouldBe 86788
+                    trigger.contextualAbilities shouldBe if (otherCards <= 1) listOf(190918 to cardGrpId) else emptyList()
+                    human.getZone(ZoneType.Hand).cards.size shouldBe otherCards + if (otherCards <= 1) 2 else 1
+                    stackObjects.shouldNotBeEmpty()
+                    stackObjects.any { it.uniqueAbilitiesList.any { row -> row.grpId == 190918 } } shouldBe (otherCards <= 1)
+                }
+            }
+        }
+
         session("alternativeGrpId cast chooses the warp spell ability", puzzle = WARP_PUZZLE) {
             val warpAbilityGrpId = warpAbilityGrpId()
 

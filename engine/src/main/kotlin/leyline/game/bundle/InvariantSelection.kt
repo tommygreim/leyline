@@ -19,6 +19,7 @@ enum class InvariantCheck(
     ActionInstanceIds("action_iid"),
     ZoneObjects("zone_object"),
     AnnotationReferences("annotation_ref"),
+    ClientAnnotationReferences("client_annotation_ref"),
 }
 
 /**
@@ -46,6 +47,7 @@ class InvariantSelection private constructor(
                 InvariantCheck.GsIdUnique,
                 InvariantCheck.GsIdNoSelfRef,
                 InvariantCheck.AidAffector,
+                InvariantCheck.ClientAnnotationReferences,
             )
 
         fun protocolFacts(): InvariantSelection = InvariantSelection(PROTOCOL_FACTS, relaxationReason = null)

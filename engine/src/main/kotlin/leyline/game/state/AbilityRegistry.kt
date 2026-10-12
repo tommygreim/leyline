@@ -36,6 +36,7 @@ class AbilityRegistry private constructor(
     val sourceCardGrpId: Int,
     val slotLayout: SlotLayout = SlotLayout.Companion.EMPTY,
     private val grantedKeywordResolver: (SpellAbility) -> Int? = { null },
+    private val replacementMap: Map<Int, Int> = emptyMap(),
 ) {
     /** Resolve a live or copied SpellAbility through its stable definition identity. */
     fun forSpellAbility(ability: SpellAbility): Int? =
@@ -50,6 +51,9 @@ class AbilityRegistry private constructor(
 
     /** StaticAbility definition ID → abilityGrpId. */
     fun forStaticAbility(definitionId: Int): Int? = resolve(AbilityDefinitionRef.StaticAbility(definitionId))?.abilityGrpId
+
+    /** Printed replacement rows are not Forge StaticAbility definitions. */
+    fun forReplacementEffect(effectId: Int): Int? = replacementMap[effectId]
 
     /** Trigger definition ID → abilityGrpId. */
     fun forTrigger(definitionId: Int): Int? = resolve(AbilityDefinitionRef.Trigger(definitionId))?.abilityGrpId
@@ -203,6 +207,21 @@ class AbilityRegistry private constructor(
             mapUnclaimedIntrinsicStatics(card, cardData, abilityIds, keywordCount, staticMap, keywordRows)
             mapUnclaimedLegacyStatics(card, cardData, abilityIds, keywordCount, staticMap)
             mapUnclaimedIntrinsics(card, fallbackGrpId, staticMap, triggerMap)
+            val replacements = card.replacementEffects.filter { it.isIntrinsic && it.keyword == null }
+            val replacementSlots =
+                abilityIds.indices.filter { index ->
+                    cardData.abilityCategories.getOrNull(index) == STATIC_CATEGORY_FLOOR &&
+                        abilityIds[index].first !in keywordRows &&
+                        abilityIds[index].first !in staticMap.values
+                }
+            // Only bind an unambiguous remaining set. Never substitute slot 0
+            // for an unknown replacement and accidentally show Flying/Warp.
+            val replacementMap =
+                if (replacementSlots.size == replacements.size) {
+                    replacements.zip(replacementSlots).associate { (effect, index) -> effect.id to abilityIds[index].first }
+                } else {
+                    emptyMap()
+                }
 
             // Derive SlotLayout from the same data — single source of truth.
             // Use cardData.abilityKinds when available so triggers/statics interleaved
@@ -224,6 +243,7 @@ class AbilityRegistry private constructor(
                 cardData.grpId,
                 layout,
                 grantedKeywordResolver,
+                replacementMap,
             )
         }
 

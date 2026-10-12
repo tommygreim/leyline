@@ -2,6 +2,7 @@ package leyline.mechanics.convoke
 
 import io.kotest.assertions.assertSoftly
 import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.ints.shouldBeGreaterThan
@@ -31,6 +32,102 @@ import wotc.mtgo.gre.external.messaging.Messages.PayCostsReq
 class ConvokeLifecycleTest :
     SessionTest({
         session(
+            "Convoke and flexible land preview use distinct mana ids without tapping sources",
+            puzzle =
+                """
+                ActivePlayer=Human
+                ActivePhase=Main1
+                HumanLife=20
+                AILife=20
+                humanhand=Conclave Tribunal
+                humanbattlefield=Steam Vents;Forest;Forest;Savannah Lions
+                humanlibrary=Plains;Plains;Plains
+                ailibrary=Mountain;Mountain;Mountain
+                """.trimIndent(),
+        ) {
+            val iid = human.hand.iid("Conclave Tribunal")
+            val cast =
+                allMessages
+                    .last { it.hasActionsAvailableReq() }
+                    .actionsAvailableReq.actionsList
+                    .single { it.actionType == ActionType.Cast && it.instanceId == iid }
+            val actions = cast.autoTapSolution.autoTapActionsList
+            val mana = actions.flatMap { it.manaPaymentOption.manaList }
+            assertSoftly {
+                actions shouldHaveSize 4
+                actions.count { it.abilityGrpId == KeywordAbilityIds.CONVOKE_PAYMENT } shouldBe 1
+                mana.map { it.manaId }.toSet() shouldHaveSize mana.size
+                human.getZone(forge.game.zone.ZoneType.Battlefield).cards.all { !it.isTapped } shouldBe true
+            }
+        }
+
+        session(
+            "Convoke finishes a creatures-only payment without an empty Cancel-only window",
+            puzzle =
+                """
+                ActivePlayer=Human
+                ActivePhase=Main1
+                HumanLife=20
+                AILife=20
+                humanhand=Conclave Tribunal
+                humanbattlefield=Savannah Lions;Coral Merfolk;Grizzly Bears;Runeclaw Bear
+                humanlibrary=Plains;Plains;Plains
+                ailibrary=Mountain;Mountain;Mountain
+                """.trimIndent(),
+        ) {
+            after { castSpellByName("Conclave Tribunal").shouldBeTrue() }.expectOnePayCostsReq()
+            listOf("Savannah Lions", "Coral Merfolk", "Grizzly Bears").forEach {
+                after { respondToConvokeMakePayment(human.battlefield.iid(it)) }.expectOnePayCostsReq()
+            }
+            val snap = messageSnapshot()
+            respondToConvokeMakePayment(human.battlefield.iid("Runeclaw Bear"))
+            messagesSince(snap).none { it.hasPayCostsReq() } shouldBe true
+            passUntilResolved(maxPasses = 8)
+            human.battlefield.iid("Conclave Tribunal") shouldBeGreaterThan 0
+        }
+
+        for (selectedCount in 0..2) {
+            session(
+                "Cancel aborts Convoke after $selectedCount source selections even when lands alone can pay",
+                puzzle =
+                    """
+                    ActivePlayer=Human
+                    ActivePhase=Main1
+                    HumanLife=20
+                    AILife=20
+                    humanhand=Conclave Tribunal
+                    humanbattlefield=Plains;Plains;Plains;Plains;Coral Merfolk;Grizzly Bears
+                    humanlibrary=Plains;Plains;Plains
+                    aibattlefield=Walking Corpse
+                    ailibrary=Mountain;Mountain;Mountain
+                    """.trimIndent(),
+            ) {
+                after { castSpellByName("Conclave Tribunal").shouldBeTrue() }.expectOnePayCostsReq()
+                val source = ForgeCardId(game().stackZone.first().id)
+                listOf("Coral Merfolk", "Grizzly Bears").take(selectedCount).forEach {
+                    after { respondToConvokeMakePayment(human.battlefield.iid(it)) }.expectOnePayCostsReq()
+                }
+                cancelAction()
+                assertSoftly {
+                    human.hand
+                        .card("Conclave Tribunal")
+                        .zone.zoneType shouldBe forge.game.zone.ZoneType.Hand
+                    human.getZone(forge.game.zone.ZoneType.Battlefield).cards.all { !it.isTapped } shouldBe true
+                    game().stack.isEmpty shouldBe true
+                    game().stackZone.shouldBeEmpty()
+                    bridge.promptBridge(SeatId(1)).journal.activeConvokePayments(source) shouldBe emptyList()
+                    ai.battlefield
+                        .card("Walking Corpse")
+                        .zone.zoneType shouldBe forge.game.zone.ZoneType.Battlefield
+                }
+                // Retry proves abort released the interaction rather than
+                // merely clearing its visual payment selection.
+                after { castSpellByName("Conclave Tribunal").shouldBeTrue() }.expectOnePayCostsReq()
+                cancelAction()
+            }
+        }
+
+        session(
             "Convoke creature can satisfy colored mana for action affordability",
             puzzle =
                 """
@@ -54,6 +151,9 @@ class ConvokeLifecycleTest :
             assertSoftly {
                 actions.actionsList.any { it.actionType == ActionType.Cast && it.instanceId == tribunalHandIid } shouldBe true
                 actions.inactiveActionsList.any { it.actionType == ActionType.Cast && it.instanceId == tribunalHandIid } shouldBe false
+                val cast = actions.actionsList.single { it.actionType == ActionType.Cast && it.instanceId == tribunalHandIid }
+                cast.hasAutoTapSolution() shouldBe true
+                cast.autoTapSolution.autoTapActionsList.any { it.abilityGrpId == KeywordAbilityIds.CONVOKE_PAYMENT } shouldBe true
             }
         }
 
@@ -91,6 +191,12 @@ class ConvokeLifecycleTest :
                 allMessages.last { it.hasPrompt() }.prompt.promptId shouldBe PromptIds.PAY_COSTS
                 initialPayCosts.manaCostList.single { it.colorList == listOf(ManaColor.Generic) }.count shouldBe 3
                 initialPayCosts.manaCostList.single { it.colorList == listOf(ManaColor.White_afc9) }.count shouldBe 1
+                allMessages
+                    .last { it.hasPayCostsReq() }
+                    .prompt.parametersList
+                    .single()
+                    .stringValue shouldBe
+                    "o3oW (tap creatures to help pay with convoke)"
                 assertConvokePaymentActions(initialPayCosts, listOf(merfolkIid, bearIid))
             }
 
@@ -220,7 +326,7 @@ class ConvokeLifecycleTest :
         ) {
             val initialPayCosts = after { castSpellByName("Conclave Tribunal").shouldBeTrue() }.expectOnePayCostsReq()
             val genericWhiteSource =
-                initialPayCosts.paymentActions.actionsList.single { action ->
+                initialPayCosts.paymentActions.actionsList.filter { it.actionType == ActionType.MakePayment }.single { action ->
                     action.manaPaymentOptionsList
                         .single()
                         .manaList

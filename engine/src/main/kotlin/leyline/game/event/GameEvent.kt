@@ -234,6 +234,8 @@ sealed interface GameEvent {
         val cardId: ForgeCardId,
         val from: Zone,
         val to: Zone,
+        /** Final London bottom choice; not a full-hand redraw return. */
+        val mulliganSeatId: SeatId? = null,
     ) : GameEvent
 
     /** A permanent was tapped or untapped. */

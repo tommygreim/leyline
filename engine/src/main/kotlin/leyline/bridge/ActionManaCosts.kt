@@ -2,6 +2,7 @@ package leyline.bridge
 
 import forge.ai.ComputerUtilMana
 import forge.card.mana.ManaCost
+import forge.card.mana.ManaCostShard
 import forge.game.card.Card
 import forge.game.card.CardCollection
 import forge.game.cost.CostAdjustment
@@ -28,6 +29,7 @@ internal object ActionManaCosts {
     data class ManaPaymentPreview(
         val cost: ManaCost,
         val sources: List<SpellAbility>,
+        val substitutions: Map<Card, ManaCostShard> = emptyMap(),
     )
 
     /**
@@ -38,18 +40,31 @@ internal object ActionManaCosts {
      */
     fun predictManaPayment(
         displayedCost: ManaCost,
-        sa: SpellAbility,
+        ability: SpellAbility,
         player: Player,
-    ): ManaPaymentPreview? =
-        affordabilityProbe(
+    ): ManaPaymentPreview? {
+        val sa = waterbendProbeAbility(ability, player)
+        return affordabilityProbe(
             probe = {
                 preservingPaymentProbeState(sa, player) {
                     NonInteractiveScope.bestEffort {
                         val needsSacrifice =
                             (sa.isEmerge && sa.sacrificedAsEmerge == null) ||
                                 (sa.isOffering && sa.sacrificedAsOffering == null)
+                        val substitutions = linkedMapOf<Card, ManaCostShard>()
+                        val needsSources =
+                            sa.hostCard.hasKeyword(forge.game.keyword.Keyword.CONVOKE) ||
+                                sa.hostCard.hasKeyword(forge.game.keyword.Keyword.IMPROVISE) ||
+                                sa.payCosts?.maxWaterbend != null ||
+                                sa.maxWaterbend != null ||
+                                sa.hasParam("TapCreaturesForMana")
                         val toPay =
-                            if (needsSacrifice) {
+                            if (needsSources) {
+                                val cost = CostAdjustment.adjust(sa.payCosts, sa, false).totalMana ?: return@bestEffort null
+                                ManaCostBeingPaid(cost).also {
+                                    CostAdjustment.adjust(it, sa, player, null, substitutions, true, false)
+                                }
+                            } else if (needsSacrifice) {
                                 ComputerUtilMana.calculateManaCost(sa.payCosts, sa, player, true, 0, false)
                             } else {
                                 ManaCostBeingPaid(displayedCost)
@@ -57,12 +72,20 @@ internal object ActionManaCosts {
                         val cost = toPay.toManaCost()
                         ComputerUtilMana
                             .getManaPaymentPlan(toPay, sa, player, false)
-                            ?.let { ManaPaymentPreview(cost, it.toList()) }
+                            ?.takeUnless { plan -> plan.any { it.hostCard in substitutions } }
+                            ?.let { ManaPaymentPreview(cost, it.toList(), substitutions) }
                     }
                 }
             },
             fallback = { null },
         )
+    }
+
+    /** Waterbend adjustment mutates the ability's cap; Forge has no exact cap-restoration API. */
+    private fun waterbendProbeAbility(
+        sa: SpellAbility,
+        player: Player,
+    ): SpellAbility = if (sa.payCosts?.maxWaterbend != null) sa.copy(sa.hostCard, player, true) else sa
 
     fun canPayManaCost(
         sa: SpellAbility,
@@ -74,10 +97,17 @@ internal object ActionManaCosts {
                 // the controller for payment-time reductions (Delve, Convoke,
                 // Waterbend). Payability wants the best case the board allows,
                 // answered deterministically — never a prompt.
-                preservingPaymentProbeState(sa, player) {
-                    NonInteractiveScope.bestEffort { ComputerUtilMana.canPayManaCost(sa, player, 0, false) }
-                } ||
-                    canPayOrTwoGenericManaCost(sa, player)
+                if (sa.payCosts?.maxWaterbend != null) {
+                    // Forge's ordinary human affordability probe disables
+                    // Waterbend. Its source-aware preview keeps the adjusted
+                    // cap and records taps hypothetically instead of paying.
+                    computeEffectiveCost(sa, player)?.let { predictManaPayment(it, sa, player) != null } == true
+                } else {
+                    preservingPaymentProbeState(sa, player) {
+                        NonInteractiveScope.bestEffort { ComputerUtilMana.canPayManaCost(sa, player, 0, false) }
+                    } ||
+                        canPayOrTwoGenericManaCost(sa, player)
+                }
             },
             fallback = { canPayOrTwoGenericManaCost(sa, player) },
         )
@@ -339,9 +369,10 @@ internal object ActionManaCosts {
             }
 
     fun computeEffectiveCost(
-        sa: SpellAbility,
+        ability: SpellAbility,
         player: Player,
     ): ManaCost? {
+        val sa = waterbendProbeAbility(ability, player)
         val baseCost = sa.payCosts ?: return null
         val hostCard = sa.hostCard
         val originalActivator = sa.activatingPlayer

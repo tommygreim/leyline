@@ -2,6 +2,13 @@ package leyline.game.mapping
 
 /** Protocol prompt IDs matching expected protocol values. */
 object PromptIds {
+    /**
+     * Private-client template: localized source card followed by the engine's
+     * confirmation text. Installed by the source-prompts launcher patch, not a
+     * vendor localization ID. Parameters are CardId, then NonLocalizedString.
+     */
+    const val SOURCE_EFFECT_CONFIRMATION = 2_000_000_001
+
     /** PromptParameter labels used by the native dynamic binary-choice workflow. */
     const val ADD_COUNTER = 1203
     const val REMOVE_COUNTER = 1204

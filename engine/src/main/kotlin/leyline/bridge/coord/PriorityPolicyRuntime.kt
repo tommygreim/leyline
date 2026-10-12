@@ -26,6 +26,8 @@ internal data class PriorityWindowObservation(
     val playerId: Int = 1,
     val stack: List<PriorityStackObject> = emptyList(),
     val ownStackTargetsOwnPermanent: Boolean = false,
+    val hasManaAction: Boolean = false,
+    val hasDeclaredBlockers: Boolean = false,
 )
 
 internal sealed interface PriorityWindowDecision {
@@ -48,6 +50,7 @@ private enum class PriorityWindowReason(
     MANUAL_MANA(true),
     TURN_YIELD(false),
     STACK_YIELD(false),
+    BLOCKER_MANA(true),
     NO_EXECUTABLE_ACTION(false),
 
     OWN_TARGET_RESPONSE(true),
@@ -256,6 +259,12 @@ class PriorityPolicyRuntime(
                     observation.forceVisible -> PriorityWindowReason.MANUAL_MANA
                     settings.autoPassOption == AutoPassOption.UnlessOpponentAction -> PriorityWindowReason.TURN_YIELD
                     settings.stackAutoPassOption == AutoPassOption.ResolveAll -> PriorityWindowReason.STACK_YIELD
+                    !observation.isOwnTurn &&
+                        observation.stackEmpty &&
+                        observation.phase == PhaseType.COMBAT_DECLARE_BLOCKERS &&
+                        observation.phase in turnScopedStops(false) &&
+                        observation.hasDeclaredBlockers &&
+                        observation.hasManaAction -> PriorityWindowReason.BLOCKER_MANA
                     !observation.hasMeaningfulAction -> PriorityWindowReason.NO_EXECUTABLE_ACTION
                     settings.smartStopsSetting == SmartStopsSetting.Enable_a188 &&
                         observation.ownStackTargetsOwnPermanent -> PriorityWindowReason.OWN_TARGET_RESPONSE

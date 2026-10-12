@@ -8,12 +8,14 @@ import leyline.game.bundle.GsmBuilder
 import leyline.game.bundle.GsmFrame
 import leyline.game.bundle.LifecycleMessageMaterializer
 import leyline.game.bundle.LogicalSequencePlanner
+import leyline.game.bundle.PROMPT_GRE_TYPES
 import leyline.game.mapping.ZoneIds
 import leyline.game.state.ProjectionState
 import leyline.game.state.ProjectionTransition
 import wotc.mtgo.gre.external.messaging.Messages.ActionsAvailableReq
 import wotc.mtgo.gre.external.messaging.Messages.GREMessageType
 import wotc.mtgo.gre.external.messaging.Messages.GREToClientMessage
+import wotc.mtgo.gre.external.messaging.Messages.GameStateMessage
 import wotc.mtgo.gre.external.messaging.Messages.GameStateType
 import wotc.mtgo.gre.external.messaging.Messages.GameStateUpdate
 import wotc.mtgo.gre.external.messaging.Messages.Prompt
@@ -76,9 +78,11 @@ internal class MatchLifecycleRuntime(
     fun publishHumanMulliganPrompt(
         seatId: SeatId,
         prompt: MulliganBridge.PendingPrompt,
-    ): Int =
-        withPlan(seatId) { prior, planner, gameStateId ->
+    ): Int {
+        if (owner.bridge.humanVsHuman) owner.publishMulliganReturnsBeforePrompt(seatId)
+        return withPlan(seatId) { prior, planner, gameStateId ->
             val previousCount = humanMulliganCounts[seatId] ?: 0
+            val redraw = prompt.phase == MulliganPhase.WaitingKeep && prompt.mulliganCount > previousCount
             val prepared =
                 prepare {
                     LifecycleMessageMaterializer.humanMulliganPrompt(
@@ -86,7 +90,7 @@ internal class MatchLifecycleRuntime(
                         owner.registeredViewers(),
                         seatId,
                         prompt,
-                        redraw = prompt.phase == MulliganPhase.WaitingKeep && prompt.mulliganCount > previousCount,
+                        redraw = redraw,
                         gameStateId = gameStateId,
                         planner = planner,
                     )
@@ -106,6 +110,7 @@ internal class MatchLifecycleRuntime(
             )
             gameStateId
         }
+    }
 
     fun publishInitial(
         seatId: SeatId,
@@ -202,11 +207,35 @@ internal class MatchLifecycleRuntime(
                 ),
             ).build()
 
+    /** Reattach a transport without changing a settled decision's exact correlation. */
+    fun publishTransportReconnect(
+        seatId: SeatId,
+        lastPrompt: GREToClientMessage?,
+    ): Int =
+        synchronized(owner.feedLock) {
+            owner.requireViewer(seatId)
+            val initial = checkNotNull(initialPublication) { "Reconnect requires an existing initial publication" }
+            val horizon = owner.actions.reconnectHorizon(seatId)
+            val runtimes = owner.promptRuntimes(seatId)
+            val pendingCut =
+                runtimes.settled.terminalCutCandidateLocked()?.cut
+                    ?: runtimes.blocking.terminalCutCandidateLocked()?.cut
+            val retainedPrompt =
+                pendingCut?.messages?.lastOrNull { it.type in PROMPT_GRE_TYPES }
+                    ?: lastPrompt?.takeIf {
+                        runtimes.hasPendingInteraction() && owner.bridge.responseAcceptance.hasOutstandingPrompt(it.msgId)
+                    }
+            val mulligan = owner.bridge.mulliganBridge(seatId).pendingPrompt()
+            publishReconnect(seatId, initial, horizon, mulligan, retainedPrompt, pendingCut?.messages.orEmpty())
+        }
+
     private fun publishReconnect(
         seatId: SeatId,
         initial: InitialPublication,
         horizon: MatchActionWindowRuntime.ReconnectHorizon?,
         mulliganPrompt: MulliganBridge.PendingPrompt?,
+        retainedPrompt: GREToClientMessage? = null,
+        retainedMessages: List<GREToClientMessage> = emptyList(),
     ): Int {
         owner.ensureOpen()
         val prior = owner.bridge.projectionStateSnapshot()
@@ -217,18 +246,7 @@ internal class MatchLifecycleRuntime(
         val snapshot = checkNotNull(priorCursor.previousSnapshot) { "Reconnect snapshot is unavailable for $seatId" }
         val retainedFull = checkNotNull(priorCursor.fullState) { "Reconnect state is unavailable for $seatId" }
         val rebasedSnapshot = snapshot.withGameStateId(gameStateId)
-        val rebasedFull =
-            retainedFull
-                .toBuilder()
-                .setType(GameStateType.Full)
-                .setGameStateId(gameStateId)
-                .clearPrevGameStateId()
-                .clearAnnotations()
-                .clearActions()
-                .clearDiffDeletedInstanceIds()
-                .setPendingMessageCount(0)
-                .setUpdate(GameStateUpdate.SendAndRecord)
-                .build()
+        val rebasedFull = reconnectFullState(retainedFull, retainedMessages, gameStateId)
         val handInstanceIds =
             rebasedFull.zonesList
                 .firstOrNull { it.zoneId == ZoneIds.handOf(seatId.value) }
@@ -244,7 +262,7 @@ internal class MatchLifecycleRuntime(
                     handInstanceIds = handInstanceIds,
                     keepRequest = currentKeepRequest,
                 )
-            } ?: horizon?.decisionMessage
+            } ?: retainedPrompt ?: horizon?.decisionMessage
         val gsm =
             horizonMessage?.takeIf { it.hasActionsAvailableReq() }?.let {
                 GsmBuilder.embedActions(rebasedFull, it.actionsAvailableReq, GsmFrame.from(rebasedSnapshot), seatId.value)
@@ -274,11 +292,15 @@ internal class MatchLifecycleRuntime(
                 )
                 horizonMessage?.let {
                     add(
-                        it
-                            .toBuilder()
-                            .setMsgId(planner.nextMsgId())
-                            .setGameStateId(gameStateId)
-                            .build(),
+                        if (retainedPrompt != null && mulliganPrompt == null) {
+                            it
+                        } else {
+                            it
+                                .toBuilder()
+                                .setMsgId(planner.nextMsgId())
+                                .setGameStateId(gameStateId)
+                                .build()
+                        },
                     )
                 }
             }
@@ -293,7 +315,7 @@ internal class MatchLifecycleRuntime(
                         ?.takeIf { batch -> feed.queue.any { it.messages === batch } }
                         .orEmpty(),
             onInstalled = {
-                horizon?.let { owner.actions.bindReconnectHorizon(it, gameStateId, messages) }
+                if (retainedPrompt == null) horizon?.let { owner.actions.bindReconnectHorizon(it, gameStateId, messages) }
                 if (mulliganPrompt != null) {
                     currentMulliganBatch = messages
                     messages.singleOrNull { it.hasMulliganReq() }?.let { currentKeepRequest = it }
@@ -647,4 +669,33 @@ internal class MatchLifecycleRuntime(
             owner.actions.synchronizationBatch(actionId),
         )
     }
+}
+
+/** Include ephemeral replacement objects needed by the retained choice, for this viewer only. */
+private fun reconnectFullState(
+    retainedFull: GameStateMessage,
+    retainedMessages: List<GREToClientMessage>,
+    gameStateId: Int,
+): GameStateMessage {
+    val pendingStates = retainedMessages.filter { it.hasGameStateMessage() }.map { it.gameStateMessage }
+    val existingIds = retainedFull.gameObjectsList.mapTo(mutableSetOf()) { it.instanceId }
+    val supplementalObjects = pendingStates.flatMap { it.gameObjectsList }.filter { existingIds.add(it.instanceId) }
+    val persistentAnnotations =
+        (retainedFull.persistentAnnotationsList + pendingStates.flatMap { it.persistentAnnotationsList })
+            .associateBy { it.id }
+            .values
+    return retainedFull
+        .toBuilder()
+        .setType(GameStateType.Full)
+        .setGameStateId(gameStateId)
+        .clearPrevGameStateId()
+        .clearAnnotations()
+        .clearActions()
+        .clearDiffDeletedInstanceIds()
+        .addAllGameObjects(supplementalObjects)
+        .clearPersistentAnnotations()
+        .addAllPersistentAnnotations(persistentAnnotations)
+        .setPendingMessageCount(0)
+        .setUpdate(GameStateUpdate.SendAndRecord)
+        .build()
 }

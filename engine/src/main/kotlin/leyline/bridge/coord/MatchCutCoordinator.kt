@@ -391,13 +391,29 @@ internal class MatchCutCoordinator(
         }
     }
 
+    /** Publish completed bottom choices before a later mulligan prompt replaces the hand baseline. */
+    internal fun publishMulliganReturnsBeforePrompt(seatId: SeatId) {
+        synchronized(feedLock) {
+            ensureOpen()
+            val closed = bridge.closeBundleFrame(seatId.value)
+            val returns = closed.zoneMoves.filter { it.mulliganSeatId != null }
+            if (returns.isEmpty()) return
+            installPlaybackCut(
+                seatId,
+                feed(seatId),
+                PlaybackCutRequest(PlaybackCutReason.OpeningHandAction, 0, turnStarted = false),
+                FrameEventLog(closed.mulliganKnowledgeEvents(), returns),
+            )
+        }
+    }
+
     fun onMainGameLoopStarted(seatId: SeatId) {
         synchronized(feedLock) {
             ensureOpen()
             val feed = feed(seatId)
-            val events = bridge.closeBundleFrame(seatId.value).openingHandActions()
+            val events = bridge.closeBundleFrame(seatId.value).startupActions()
             feed.requestedCut = null
-            if (events.events.isNotEmpty()) {
+            if (events.events.isNotEmpty() || events.zoneMoves.isNotEmpty()) {
                 installPlaybackCut(
                     seatId,
                     feed,
@@ -484,21 +500,46 @@ internal class MatchCutCoordinator(
         )
     }
 
-    private fun FrameEventLog.openingHandActions(): FrameEventLog {
+    private fun FrameEventLog.startupActions(): FrameEventLog {
         val cardIds = events.filterIsInstance<GameEvent.OpeningHandAction>().mapTo(mutableSetOf()) { it.cardId }
-        if (cardIds.isEmpty()) return FrameEventLog.EMPTY
+        val knowledgeEvents = mulliganKnowledgeEvents()
         return FrameEventLog(
             events.filter { event ->
-                event is GameEvent.OpeningHandAction ||
+                event in knowledgeEvents ||
+                    event is GameEvent.OpeningHandAction ||
                     event is GameEvent.ZoneChanged &&
                     event.cardId in cardIds &&
                     event.from == Zone.Hand &&
                     event.to == Zone.Battlefield
             },
             zoneMoves.filter { move ->
-                move.cardId in cardIds && move.from == Zone.Hand && move.to == Zone.Battlefield
+                move.mulliganSeatId != null ||
+                    move.cardId in cardIds &&
+                    move.from == Zone.Hand &&
+                    move.to == Zone.Battlefield
             },
         )
+    }
+
+    /** Preserve private bottom knowledge and later shuffles, without replaying redraw shuffles. */
+    private fun FrameEventLog.mulliganKnowledgeEvents(): List<GameEvent> {
+        val knownSeats =
+            bridge
+                .projectionStateSnapshot()
+                .libraryKnowledge.viewers.values
+                .flatten()
+                .toMutableSet()
+        return events.filter { event ->
+            when (event) {
+                is GameEvent.ZoneChanged ->
+                    event.mulliganSeatId?.let {
+                        knownSeats.add(it)
+                        true
+                    } ?: false
+                is GameEvent.LibraryShuffled -> event.seatId in knownSeats
+                else -> false
+            }
+        }
     }
 
     fun acknowledgeExternalFrame(seatId: SeatId) {

@@ -148,6 +148,13 @@ The finalizer applies the existing same-GSM ordering policy exactly once and
 then assigns IDs positionally. It does not inspect Forge objects, choose frame
 membership, emit new annotations, mutate bridge state, or send messages.
 
+Frame assembly may supply an immutable reference-retention predicate. The
+finalizer applies it after following same-frame target identity replacements
+and before ordering/numbering, so dropping an invalid target rider cannot leave
+ID gaps. The predicate belongs to `AnnotationReferenceSanitizer`, not the
+ordering kernel. Viewer rendering consumes the retained list and must never
+restore the earlier unfiltered annotations.
+
 The exact API may follow the existing Kotlin vocabulary. The architectural
 shape is a value transformation similar to:
 

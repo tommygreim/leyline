@@ -10,6 +10,7 @@ import leyline.native.AccountAuthenticator
 import leyline.native.matchmaking.LocalPairingService
 import org.slf4j.LoggerFactory
 import wotc.mtgo.gre.external.messaging.Messages.*
+import java.io.IOException
 import java.util.UUID
 
 /** Netty lifecycle adapter; channel event-loop serialization stays at this edge. */
@@ -53,12 +54,19 @@ internal class NativeMatchConnectionHandler(
 
     override fun channelInactive(ctx: ChannelHandlerContext) {
         connection?.disconnected()
+        pairingService?.releaseConnection(connectionId)
     }
 
     override fun exceptionCaught(
         ctx: ChannelHandlerContext,
         cause: Throwable,
     ) {
+        if (cause is IOException) {
+            // Socket failures recover through the same bounded detach path as
+            // ordinary channel closure; protocol/engine failures remain fatal.
+            ctx.close()
+            return
+        }
         connection?.failed(cause) ?: ctx.close()
     }
 

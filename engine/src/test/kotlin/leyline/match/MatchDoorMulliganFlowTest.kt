@@ -22,6 +22,7 @@ import leyline.domain.service.MatchCoordinator
 import leyline.game.mapping.ZoneIds
 import leyline.testkit.TestCardRegistry
 import leyline.testkit.detailInt
+import leyline.testkit.detailString
 import wotc.mtgo.gre.external.messaging.Messages.Action
 import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.AnnotationType
@@ -40,6 +41,7 @@ import wotc.mtgo.gre.external.messaging.Messages.MulliganOption
 import wotc.mtgo.gre.external.messaging.Messages.MulliganResp
 import wotc.mtgo.gre.external.messaging.Messages.PerformActionResp
 import wotc.mtgo.gre.external.messaging.Messages.TeamType
+import wotc.mtgo.gre.external.messaging.Messages.Visibility
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
@@ -671,7 +673,12 @@ class MatchDoorMulliganFlowTest :
                         9,
                     ),
                 )
-                val postKeep = greOutbound(local).map { it.type }
+                val postKeepMessages = greOutbound(local)
+                val postKeep = postKeepMessages.map { it.type }
+                val tuckAnnotations =
+                    postKeepMessages
+                        .flatMap { it.gameStateMessage.annotationsList }
+                        .filter { AnnotationType.ZoneTransfer_af5a in it.typeList && it.detailInt("zone_src") == ZoneIds.P1_HAND }
                 val keptHand = session.gameBridge.getHandGrpIds(leyline.bridge.types.SeatId(1))
 
                 assertSoftly {
@@ -688,6 +695,30 @@ class MatchDoorMulliganFlowTest :
                     tuckPrompt.map { it.type } shouldContain GREMessageType.GroupReq_695e
                     groupReq.groupReq.groupSpecsList[1].lowerBound shouldBe 2
                     keptHand.size shouldBe 5
+                    tuckAnnotations.size shouldBe 2
+                    tuckAnnotations.map { it.affectorId } shouldBe listOf(1, 1)
+                    tuckAnnotations.map { it.detailString("category") } shouldBe listOf("Put", "Put")
+                    tuckAnnotations.map { it.detailInt("zone_dest") } shouldBe listOf(ZoneIds.P1_LIBRARY, ZoneIds.P1_LIBRARY)
+                    postKeepMessages
+                        .flatMap { it.gameStateMessage.annotationsList }
+                        .filter { AnnotationType.ObjectIdChanged in it.typeList && it.detailInt("orig_id") in handIds.takeLast(2) }
+                        .map { it.affectorId } shouldBe listOf(1, 1)
+                    val bottomObjects =
+                        postKeepMessages
+                            .flatMap { it.gameStateMessage.gameObjectsList }
+                            .filter { it.zoneId == ZoneIds.P1_LIBRARY && it.visibility == Visibility.Private }
+                            .distinctBy { it.instanceId }
+                    val handObjects = tuckPrompt.flatMap { it.gameStateMessage.gameObjectsList }.associateBy { it.instanceId }
+                    val bottomIdChanges =
+                        postKeepMessages
+                            .flatMap { it.gameStateMessage.annotationsList }
+                            .filter { AnnotationType.ObjectIdChanged in it.typeList && it.detailInt("orig_id") in handIds.takeLast(2) }
+                    bottomObjects.size shouldBe 2
+                    bottomObjects.forEach { card ->
+                        card.viewersList shouldBe listOf(1)
+                        val oldId = bottomIdChanges.single { it.detailInt("new_id") == card.instanceId }.detailInt("orig_id")
+                        card.grpId shouldBe handObjects.getValue(oldId).grpId
+                    }
                     postKeep shouldContain GREMessageType.GameStateMessage_695e
                     postKeep shouldContain GREMessageType.ActionsAvailableReq_695e
                 }

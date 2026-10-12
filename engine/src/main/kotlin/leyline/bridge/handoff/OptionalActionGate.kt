@@ -76,6 +76,7 @@ class OptionalActionGate(
         mechanicType: CardMechanicType? = null,
         recipientCards: List<Card> = emptyList(),
         costText: String? = null,
+        confirmationText: String? = null,
     ): Boolean {
         if (hostCard == null) return true
         return interactionRuntime.awaitOptional(
@@ -89,6 +90,7 @@ class OptionalActionGate(
                 mechanicType = mechanicType,
                 recipientIds = recipientCards.map { ForgeCardId(it.id) },
                 costText = costText,
+                confirmationText = confirmationText,
             ),
             sourceCard = hostCard,
             timeoutMs = actionBridge?.getTimeoutMs(),

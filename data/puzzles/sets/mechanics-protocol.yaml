@@ -838,12 +838,17 @@ scenarios:
       - expect:
           prompt: PayCostsReq
       - select_cost: { zone: battlefield, cards: [Grizzly Bears] }
+      - pass_until:
+          prompt: SelectTargetsReq
+          max_passes: 8
+      - target: { side: opponent, zone: battlefield, card: Walking Corpse }
       - resolve_stack: {}
       - expect:
           all:
             - annotation_seen: ManaPaid
             - annotation_seen: AbilityWordActive
             - zone_contains: { side: ours, zone: battlefield, card: Conclave Tribunal }
+            - zone_contains: { side: opponent, zone: exile, card: Walking Corpse }
             - stack_empty: true
   - id: improvise-ironheart-clever-champion
     puzzle: improvise-ironheart-clever-champion

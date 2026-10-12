@@ -38,7 +38,6 @@ import forge.game.cost.CostReturn
 import forge.game.cost.CostSacrifice
 import forge.game.cost.CostTapType
 import forge.game.cost.CostUntapType
-import forge.game.cost.CostWaterbend
 import forge.game.keyword.Keyword
 import forge.game.keyword.KeywordInterface
 import forge.game.mana.ManaConversionMatrix
@@ -1050,7 +1049,8 @@ class PlayerController(
 
     // -- Convoke / Improvise -----------------------------------------------
     // PCHuman uses InputSelectCardsForConvokeOrImprovise (desktop-only, hangs).
-    // Delegate to AI tap-selection for now.  Refs meeting 2026-02-08 Tier 1.
+    // On the engine thread, the bridge returns exact selections or null for
+    // Abort; Forge propagates null through cost adjustment to cast rollback.
 
     override fun chooseCardsForConvokeOrImprovise(
         sa: SpellAbility,
@@ -1059,7 +1059,7 @@ class PlayerController(
         artifacts: Boolean,
         creatures: Boolean,
         maxReduction: Int?,
-    ): Map<Card, ManaCostShard> {
+    ): Map<Card, ManaCostShard>? {
         NonInteractiveScope.active?.let { policy ->
             return NonInteractiveAnswers.cardsForConvokeOrImprovise(policy, manaCost, untappedCards, artifacts, maxReduction)
         }
@@ -1384,32 +1384,11 @@ class PlayerController(
         prompt: String?,
         matrix: ManaConversionMatrix?,
         effect: Boolean,
-    ): Boolean {
-        if (costPartMana is CostWaterbend) {
-            val untapped =
-                CardCollection(
-                    player.getCardsIn(ZoneType.Battlefield).filter { card ->
-                        !card.isTapped && (card.isArtifact || card.isCreature)
-                    },
-                )
-            val tappedForWaterbend =
-                costPaymentCoordinator.chooseCardsForConvokeOrImprovise(
-                    sa = sa,
-                    manaCost = toPay,
-                    untappedCards = untapped,
-                    artifacts = true,
-                    creatures = true,
-                    maxReduction = toPay.genericCost,
-                )
-            val remaining = ManaCostBeingPaid(toPay)
-            for ((card, shard) in tappedForWaterbend) {
-                remaining.decreaseShard(shard, 1)
-                card.tap(true, sa, player)
-            }
-            return PlaySpellAbility.payManaCost(this, remaining.toManaCost(), costPartMana, sa, player, prompt, matrix, effect)
-        }
-        return PlaySpellAbility.payManaCost(this, toPay, costPartMana, sa, player, prompt, matrix, effect)
-    }
+    ): Boolean =
+        // Forge's CostAdjustment owns every reducer selection, including
+        // activated Waterbend. A preflight picker here would ask twice and
+        // bypass Forge's cancellation and final-payment bookkeeping.
+        PlaySpellAbility.payManaCost(this, toPay, costPartMana, sa, player, prompt, matrix, effect)
 
     override fun applyManaToCost(
         toPay: ManaCostBeingPaid,
@@ -2141,14 +2120,13 @@ class PlayerController(
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Auto-decline "assign damage as though unblocked" for trample creatures.
-     * The compatibility flow uses AssignDamageReq for manual damage distribution.
-     * Forge's desktop UI offers this as a convenience shortcut, but we suppress it
-     * to keep the prompt shape consistent.
+     * Forge passes null mode for optional static applications such as SurveilNum.
+     * PCHuman would wait on its desktop InputConfirm, so publish a native optional
+     * action from the engine thread. Damage assignment retains its own request.
      */
     override fun confirmStaticApplication(
         hostCard: Card,
-        mode: PlayerActionConfirmMode,
+        mode: PlayerActionConfirmMode?,
         message: String,
         logic: String?,
     ): Boolean {
@@ -2156,7 +2134,13 @@ class PlayerController(
             log.info("confirmStaticApplication: auto-declining AlternativeDamageAssignment for {}", hostCard.name)
             return false
         }
-        return super.confirmStaticApplication(hostCard, mode, message, logic.orEmpty())
+        if (NonInteractiveScope.active != null) return false
+        return optionalActionGate.await(
+            hostCard = hostCard,
+            defaultOnTimeout = false,
+            logContext = "confirmStaticApplication",
+            confirmationText = message.trim().takeIf { it.isNotEmpty() },
+        )
     }
 
     // ═══════════════════════════════════════════════════════════════════

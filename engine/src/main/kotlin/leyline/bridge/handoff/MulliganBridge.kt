@@ -56,6 +56,18 @@ class MulliganBridge(
 
     @Volatile private var state: MulliganState = MulliganState.Idle
     private var promptSequenceValue: Int = 0
+    private val pendingTuckReturns = mutableSetOf<Int>()
+
+    /** Capture only final bottom choices, not the full-hand returns used by a redraw. */
+    private fun recordTuckReturns(cards: List<Card>): List<Card> =
+        synchronized(this) {
+            pendingTuckReturns.clear()
+            cards.mapTo(pendingTuckReturns) { it.id }
+            cards
+        }
+
+    /** Engine-thread zone-event attribution; each selected card is consumed exactly once. */
+    internal fun consumeTuckReturn(cardId: Int): Boolean = synchronized(this) { pendingTuckReturns.remove(cardId) }
 
     /** Engine-thread publication hook, invoked after installing each exact prompt. */
     var onPrompt: ((PendingPrompt) -> Unit)? = null
@@ -104,6 +116,7 @@ class MulliganBridge(
         playerId: Int,
         mulliganCount: Int,
     ): Boolean {
+        synchronized(this) { pendingTuckReturns.clear() }
         if (autoKeep) {
             log.debug("MulliganBridge: auto-keep for player {}", playerId)
             return true
@@ -153,7 +166,7 @@ class MulliganBridge(
     ): List<Card> {
         if (autoKeep) {
             log.debug("MulliganBridge: auto-tuck {} for player {}", count, playerId)
-            return hand.toList().take(count)
+            return recordTuckReturns(hand.toList().take(count))
         }
 
         val future = CompletableFuture<List<Card>>()
@@ -168,24 +181,26 @@ class MulliganBridge(
                 )
         }
         log.info("MulliganBridge: awaiting tuck {} cards for player {}", count, playerId)
-        return try {
-            onPrompt?.invoke(checkNotNull(pendingPrompt()))
-            if (timeoutMs == null) {
-                future.get()
-            } else {
-                future.get(timeoutMs, TimeUnit.MILLISECONDS)
-            }
-        } catch (_: TimeoutException) {
-            log.warn("MulliganBridge: timeout waiting for tuck, auto-tucking first {}", count)
-            DevCheck.failOnAutoPass { "Mulligan tuck decision timed out" }
-            hand.toList().take(count)
-        } finally {
-            synchronized(this) {
-                if ((state as? MulliganState.WaitingTuck)?.future === future) {
-                    state = MulliganState.Idle
+        val selected =
+            try {
+                onPrompt?.invoke(checkNotNull(pendingPrompt()))
+                if (timeoutMs == null) {
+                    future.get()
+                } else {
+                    future.get(timeoutMs, TimeUnit.MILLISECONDS)
+                }
+            } catch (_: TimeoutException) {
+                log.warn("MulliganBridge: timeout waiting for tuck, auto-tucking first {}", count)
+                DevCheck.failOnAutoPass { "Mulligan tuck decision timed out" }
+                hand.toList().take(count)
+            } finally {
+                synchronized(this) {
+                    if ((state as? MulliganState.WaitingTuck)?.future === future) {
+                        state = MulliganState.Idle
+                    }
                 }
             }
-        }
+        return recordTuckReturns(selected)
     }
 
     fun submitKeep(): Boolean {
@@ -208,6 +223,7 @@ class MulliganBridge(
             synchronized(this) {
                 val pending = state
                 state = MulliganState.Idle
+                pendingTuckReturns.clear()
                 pending
             }
         when (current) {

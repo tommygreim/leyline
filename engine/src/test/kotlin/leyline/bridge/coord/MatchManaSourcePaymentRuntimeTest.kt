@@ -20,6 +20,7 @@ import leyline.game.data.KeywordAbilityIds
 import leyline.game.state.ProjectionViewerRole
 import leyline.testkit.Board
 import leyline.testkit.BoardTest
+import wotc.mtgo.gre.external.messaging.Messages.ActionType
 import wotc.mtgo.gre.external.messaging.Messages.ManaColor
 import wotc.mtgo.gre.external.messaging.Messages.Visibility
 import java.util.concurrent.CountDownLatch
@@ -176,7 +177,11 @@ class MatchManaSourcePaymentRuntimeTest :
                         wotc.mtgo.gre.external.messaging.Messages.GREMessageType.GameStateMessage_695e,
                         wotc.mtgo.gre.external.messaging.Messages.GREMessageType.PayCostsReq_695e,
                     )
-                initialReq.paymentActions.actionsList.shouldHaveSize(3)
+                initialReq.paymentActions.actionsList
+                    .filter { it.actionType == ActionType.MakePayment }
+                    .shouldHaveSize(3)
+                initialReq.paymentActions.actionsList.count { it.actionType == ActionType.Pass } shouldBe 0
+                initialReq.autoTapActionsReq.autoTapSolutionsCount shouldBe 1
                 finished.count shouldBe 1
             }
 
@@ -321,6 +326,7 @@ class MatchManaSourcePaymentRuntimeTest :
                     .flatten()
                     .single { it.hasPayCostsReq() }
                     .payCostsReq.paymentActions.actionsList
+                    .filter { it.actionType == ActionType.MakePayment }
             val lion = candidates(board).single { it.name == "Savannah Lions" }
             val merfolk = candidates(board).single { it.name == "Coral Merfolk" }
             val lionId = board.instanceId(lion.id)
@@ -368,6 +374,7 @@ class MatchManaSourcePaymentRuntimeTest :
                     .flatten()
                     .single { it.hasPayCostsReq() }
                     .payCostsReq.paymentActions.actionsList
+                    .filter { it.actionType == ActionType.MakePayment }
             val ids = actions.map { it.instanceId }
             assertSoftly {
                 actions shouldHaveSize 3
@@ -411,6 +418,7 @@ class MatchManaSourcePaymentRuntimeTest :
                     .flatten()
                     .single { it.hasPayCostsReq() }
                     .payCostsReq.paymentActions.actionsList
+                    .filter { it.actionType == ActionType.MakePayment }
                     .map { it.instanceId }
             assertSoftly {
                 ids shouldHaveSize 3
@@ -430,11 +438,11 @@ class MatchManaSourcePaymentRuntimeTest :
             }
         }
 
-        test("partial cancel returns accumulated original options") {
+        test("partial cancel aborts payment and discards accumulated original options") {
             val board = startPuzzleAtMain1(puzzle)
             val coordinator = board.bridge.cutCoordinator
             coordinator.drain(SeatId(1))
-            val result = AtomicReference<List<Int>>()
+            val result = AtomicReference<leyline.bridge.handoff.ManaSourcePaymentResult>()
             val finished = CountDownLatch(1)
             Thread {
                 result.set(coordinator.manaSourcePayments.awaitPayment(request(board), candidates(board), 3_000))
@@ -462,7 +470,19 @@ class MatchManaSourcePaymentRuntimeTest :
                 .shouldNotBeNull()
             assertSoftly {
                 finished.await(3, TimeUnit.SECONDS) shouldBe true
-                result.get() shouldContainExactly listOf(0)
+                result.get().cancelled shouldBe true
+                result.get().shouldBeEmpty()
+                board.bridge
+                    .promptBridge(
+                        SeatId(1),
+                    ).journal
+                    .activeConvokePayments(
+                        ForgeCardId(
+                            board.human.battlefield
+                                .card("Forest")
+                                .id,
+                        ),
+                    ).shouldBeEmpty()
             }
         }
 

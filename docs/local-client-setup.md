@@ -124,7 +124,15 @@ for cards whose current primary printing exists only under `SPM` or `MSH`.
 
 Constructed matches use the London mulligan: every mulligan redraw contains
 seven cards, and after Keep the player puts one card on the bottom for each
-previous mulligan. Card text that offers an optional discard publishes the
+previous mulligan. Bottomed cards leave the hand as soon as that choice is
+processed, including when the other human is still deciding. A reconnect during
+bottom selection restores the same pending choice rather than drawing another
+hand. The owner can inspect the selected bottom cards in their library until
+that library is shuffled; the opponent cannot see their identities. To test
+mulligans locally, start an ordinary Bot Match without a puzzle;
+puzzles skip opening-hand selection.
+
+Card text that offers an optional discard publishes the
 discard choice before any dependent target choice; declining the discard closes
 the optional branch and returns play to the next normal decision.
 
@@ -134,6 +142,15 @@ example discard-one, discard-two, discard-three, optional discard, and pay X).
 Unclassified selections, searches, and optional actions use neutral “choose
 items,” “search for a card,” and “choose options” prompts so a fallback does not
 claim a restriction or cost that the rules engine did not supply.
+
+Optional static-application confirmations retain the engine's effect question
+and highlight its source card. These use a project-owned source/text prompt
+template, installed in the private client's prompt engine by the embedding
+launcher's `source-prompts` helper. Stock clients do not have this localization;
+extra string parameters on "Choose options" are ignored. The helper changes
+only its reserved ID, leaving stock prompt IDs and downloaded assets unchanged.
+Restart the private client through its maintained launcher after this helper is
+updated; never apply it to the official installation or a running client.
 
 When the host enables two-player mode, `Event_EnterPairing` (603) waits for two
 separate authenticated profiles selecting the same event. The first queued
@@ -148,8 +165,12 @@ specific to bot matches.
 
 Leaving the queue removes the waiting entry. A reserved room with no Match Door
 connections is released when a participant cancels or after five minutes. Once
-connected, ending the match or disconnecting releases the room and its deck
-snapshots; reconnecting to an interrupted game is not supported. Both players
+claimed, a human room survives a dropped game transport for two minutes. The
+same authenticated player can reattach to its reserved seat, receiving a fresh
+viewer-specific state plus the retained pending decision. Socket errors use
+this detach path; invalid gameplay remains a fatal protocol error. Completion
+or reconnect expiry releases the room and its deck snapshots. Server restart
+and closing/relaunching Arena are not supported resume paths. Both players
 receive the normal result message when a completed game ends.
 
 ## Notes

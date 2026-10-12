@@ -95,6 +95,11 @@ class PriorityLoopCoordinator(
                         stackEmpty = game.stack.isEmpty,
                         forceVisible = forceVisibleAfterMana,
                         hasMeaningfulAction = priorityCandidates.hasLegalNonManaAction(player, isOwnTurn),
+                        hasManaAction =
+                            !isOwnTurn &&
+                                handler.phase == forge.game.phase.PhaseType.COMBAT_DECLARE_BLOCKERS &&
+                                priorityCandidates.hasLegalManaAction(player),
+                        hasDeclaredBlockers = game.combat?.allBlockers?.any { it.controller == player } == true,
                     ),
                 )
             forceVisibleAfterMana = false

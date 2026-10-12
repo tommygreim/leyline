@@ -4,6 +4,10 @@ import leyline.bridge.types.SeatId
 import leyline.game.state.GameBridge
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
 /**
  * Manages shared matches and peer sessions across connections.
@@ -12,6 +16,7 @@ import java.util.concurrent.ConcurrentHashMap
  * Production: singleton instance. Tests: fresh per test.
  */
 class MatchRegistry(
+    private val reconnectGraceMs: Long = 120_000,
     private val onMatchTeardown: (String) -> Unit = {},
 ) {
     private val log = LoggerFactory.getLogger(MatchRegistry::class.java)
@@ -24,6 +29,81 @@ class MatchRegistry(
 
     /** matchId -> (seatId -> MatchConnection). For pre-mulligan cross-connection messaging. */
     private val connections = ConcurrentHashMap<String, ConcurrentHashMap<Int, MatchConnection>>()
+
+    internal class ReconnectLease(
+        val session: MatchSession,
+    )
+
+    private val detached = mutableMapOf<Pair<String, Int>, ReconnectLease>()
+    private val expiryJobs = mutableMapOf<Pair<String, Int>, ScheduledFuture<*>>()
+
+    /** Preserve the engine and exact pending interaction, but release only this transport. */
+    @Synchronized
+    internal fun detachConnection(
+        matchId: String,
+        seatId: SeatId,
+        connection: MatchConnection,
+    ): Boolean {
+        if (matches[matchId]?.bridge?.humanVsHuman != true) return false
+        if (connections[matchId]?.remove(seatId.value, connection) != true) return false
+        val session = sessions[matchId]?.get(seatId.value) as? MatchSession ?: return false
+        val key = matchId to seatId.value
+        val lease = ReconnectLease(session)
+        detached[key] = lease
+        expiryJobs.remove(key)?.cancel(false)
+        expiryJobs[key] =
+            reconnectExpiry.schedule(
+                { expireDisconnected(matchId, seatId, lease) },
+                reconnectGraceMs,
+                TimeUnit.MILLISECONDS,
+            )
+        log.info("Match transport detached; seat {} has {} ms to reconnect", seatId.value, reconnectGraceMs)
+        return true
+    }
+
+    @Synchronized
+    internal fun detachedSession(
+        matchId: String,
+        seatId: SeatId,
+    ): MatchSession? = detached[matchId to seatId.value]?.session
+
+    @Synchronized
+    internal fun reconnectLease(
+        matchId: String,
+        seatId: SeatId,
+    ): ReconnectLease? = detached[matchId to seatId.value]
+
+    /** Native admission has already checked the authenticated reservation. Check it again here. */
+    @Synchronized
+    internal fun reattachConnection(
+        matchId: String,
+        seatId: SeatId,
+        playerId: String,
+        connection: MatchConnection,
+        expectedSession: MatchSession,
+    ) {
+        val key = matchId to seatId.value
+        require(
+            detached[key]?.session === expectedSession && expectedSession.playerId == playerId,
+        ) { "No disconnected session for this player" }
+        require(connections[matchId]?.get(seatId.value) == null) { "The human seat is already connected" }
+        connections.getValue(matchId)[seatId.value] = connection
+        detached.remove(key)
+        expiryJobs.remove(key)?.cancel(false)
+    }
+
+    internal fun expireDisconnected(
+        matchId: String,
+        seatId: SeatId,
+        expectedLease: ReconnectLease,
+    ) {
+        synchronized(this) {
+            val key = matchId to seatId.value
+            if (detached[key] !== expectedLease) return
+            detached.remove(key)
+        }
+        teardownMatch(matchId, MatchTeardownReason.Disconnect, seatId)
+    }
 
     fun getOrCreateMatch(
         matchId: String,
@@ -100,10 +180,29 @@ class MatchRegistry(
         seatId: SeatId? = null,
         fallbackBridge: GameBridge? = null,
     ) {
-        val matchConnections = connections.remove(matchId)?.values.orEmpty()
-        val removedSessions = sessions.remove(matchId)?.values.orEmpty()
+        val (matchConnections, removedSessions, match) =
+            synchronized(this) {
+                detached.keys.filter { it.first == matchId }.forEach { key ->
+                    detached.remove(key)
+                }
+                expiryJobs.keys.filter { it.first == matchId }.forEach { key ->
+                    expiryJobs.remove(key)?.cancel(false)
+                }
+                Triple(
+                    connections
+                        .remove(matchId)
+                        ?.values
+                        ?.toList()
+                        .orEmpty(),
+                    sessions
+                        .remove(matchId)
+                        ?.values
+                        ?.toList()
+                        .orEmpty(),
+                    matches.remove(matchId),
+                )
+            }
         val sessionsRemoved = removedSessions.size
-        val match = matches.remove(matchId)
 
         removedSessions.filterIsInstance<MatchSession>().forEach { it.close() }
         removedSessions.filterIsInstance<SpectatorSession>().forEach { it.close() }
@@ -128,5 +227,12 @@ class MatchRegistry(
             .addKeyValue("connections_removed", matchConnections.size)
             .addKeyValue("match_closed", match != null || fallbackBridge != null)
             .log("Match torn down")
+    }
+
+    private companion object {
+        val reconnectExpiry: ScheduledExecutorService =
+            Executors.newSingleThreadScheduledExecutor { task ->
+                Thread(task, "match-reconnect-expiry").apply { isDaemon = true }
+            }
     }
 }

@@ -13,17 +13,17 @@ data class MatchResultObservation(
 }
 
 /**
- * Per-channel state that survives game-level lifecycle events (puzzle hot-swap,
- * game-end). Owned by [MatchHandler]; referenced by [MatchSession].
+ * Session state that survives game-level lifecycle events (puzzle hot-swap,
+ * game-end) and a bounded human transport reconnect. Referenced by [MatchSession].
  *
- * Identity and transport live here so they remain stable when the underlying
- * [forge.game.Game] is replaced. Client-driven priority settings live on the
- * match-scoped engine runtime.
+ * Identity stays stable when the underlying [forge.game.Game] is replaced.
+ * Reattaching the authenticated player replaces [sink] under [sessionLock].
+ * Client-driven priority settings live on the match-scoped engine runtime.
  */
 class ConnectionState(
     val seatId: SeatId,
     val matchId: String,
-    val sink: MessageSink,
+    var sink: MessageSink,
     val registry: MatchRegistry,
     val resultObserver: (MatchResultObservation) -> Unit = {},
 ) {

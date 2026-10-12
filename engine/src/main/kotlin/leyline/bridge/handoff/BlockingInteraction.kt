@@ -32,6 +32,10 @@ sealed interface BlockingInteraction {
         /** Client mana-cost text (`o1`, `oUoB`, ...) shown as "Pay {cost}." instead of the
          *  generic "Choose options." prompt. Null keeps the generic prompt. */
         val costText: String? = null,
+        /** Engine-supplied question/effect description, captured before handoff.
+         * Uses the private client's generic source/text template, not a guessed
+         * vendor prompt or a card-specific localization. */
+        val confirmationText: String? = null,
     ) : BlockingInteraction
 
     /**

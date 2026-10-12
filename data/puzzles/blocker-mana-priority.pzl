@@ -1,0 +1,20 @@
+# Reach the block through normal gameplay so Arena initializes before combat.
+# Juggernaut must attack; Birds is the only blocker and mana source.
+# Leave Forest in hand and keep Full Control off to test the ordinary stop.
+[metadata]
+Name:Mana-only priority after declaring a blocker
+Goal:Survive
+Turns:5
+Difficulty:Easy
+Description:Leave Forest in hand, do not attack, and end your turn with Full Control off. Block Juggernaut with Birds of Paradise. Before damage, tap Birds for any color: it must still block, keeping your life at 20 even though Birds dies. Reset and decline blocking: no mana-only response stop should be forced, and you take 5.
+
+[state]
+ActivePlayer=Human
+ActivePhase=Main1
+HumanLife=20
+AILife=20
+humanhand=Forest
+humanbattlefield=Birds of Paradise
+humanlibrary=Forest;Forest;Forest;Forest;Forest;Forest
+aibattlefield=Juggernaut
+ailibrary=Mountain;Mountain;Mountain;Mountain;Mountain;Mountain

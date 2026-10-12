@@ -1,4 +1,8 @@
 name: "Steam Vents"
 grpId: 990006
 titleId: 990006
+abilities:
+  - id: 90846
+    textId: 937946
+    category: 3
 expansionCode: "TEST"

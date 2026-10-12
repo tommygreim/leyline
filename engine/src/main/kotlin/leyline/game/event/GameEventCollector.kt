@@ -2,6 +2,7 @@ package leyline.game.event
 
 import com.google.common.eventbus.Subscribe
 import forge.card.CardStateName
+import forge.game.GameStage
 import forge.game.ability.AbilityKey
 import forge.game.ability.ApiType
 import forge.game.card.Card
@@ -848,6 +849,19 @@ class GameEventCollector(
         val card = ev.card()
         val from = ev.from()?.zoneType
         val to = ev.to()?.zoneType
+        val mulliganSeatId =
+            if (
+                bridge.getGame()?.age == GameStage.Mulligan &&
+                from == ZoneType.Hand &&
+                to == ZoneType.Library &&
+                ev.cause() == null
+            ) {
+                seatOf(card.owner)?.takeIf { seat ->
+                    seat.value in bridge.allSeatIds() && bridge.mulliganBridge(seat).consumeTuckReturn(card.id)
+                }
+            } else {
+                null
+            }
         zoneMoves.add(
             ZoneMove(
                 order = zoneMoves.size,
@@ -865,6 +879,7 @@ class GameEventCollector(
                             stackAbilityForgeId = cause.stackAbilityId(),
                         )
                     },
+                mulliganSeatId = mulliganSeatId,
             ),
         )
         if (to == null) return
@@ -930,10 +945,15 @@ class GameEventCollector(
                         val sourceId = ev.cause()?.sourceCardId()?.takeIf { it != 0 }
                         GameEvent.CardMilled(ForgeCardId(card.id), seat, sourceId?.let { ForgeCardId(it) })
                     }
-                    else -> GameEvent.ZoneChanged(ForgeCardId(card.id), Zone.fromForge(from), Zone.fromForge(to))
+                    else -> GameEvent.ZoneChanged(ForgeCardId(card.id), Zone.fromForge(from), Zone.fromForge(to), mulliganSeatId)
                 }
             } else {
-                GameEvent.ZoneChanged(ForgeCardId(card.id), from?.let { Zone.fromForge(it) } ?: Zone.Other, Zone.fromForge(to))
+                GameEvent.ZoneChanged(
+                    ForgeCardId(card.id),
+                    from?.let { Zone.fromForge(it) } ?: Zone.Other,
+                    Zone.fromForge(to),
+                    mulliganSeatId,
+                )
             }
 
         frame.add(event)

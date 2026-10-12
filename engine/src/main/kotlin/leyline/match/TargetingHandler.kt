@@ -154,7 +154,8 @@ class TargetingHandler(
 
     /**
      * Native PayCostsReq mana-payment UIs answer through PerformActionResp.
-     * Waterbend reducer clicks are MakePayment actions; the Done button is Pass.
+     * Reducer clicks are MakePayment actions. Legacy Pass responses still
+     * confirm payment, but native confirmation uses PerformAutoTapActionsResp.
      */
     internal fun tryHandlePayCostsPerformAction(greMsg: ClientToGREMessage): HandlerResult {
         val runtime =
@@ -179,7 +180,7 @@ class TargetingHandler(
             ctx.bridge.cutCoordinator
                 .promptRuntimes(ctx.seatId)
                 .blocking
-        val pending = runtime.current() ?: return HandlerResult.NotHandled
+        val pending = runtime.current() ?: return manaSourcePaymentHandler.tryHandleAutoTap(greMsg)
         return if (runtime.submitManaPayment(pending.interactionId, greMsg.gameStateId, greMsg.performAutoTapActionsResp.index)) {
             HandlerResult.Resume
         } else {

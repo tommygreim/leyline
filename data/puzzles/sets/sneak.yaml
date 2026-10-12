@@ -23,3 +23,25 @@ scenarios:
       - pass_until:
           opponent_life: 19
           max_passes: 10
+  - id: splinter-cancel-return
+    puzzle: sneak-splinter
+    run: cancel Sneak before returning the unblocked attacker
+    expect: Splinter remains in hand and Raging Goblin remains on the battlefield
+    steps:
+      - pass_until:
+          prompt: DeclareAttackersReq
+          max_passes: 5
+      - attack: { cards: [Raging Goblin] }
+      - pass_until:
+          action: { type: cast, card: "Splinter, Hamato Yoshi", alt_cost: sneak }
+          max_passes: 5
+      - cast: { card: "Splinter, Hamato Yoshi", alt_cost: sneak }
+      - expect:
+          prompt: PayCostsReq
+      - cancel_action: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: hand, card: "Splinter, Hamato Yoshi" }
+            - zone_contains: { side: ours, zone: battlefield, card: Raging Goblin }
+            - zone_not_contains: { side: ours, zone: hand, card: Raging Goblin }
+            - stack_empty: true

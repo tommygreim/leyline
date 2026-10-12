@@ -1,9 +1,12 @@
 package leyline.game.snapshot
 
 import forge.game.Game
+import forge.game.ability.AbilityKey
+import forge.game.ability.AbilityUtils
 import forge.game.ability.ApiType
 import forge.game.card.Card
 import forge.game.player.Player
+import forge.game.trigger.WrappedAbility
 import leyline.bridge.types.ForgeCardId
 import leyline.bridge.types.SeatId
 import leyline.bridge.types.StaticChoiceIds
@@ -303,6 +306,7 @@ object SnapshotCapture {
                     forgeAbilityId = entry.spellAbility?.id ?: 0,
                     runtimeTriggerId = runtimeTriggerId,
                     abilityOriginalCardGrpId = resolveAbilityOriginalCardGrpId(entry.spellAbility, bridge.cardRepository),
+                    contextualAbilities = if (entry.isSpell) emptyList() else drawReplacementContext(entry.spellAbility, bridge),
                     effectSourceForgeCardId = sourceCard.effectSource?.let { ForgeCardId(it.id) },
                     selectedModalAbilityGrpIds =
                         if (entry.isSpell) bridge.selectedModalAbilityGrpIds(fid) else emptyList(),
@@ -310,6 +314,38 @@ object SnapshotCapture {
             )
         }
         return StackSnapshot(entries)
+    }
+
+    /** Ask Forge which draw replacements apply now; do not predict or execute them. */
+    private fun drawReplacementContext(
+        ability: forge.game.spellability.SpellAbility,
+        bridge: GameBridge,
+    ): List<Pair<Int, Int>> {
+        val root = if (ability is WrappedAbility) ability.wrappedAbility else ability
+        return generateSequence(root) { it.subAbility }
+            .filter { it.api == ApiType.Draw }
+            .flatMap { draw ->
+                val players =
+                    if (draw.usesTargeting()) {
+                        draw.targets.targetPlayers
+                    } else {
+                        AbilityUtils.getDefinedPlayers(draw.hostCard, draw.getParamOrDefault("Defined", "You"), draw)
+                    }
+                val amount = AbilityUtils.calculateAmount(draw.hostCard, draw.getParamOrDefault("NumCards", "1"), draw)
+                val params = AbilityKey.newMap<Any>()
+                params[AbilityKey.LastStateBattlefield] = draw.lastStateBattlefield
+                params[AbilityKey.LastStateGraveyard] = draw.lastStateGraveyard
+                players.asSequence().flatMap { player ->
+                    player.getApplicableDrawReplacements(amount, draw, params).asSequence()
+                }
+            }.mapNotNull { replacement ->
+                val source = replacement.hostCard
+                val printing = resolveStackSourceCardGrpId(source, bridge.cardRepository)
+                val data = bridge.cardRepository.findByGrpId(printing) ?: return@mapNotNull null
+                val row = bridge.abilityRegistryFor(source, data)?.forReplacementEffect(replacement.id) ?: return@mapNotNull null
+                row to printing
+            }.distinct()
+            .toList()
     }
 
     internal fun resolveAbilityOriginalCardGrpId(

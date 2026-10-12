@@ -51,6 +51,7 @@ class LocalPairingService(
         val createdAtMillis: Long,
         val frontDoorConnections: Set<String> = emptySet(),
         val claims: MutableMap<Int, String> = mutableMapOf(),
+        var everClaimed: Boolean = false,
     )
 
     private var waiting: Entrant? = null
@@ -117,7 +118,7 @@ class LocalPairingService(
     @Synchronized
     fun leave(connectionId: String) {
         if (waiting?.connectionId == connectionId) waiting = null
-        room?.takeIf { it.claims.isEmpty() && connectionId in it.frontDoorConnections }?.let { complete(it.match.matchId) }
+        room?.takeIf { !it.everClaimed && connectionId in it.frontDoorConnections }?.let { complete(it.match.matchId) }
     }
 
     @Synchronized
@@ -163,6 +164,7 @@ class LocalPairingService(
         val previous = active.claims[expectedSeat]
         require(previous == null || previous == connectionId) { "The reserved seat is already connected" }
         active.claims[expectedSeat] = connectionId
+        active.everClaimed = true
         return MatchSeatAssignment(
             matchId,
             if (familiar) "${playerId.value}_Familiar" else playerId.value,
@@ -174,6 +176,13 @@ class LocalPairingService(
         )
     }
 
+    /** A closed socket releases its claim, not the authenticated room reservation. */
+    @Synchronized
+    fun releaseConnection(connectionId: String) {
+        val active = room ?: return
+        active.claims.entries.removeIf { it.value == connectionId }
+    }
+
     @Synchronized
     fun complete(matchId: String) {
         if (room?.match?.matchId != matchId) return
@@ -183,7 +192,7 @@ class LocalPairingService(
 
     private fun expireUnclaimedRoom() {
         room
-            ?.takeIf { it.claims.isEmpty() && nowMillis() - it.createdAtMillis >= admissionTimeoutMillis }
+            ?.takeIf { !it.everClaimed && nowMillis() - it.createdAtMillis >= admissionTimeoutMillis }
             ?.let { complete(it.match.matchId) }
     }
 

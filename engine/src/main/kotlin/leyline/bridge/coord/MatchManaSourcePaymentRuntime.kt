@@ -246,8 +246,16 @@ internal class MatchManaSourcePaymentRuntime(
         while (true) {
             val command = nextCommand(pending)
             when (command) {
-                is Command.Select ->
-                    republish(pending, command, capture.select(pending.value, pending.handlesByOption, command.optionIndices))
+                is Command.Select -> {
+                    val value = capture.select(pending.value, pending.handlesByOption, command.optionIndices)
+                    // A fully paid cost has no remaining client interaction.
+                    // Do not emit an empty window with only a Cancel button:
+                    // Cancel must continue to mean abort, never confirmation.
+                    if (value.manaCost.none { it.second > 0 }) {
+                        return complete(pending, command, value, value.selections.map { it.originalOptionIndex })
+                    }
+                    republish(pending, command, value)
+                }
                 is Command.Undo -> republish(pending, command, undone(pending))
                 is Command.Complete -> {
                     val value = capture.select(pending.value, pending.handlesByOption, command.optionIndices)
@@ -257,8 +265,9 @@ internal class MatchManaSourcePaymentRuntime(
                     return complete(
                         pending,
                         command,
-                        pending.value,
-                        pending.value.selections.map { it.originalOptionIndex },
+                        pending.initialValue,
+                        emptyList(),
+                        cancelled = true,
                     )
                 is Command.Terminal -> throw command.cause
             }
@@ -311,17 +320,28 @@ internal class MatchManaSourcePaymentRuntime(
         command: Command,
         finalValue: ManaSourcePaymentWindowValue,
         selectedOptions: List<Int>,
+        cancelled: Boolean = false,
     ): ManaSourcePaymentResult {
         synchronized(owner.feedLock) {
             owner.ensureOpen()
             check(window === pending && pending.exchange.inFlight === command)
-            recordPaymentFacts(finalValue)
+            if (cancelled) {
+                finalValue.sourceForgeCardId?.let {
+                    owner.bridge
+                        .promptBridge(runtimeSeat)
+                        .journal
+                        .clearConvokePayments(it)
+                }
+            } else {
+                recordPaymentFacts(finalValue)
+            }
             window = null
             command.reply.complete(ManaSourcePaymentCommandReceipt(pending.interactionId, completed = true))
         }
         return ManaSourcePaymentResult(
             selectedOptions,
             finalValue.selections.map { ManaSourcePaymentShardValue(it.originalOptionIndex, it.costColor) },
+            cancelled,
         )
     }
 

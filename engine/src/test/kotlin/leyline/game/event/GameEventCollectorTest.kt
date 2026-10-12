@@ -2,6 +2,7 @@ package leyline.game.event
 
 import forge.card.MagicColor
 import forge.game.GameEntityCounterTable
+import forge.game.GameStage
 import forge.game.ability.AbilityKey
 import forge.game.ability.AbilityUtils
 import forge.game.card.CardView
@@ -422,6 +423,93 @@ class GameEventCollectorTest :
                 moves.map { it.cause?.sourceCardId } shouldContainExactly
                     listOf(ForgeCardId(source.id), ForgeCardId(source.id))
                 moves.map { it.cause?.abilityForgeId } shouldContainExactly listOf(cause.id, cause.id)
+            }
+        }
+
+        test("a final mulligan bottom choice captures the owning seat before the game starts") {
+            val (b, game, _) =
+                startWithBoard { _, human, _ ->
+                    addCard("Forest", human, ZoneType.Hand)
+                }
+            val owner = game.humanPlayer
+            val card = owner.hand.card("Forest")
+            val collector = b.eventCollector!!
+            collector.closeFrame()
+            game.age = GameStage.Mulligan
+            val mulligan = b.mulliganBridge(SeatId(1))
+            mulligan.onPrompt = { mulligan.submitTuck(listOf(card)) }
+            mulligan.awaitTuckDecision(owner.id, 1, owner.getZone(ZoneType.Hand).cards) shouldBe listOf(card)
+
+            game.action.moveToLibrary(card, -1, null)
+            game.age = GameStage.Play
+
+            val frame = collector.closeFrame()
+            val move = frame.zoneMoves.single()
+            assertSoftly {
+                move.mulliganSeatId shouldBe SeatId(1)
+                move.from shouldBe Zone.Hand
+                move.to shouldBe Zone.Library
+                move.cause shouldBe null
+                frame.events
+                    .filterIsInstance<GameEvent.ZoneChanged>()
+                    .single()
+                    .mulliganSeatId shouldBe SeatId(1)
+                mulligan.consumeTuckReturn(card.id) shouldBe false
+            }
+        }
+
+        listOf(1, 2).forEach { seat ->
+            test("a full-hand redraw return for seat $seat is not a final bottom choice") {
+                val (b, game, _) =
+                    startWithBoard { _, human, ai ->
+                        addCard("Forest", if (seat == 1) human else ai, ZoneType.Hand)
+                    }
+                val owner = if (seat == 1) game.humanPlayer else game.aiPlayer
+                b.eventCollector!!.closeFrame()
+                game.age = GameStage.Mulligan
+                game.action.moveToLibrary(owner.hand.card("Forest"), -1, null)
+
+                val frame = b.eventCollector!!.closeFrame()
+                frame.zoneMoves.single().mulliganSeatId shouldBe null
+                frame.events
+                    .filterIsInstance<GameEvent.ZoneChanged>()
+                    .single()
+                    .mulliganSeatId shouldBe null
+            }
+        }
+
+        test("a mid-game hand return is not attributed as a mulligan") {
+            val (b, game, _) =
+                startWithBoard { _, human, _ -> addCard("Forest", human, ZoneType.Hand) }
+            val collector = b.eventCollector!!
+            collector.closeFrame()
+            game.age = GameStage.Play
+            game.action.moveToLibrary(game.humanPlayer.hand.card("Forest"), -1, null)
+
+            collector
+                .closeFrame()
+                .zoneMoves
+                .single()
+                .mulliganSeatId shouldBe null
+        }
+
+        test("a spell-caused pre-game hand return preserves the spell rather than claiming a mulligan") {
+            val (b, game, _) =
+                startWithBoard { _, human, _ ->
+                    addCard("Grizzly Bears", human, ZoneType.Hand)
+                    addCard("Goblin Fireslinger", human, ZoneType.Battlefield)
+                }
+            val collector = b.eventCollector!!
+            collector.closeFrame()
+            game.age = GameStage.Mulligan
+            val source = game.humanPlayer.battlefield.card("Goblin Fireslinger")
+            val cause = source.spellAbilities.first().also { it.activatingPlayer = game.humanPlayer }
+            game.action.moveToLibrary(game.humanPlayer.hand.card("Grizzly Bears"), -1, cause)
+
+            val move = collector.closeFrame().zoneMoves.single()
+            assertSoftly {
+                move.mulliganSeatId shouldBe null
+                move.cause?.sourceCardId shouldBe ForgeCardId(source.id)
             }
         }
 

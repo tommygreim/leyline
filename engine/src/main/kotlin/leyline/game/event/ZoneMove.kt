@@ -1,6 +1,7 @@
 package leyline.game.event
 
 import leyline.bridge.types.ForgeCardId
+import leyline.bridge.types.SeatId
 
 /** Immutable Forge-native cause identity frozen when a card moves zones. */
 data class ZoneMoveCause(
@@ -19,4 +20,6 @@ data class ZoneMove(
     val from: Zone,
     val to: Zone,
     val cause: ZoneMoveCause?,
+    /** Owning player for a selected final mulligan bottom card, which has no spell cause. */
+    val mulliganSeatId: SeatId? = null,
 )

@@ -1,0 +1,114 @@
+name: payment-reducers
+description: Focused native fixtures for shared reducer payment, cancellation, and optional Waterbend.
+scenarios:
+  - id: improvise-cancel-and-cast
+    puzzle: payment-improvise-ironheart
+    run: cancel Ironheart's payment, then retry with Ornithopter as the Improvise source
+    expect: the first attempt spends nothing and the retry resolves Ironheart
+    steps:
+      - expect:
+          action: { type: cast, card: "Ironheart, Clever Champion" }
+      - cast: "Ironheart, Clever Champion"
+      - expect:
+          prompt: PayCostsReq
+      - cancel_action: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: hand, card: "Ironheart, Clever Champion" }
+            - stack_empty: true
+      - cast: "Ironheart, Clever Champion"
+      - select_cost: { zone: battlefield, cards: [Ornithopter] }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: battlefield, card: "Ironheart, Clever Champion" }
+            - stack_empty: true
+  - id: waterbend-ability-cancel-and-attack
+    puzzle: payment-waterbend-koi
+    run: cancel Waterbend, then pay entirely with three reducers and attack with Giant Koi
+    expect: Koi remains untapped and cannot be blocked by the opposing creature
+    steps:
+      - activate: Giant Koi
+      - expect:
+          prompt: PayCostsReq
+      - cancel_action: {}
+      - expect:
+          stack_empty: true
+      - activate: Giant Koi
+      - select_cost: { zone: battlefield, cards: [Coral Merfolk, Grizzly Bears, Short Sword] }
+      - resolve_stack: {}
+      - pass_until:
+          prompt: DeclareAttackersReq
+          max_passes: 6
+      - attack: { cards: [Giant Koi] }
+      - pass_until:
+          opponent_life: 15
+          max_passes: 10
+      - expect:
+          all:
+            - zone_contains: { side: opponent, zone: battlefield, card: Walking Corpse }
+            - zone_contains: { side: ours, zone: battlefield, card: Giant Koi }
+  - id: waterbend-ability-mixed-payment
+    puzzle: payment-waterbend-koi
+    run: pay one Waterbend mana with Coral Merfolk and the remainder with the two Islands
+    expect: a single reducer confirmation completes the activation and Koi attacks unblocked
+    steps:
+      - activate: Giant Koi
+      - expect:
+          prompt: PayCostsReq
+      - select_cost: { zone: battlefield, cards: [Coral Merfolk] }
+      - resolve_stack: {}
+      - pass_until:
+          prompt: DeclareAttackersReq
+          max_passes: 6
+      - attack: { cards: [Giant Koi] }
+      - pass_until:
+          opponent_life: 15
+          max_passes: 10
+      - expect:
+          all:
+            - zone_contains: { side: opponent, zone: battlefield, card: Walking Corpse }
+            - zone_contains: { side: ours, zone: battlefield, card: Giant Koi }
+  - id: waterbend-spell-cancel-and-pay
+    puzzle: payment-waterbend-ruinous
+    run: cancel the additional payment, then cast Ruinous Waterbending with Waterbend paid
+    expect: the retry kills three creatures and gains exactly three life
+    steps:
+      - cast: Ruinous Waterbending
+      - choose: { optional_cost: additional_cost }
+      - expect:
+          prompt: PayCostsReq
+      - cancel_action: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: hand, card: Ruinous Waterbending }
+            - our_life: 20
+            - stack_empty: true
+      - cast: Ruinous Waterbending
+      - choose: { optional_cost: additional_cost }
+      - select_cost: { zone: battlefield, cards: [Coral Merfolk, Grizzly Bears, Short Sword, Witching Well] }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: graveyard, card: Ruinous Waterbending }
+            - zone_contains: { side: ours, zone: graveyard, card: Coral Merfolk }
+            - zone_contains: { side: ours, zone: graveyard, card: Grizzly Bears }
+            - zone_contains: { side: opponent, zone: graveyard, card: Walking Corpse }
+            - our_life: 23
+            - stack_empty: true
+  - id: waterbend-spell-decline-cost
+    puzzle: payment-waterbend-ruinous
+    run: cast Ruinous Waterbending without its optional Waterbend cost
+    expect: the same creatures die but no life is gained
+    steps:
+      - cast: Ruinous Waterbending
+      - choose: { optional_cost: done }
+      - resolve_stack: {}
+      - expect:
+          all:
+            - zone_contains: { side: ours, zone: graveyard, card: Ruinous Waterbending }
+            - zone_contains: { side: ours, zone: graveyard, card: Coral Merfolk }
+            - zone_contains: { side: ours, zone: graveyard, card: Grizzly Bears }
+            - zone_contains: { side: opponent, zone: graveyard, card: Walking Corpse }
+            - our_life: 20
+            - stack_empty: true
